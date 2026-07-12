@@ -26,6 +26,7 @@ from a_cal.providers.base import CalendarEventDTO, EmailMessageDTO
 from a_cal.self_model.settings import SelfModelSettings
 from a_cal.self_model.store import SelfModelStore
 from a_cal.self_model.types import FactCategory, PrivacyTier, SelfModelDepth, SelfModelFact
+from a_cal.analytics.calendar_analytics import analyze_busy_times, get_calendar_analytics
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,40 @@ class SelfModelExtractor:
                     provenance=f"{provenance}:busy_times",
                     source_event_ids=event_ids_by_slot[slot],
                 ))
+
+        # Enrich with analytics: busiest day-of-week and hour
+        if events:
+            event_dicts = [ev.to_storage_dict() for ev in events]
+            now = datetime.utcnow()
+            start = now - timedelta(days=90)
+            try:
+                busy_analysis = analyze_busy_times(event_dicts, start, now)
+                if busy_analysis["busiest_day_hours"] > 0:
+                    facts.append(SelfModelFact(
+                        category=FactCategory.BUSY_TIMES.value,
+                        content=(
+                            f"Busiest day of week is {busy_analysis['busiest_day']} "
+                            f"({busy_analysis['busiest_day_hours']}h of meetings)"
+                        ),
+                        depth=SelfModelDepth.PATTERN_MEMORY.value,
+                        privacy_tier=privacy.value,
+                        confidence=0.7,
+                        provenance=f"{provenance}:busy_times:analytics",
+                    ))
+                if busy_analysis["busiest_hour_count"] > 0:
+                    facts.append(SelfModelFact(
+                        category=FactCategory.BUSY_TIMES.value,
+                        content=(
+                            f"Peak meeting hour is {busy_analysis['busiest_hour']:02d}:00 "
+                            f"({busy_analysis['busiest_hour_count']} events)"
+                        ),
+                        depth=SelfModelDepth.PATTERN_MEMORY.value,
+                        privacy_tier=privacy.value,
+                        confidence=0.7,
+                        provenance=f"{provenance}:busy_times:analytics",
+                    ))
+            except Exception:
+                pass  # analytics enrichment is best-effort
         return facts
 
     def _extract_meeting_patterns(
@@ -165,6 +200,40 @@ class SelfModelExtractor:
                     confidence=0.6,
                     provenance=f"{provenance}:meeting_patterns",
                 ))
+
+        # Enrich with analytics: total meeting load and category breakdown
+        if events:
+            event_dicts = [ev.to_storage_dict() for ev in events]
+            now = datetime.utcnow()
+            start = now - timedelta(days=90)
+            try:
+                stats = get_calendar_analytics(event_dicts, start, now)
+                if stats["meeting_count"] > 0:
+                    facts.append(SelfModelFact(
+                        category=FactCategory.MEETING_PATTERNS.value,
+                        content=(
+                            f"Total meeting load: {stats['total_meeting_hours']}h across "
+                            f"{stats['meeting_count']} meetings (avg "
+                            f"{stats['average_meeting_length']}min each)"
+                        ),
+                        depth=SelfModelDepth.PATTERN_MEMORY.value,
+                        privacy_tier=privacy.value,
+                        confidence=0.8,
+                        provenance=f"{provenance}:meeting_patterns:analytics",
+                    ))
+                # Add top categories as facts
+                for cat, count in stats.get("category_counts", {}).items():
+                    if count >= 3 and cat != "Uncategorized":
+                        facts.append(SelfModelFact(
+                            category=FactCategory.MEETING_PATTERNS.value,
+                            content=f"Frequently attends '{cat}' meetings ({count} times)",
+                            depth=SelfModelDepth.PATTERN_MEMORY.value,
+                            privacy_tier=privacy.value,
+                            confidence=min(0.4 + count * 0.1, 0.9),
+                            provenance=f"{provenance}:meeting_patterns:analytics",
+                        ))
+            except Exception:
+                pass  # analytics enrichment is best-effort
         return facts
 
     def _extract_meeting_prefs(

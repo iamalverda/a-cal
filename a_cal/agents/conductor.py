@@ -36,6 +36,7 @@ from a_cal.agents.specs import (
 from a_cal.agents.standalone_responses import generate_standalone_response
 from a_cal.integrations.atom_bridge import get_atom_adapters
 from a_cal.settings.autonomy import AutonomyConfig, AutonomyLevel
+from a_cal.integrations.zero_calendar_bridge import get_enhanced_schedule_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +379,10 @@ class ACalConductor:
         # Build the LLM prompt with standalone context so the model knows
         # what operations were already performed and can reference them.
         specialist_prompt = decision.specialist.system_prompt if decision.specialist else self.spec.system_prompt
+        # Prepend the zero-calendar enhanced schedule prompt for schedule
+        # intent — adds timezone awareness and anti-hallucination rules.
+        if decision.intent == IntentType.SCHEDULE:
+            specialist_prompt = get_enhanced_schedule_prompt() + specialist_prompt
         # Augment the specialist's system prompt with anti-hallucination
         # directives. The standalone agent already performed real actions
         # (created events, found slots, listed providers) — the LLM's job
