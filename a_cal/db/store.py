@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .models import (
     Base,
     CalendarEvent,
+    EventTypeDB,
     Negotiation,
     ProviderConnection,
     SelfModelFact,
@@ -84,6 +85,22 @@ def _serialize_event(e: CalendarEvent) -> Dict[str, Any]:
         "location": e.location,
         "source_sub_account_id": e.source_sub_account_id,
         "metadata": e.event_metadata or {},
+    }
+
+
+def _serialize_event_type(et: EventTypeDB) -> Dict[str, Any]:
+    """Convert an EventTypeDB ORM object to a dict matching EventType.to_dict."""
+    return {
+        "id": et.id,
+        "title": et.title,
+        "slug": et.slug,
+        "duration_minutes": et.duration_minutes,
+        "description": et.description,
+        "scheduling_type": et.scheduling_type,
+        "availability": et.availability or {},
+        "status": et.status,
+        "color": et.color,
+        "metadata": et.event_metadata or {},
     }
 
 
@@ -792,3 +809,79 @@ class PersistentStore:
             db.commit()
             db.refresh(n)
             return {"id": n.id, "state": n.state}
+
+    # --- Event types (cal.com integration) ---------------------------------
+
+    def list_event_types(self) -> List[Dict[str, Any]]:
+        """List all event types persisted in the database.
+
+        Returns:
+            List of event type dicts (serialized via EventType.to_dict).
+        """
+        with self._session() as db:
+            rows = db.query(EventTypeDB).order_by(EventTypeDB.created_at).all()
+            return [_serialize_event_type(r) for r in rows]
+
+    def create_event_type(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new event type and persist it to the database.
+
+        Args:
+            data: Event type fields (title, slug, duration_minutes, etc.).
+
+        Returns:
+            The created event type as a dict.
+        """
+        with self._session() as db:
+            et = EventTypeDB(
+                title=data.get("title", "30 Minute Meeting"),
+                slug=data.get("slug", "30-min"),
+                duration_minutes=data.get("duration_minutes", 30),
+                description=data.get("description", ""),
+                scheduling_type=data.get("scheduling_type", "collective"),
+                availability=data.get("availability", {}),
+                status=data.get("status", "active"),
+                color=data.get("color", "#3B82F6"),
+                event_metadata=data.get("metadata", {}),
+            )
+            db.add(et)
+            db.commit()
+            db.refresh(et)
+            return _serialize_event_type(et)
+
+    def get_event_type(self, et_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single event type by ID.
+
+        Args:
+            et_id: The event type UUID.
+
+        Returns:
+            Event type dict or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(EventTypeDB).filter(EventTypeDB.id == et_id).first()
+            if row is None:
+                return None
+            return _serialize_event_type(row)
+
+    def delete_event_type(self, et_id: str) -> bool:
+        """Delete an event type by ID.
+
+        Args:
+            et_id: The event type UUID.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        with self._session() as db:
+            row = db.query(EventTypeDB).filter(EventTypeDB.id == et_id).first()
+            if row is None:
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+
+    def clear_event_types(self) -> None:
+        """Delete all event types. Used in tests to reset state between runs."""
+        with self._session() as db:
+            db.query(EventTypeDB).delete()
+            db.commit()

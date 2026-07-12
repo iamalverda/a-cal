@@ -16,16 +16,18 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import tempfile
+import os
 
 from a_cal.api.analytics_routes import router as analytics_router
-from a_cal.api.analytics_routes import _event_types
 
 
 @pytest.fixture
 def client():
     """Test client with only the analytics routes mounted."""
-    # Clear the in-memory event type store between tests
-    _event_types.clear()
+    # Clear event types from the DB between tests so each test starts clean
+    from a_cal.api.analytics_routes import _db
+    _db.clear_event_types()
     app = FastAPI()
     app.include_router(analytics_router)
     return TestClient(app)
@@ -264,3 +266,106 @@ class TestSchedulePrompt:
         resp = client.get("/api/a-cal/schedule-prompt?timezone=America/New_York")
         assert resp.status_code == 200
         assert "America/New_York" in resp.json()["prompt"]
+
+
+class TestEventTypePersistence:
+    """Tests verifying event types survive a store re-creation (DB persistence)."""
+
+    def test_create_then_new_store_preserves(self, tmp_path):
+        """Event types created via one store are visible in a fresh store."""
+        from a_cal.db.store import PersistentStore
+
+        db_file = str(tmp_path / "test_event_types.db")
+        store1 = PersistentStore.__new__(PersistentStore)
+        from a_cal.db.models import create_engine_and_session
+        store1._engine, store1._SessionLocal = create_engine_and_session(db_file)
+        store1._seed_if_empty()
+
+        created = store1.create_event_type({
+            "title": "Persistent Meeting",
+            "slug": "persistent",
+            "duration_minutes": 60,
+        })
+        et_id = created["id"]
+
+        # Simulate a server restart by creating a new store pointing at the same file.
+        store2 = PersistentStore.__new__(PersistentStore)
+        store2._engine, store2._SessionLocal = create_engine_and_session(db_file)
+        store2._seed_if_empty()
+
+        retrieved = store2.get_event_type(et_id)
+        assert retrieved is not None
+        assert retrieved["title"] == "Persistent Meeting"
+        assert retrieved["duration_minutes"] == 60
+
+        all_types = store2.list_event_types()
+        assert len(all_types) == 1
+        assert all_types[0]["slug"] == "persistent"
+
+    def test_delete_across_stores(self, tmp_path):
+        """Event type deleted in one store is gone in a fresh store."""
+        from a_cal.db.store import PersistentStore
+        from a_cal.db.models import create_engine_and_session
+
+        db_file = str(tmp_path / "test_delete.db")
+        store1 = PersistentStore.__new__(PersistentStore)
+        store1._engine, store1._SessionLocal = create_engine_and_session(db_file)
+        store1._seed_if_empty()
+
+        created = store1.create_event_type({"title": "To Delete", "slug": "to-delete"})
+        et_id = created["id"]
+        assert store1.delete_event_type(et_id) is True
+
+        store2 = PersistentStore.__new__(PersistentStore)
+        store2._engine, store2._SessionLocal = create_engine_and_session(db_file)
+        store2._seed_if_empty()
+        assert store2.get_event_type(et_id) is None
+        assert store2.list_event_types() == []
+
+    def test_get_nonexistent_returns_none(self):
+        """get_event_type with unknown ID returns None (not an exception)."""
+        from a_cal.db.store import PersistentStore
+
+        store = PersistentStore(in_memory=True)
+        assert store.get_event_type("does-not-exist") is None
+
+    def test_delete_nonexistent_returns_false(self):
+        """delete_event_type with unknown ID returns False."""
+        from a_cal.db.store import PersistentStore
+
+        store = PersistentStore(in_memory=True)
+        assert store.delete_event_type("nope") is False
+
+    def test_availability_metadata_persisted(self, tmp_path):
+        """Complex availability and metadata survive a store re-creation."""
+        from a_cal.db.store import PersistentStore
+        from a_cal.db.models import create_engine_and_session
+
+        db_file = str(tmp_path / "test_complex.db")
+        store1 = PersistentStore.__new__(PersistentStore)
+        store1._engine, store1._SessionLocal = create_engine_and_session(db_file)
+        store1._seed_if_empty()
+
+        created = store1.create_event_type({
+            "title": "Complex",
+            "slug": "complex",
+            "availability": {
+                "days": [[{"start": "10:00", "end": "12:00"}]] + [[]] * 6,
+                "timezone": "America/Chicago",
+            },
+            "metadata": {"location": "Zoom", "price": 50},
+            "scheduling_type": "round_robin",
+        })
+        et_id = created["id"]
+
+        store2 = PersistentStore.__new__(PersistentStore)
+        store2._engine, store2._SessionLocal = create_engine_and_session(db_file)
+        store2._seed_if_empty()
+
+        retrieved = store2.get_event_type(et_id)
+        assert retrieved is not None
+        assert retrieved["availability"]["timezone"] == "America/Chicago"
+        assert retrieved["availability"]["days"][0][0]["start"] == "10:00"
+        assert retrieved["metadata"]["location"] == "Zoom"
+        assert retrieved["metadata"]["price"] == 50
+        assert retrieved["scheduling_type"] == "round_robin"

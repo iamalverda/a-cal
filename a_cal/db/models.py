@@ -214,6 +214,29 @@ class PluginDB(Base):
     created_at = Column(DateTime, nullable=False, default=_utcnow)
 
 
+class EventTypeDB(Base):
+    """A bookable event type (cal.com-style booking page definition).
+
+    Persisted version of the EventType dataclass from calcom_bridge.
+    Survives server restarts so users don't lose their event type
+    configurations.
+    """
+    __tablename__ = "a_cal_event_types"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    title = Column(String(255), nullable=False, default="30 Minute Meeting")
+    slug = Column(String(255), nullable=False, default="30-min")
+    duration_minutes = Column(Integer, nullable=False, default=30)
+    description = Column(Text, nullable=False, default="")
+    scheduling_type = Column(String(50), nullable=False, default="collective")
+    availability = Column(JSONType, nullable=False, default=dict)
+    status = Column(String(50), nullable=False, default="active")
+    color = Column(String(20), nullable=False, default="#3B82F6")
+    event_metadata = Column(JSONType, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
 def get_db_path() -> str:
     """Get the SQLite database file path.
 

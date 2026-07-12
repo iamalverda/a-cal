@@ -8,7 +8,6 @@ cal.com) to the frontend.
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -23,7 +22,6 @@ from a_cal.analytics.calendar_analytics import (
 )
 from a_cal.integrations.calcom_bridge import (
     AvailabilitySchedule,
-    EventType,
     EventStatus,
     SchedulingType,
     get_aggregated_availability,
@@ -143,10 +141,6 @@ class SuggestRescheduleRequest(BaseModel):
 
 # --- event type endpoints (cal.com integration) ---------------------------
 
-# In-memory event type store (persisted to DB in production)
-_event_types: Dict[str, EventType] = {}
-
-
 class EventTypeRequest(BaseModel):
     """Payload for creating/updating an event type."""
     title: str = "30 Minute Meeting"
@@ -162,31 +156,19 @@ class EventTypeRequest(BaseModel):
 @router.get("/event-types")
 def list_event_types():
     """List all event types (cal.com-style booking pages)."""
-    return [et.to_dict() for et in _event_types.values()]
+    return _db.list_event_types()
 
 
 @router.post("/event-types")
 def create_event_type(body: EventTypeRequest):
-    """Create a new event type."""
-    et = EventType(
-        id=str(uuid.uuid4()),
-        title=body.title,
-        slug=body.slug,
-        duration_minutes=body.duration_minutes,
-        description=body.description,
-        scheduling_type=SchedulingType(body.scheduling_type),
-        availability=AvailabilitySchedule.from_dict(body.availability),
-        color=body.color,
-        metadata=body.metadata,
-    )
-    _event_types[et.id] = et
-    return et.to_dict()
+    """Create a new event type and persist it to the database."""
+    return _db.create_event_type(body.model_dump())
 
 
 @router.delete("/event-types/{event_type_id}")
 def delete_event_type(event_type_id: str):
     """Delete an event type."""
-    _event_types.pop(event_type_id, None)
+    _db.delete_event_type(event_type_id)
     return {"deleted": event_type_id}
 
 
@@ -194,10 +176,10 @@ def delete_event_type(event_type_id: str):
 def get_event_type(event_type_id: str):
     """Get a single event type by ID."""
     from fastapi import HTTPException
-    et = _event_types.get(event_type_id)
+    et = _db.get_event_type(event_type_id)
     if et is None:
         raise HTTPException(status_code=404, detail="Event type not found")
-    return et.to_dict()
+    return et
 
 
 # --- availability endpoints ------------------------------------------------
