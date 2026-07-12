@@ -61,3 +61,27 @@ test.describe("Workflow Builder", () => {
     await expect(overlay.getByText(/1 step/)).toBeVisible({ timeout: 5000 });
   });
 });
+
+  test("should run a workflow and show a result", async ({ page }) => {
+    test.setTimeout(90000);
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Workflow Builder" }).click();
+    const nameInput = page.getByPlaceholder("Workflow name");
+    await expect(nameInput).toBeVisible({ timeout: 10000 });
+
+    // Add a Conductor node
+    const overlay = page.locator(".fixed.inset-0.z-50");
+    const agentBtn = overlay.locator("button").filter({ hasText: /Conductor/i }).first();
+    await agentBtn.click();
+    await expect(overlay.getByText(/1 step/)).toBeVisible({ timeout: 5000 });
+
+    // Click Run — the button shows "Run" when idle and "Running..." when active
+    const runBtn = overlay.getByRole("button", { name: /^Run$/ }).first();
+    await expect(runBtn).toBeVisible();
+    await runBtn.click();
+
+    // The workflow execution calls the conductor which may invoke the LLM,
+    // so allow up to 30s for the result to appear.
+    await expect(overlay.getByText(/Run Result/i)).toBeVisible({ timeout: 60000 });
+  });
