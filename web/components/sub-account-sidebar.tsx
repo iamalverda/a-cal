@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn, colorFromString } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { SubAccount, ProviderConnection, SyncMode } from "@/types";
+import { SyncRulesEditor } from "@/components/sync-rules-editor";
 
 interface SubAccountSidebarProps {
   subAccounts: SubAccount[];
@@ -250,6 +251,9 @@ export function SubAccountSidebar({
                       )} />
                     </button>
                   </div>
+
+                  {/* Sync rules */}
+                  <SyncRulesEditor subAccount={sa} />
 
                   {/* Delete */}
                   <button

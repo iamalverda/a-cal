@@ -520,6 +520,15 @@ def list_sync_rules(sub_account_id: str = Query(...)) -> List[Dict[str, Any]]:
     ]
 
 
+@router.delete("/sync-rules/{rule_id}")
+def delete_sync_rule(rule_id: str) -> Dict[str, str]:
+    """Delete a sync rule."""
+    deleted = _store.delete_sync_rule(rule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Sync rule not found")
+    return {"status": "deleted", "id": rule_id}
+
+
 # --- email messages --------------------------------------------------------
 
 @router.get("/email/messages", response_model=List[EmailMessageOut])

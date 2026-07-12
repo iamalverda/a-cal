@@ -34,6 +34,9 @@ import type {
   WorkflowRunResult,
   AtomStatus,
   BackendMode,
+  SyncRule,
+  RuleType,
+  RuleField,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -121,6 +124,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sub_account_id: subAccountId }),
     });
+  },
+
+  // --- Sync rules ----------------------------------------------------------
+
+  async listSyncRules(subAccountId: string): Promise<SyncRule[]> {
+    return fetchJson(`${API_BASE}/sync-rules?sub_account_id=${encodeURIComponent(subAccountId)}`);
+  },
+
+  async createSyncRule(data: {
+    sub_account_id: string;
+    rule_type: RuleType;
+    field: RuleField;
+    pattern: string;
+    action?: Record<string, unknown>;
+    priority?: number;
+  }): Promise<{ id: string; sub_account_id: string }> {
+    return fetchJson(`${API_BASE}/sync-rules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteSyncRule(ruleId: string): Promise<{ status: string; id: string }> {
+    return fetchJson(`${API_BASE}/sync-rules/${ruleId}`, { method: "DELETE" });
   },
 
   // --- Unified calendar ----------------------------------------------------

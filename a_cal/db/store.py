@@ -638,6 +638,16 @@ class PersistentStore:
             db.refresh(r)
             return _serialize_sync_rule(r)
 
+    def delete_sync_rule(self, rule_id: str) -> bool:
+        """Delete a sync rule by ID. Returns True if deleted."""
+        with self._session() as db:
+            r = db.query(SyncRule).filter(SyncRule.id == rule_id).first()
+            if not r:
+                return False
+            db.delete(r)
+            db.commit()
+            return True
+
     # --- Settings -----------------------------------------------------------
 
     def get_setting(self, key: str, default: Any = None) -> Any:

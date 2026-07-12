@@ -457,3 +457,19 @@ export interface AtomStatus {
 }
 
 export type BackendMode = "standalone" | "atom";
+
+// --- Sync Rules ------------------------------------------------------------
+
+export type RuleType = "include" | "exclude" | "transform" | "agent";
+export type RuleField = "title" | "calendar_id" | "category" | "attendee" | "keyword";
+
+export interface SyncRule {
+  id: string;
+  sub_account_id: string;
+  rule_type: RuleType;
+  field: RuleField;
+  pattern: string;
+  action: Record<string, unknown>;
+  priority: number;
+  is_active: boolean;
+}
