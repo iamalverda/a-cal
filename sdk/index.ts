@@ -17,6 +17,24 @@
  * // Configure LLM
  * await client.settings.setLLMEnabled(true);
  * await client.settings.setApiKeys({ openai: "sk-..." });
+ *
+ * // Manage calendar events
+ * const events = await client.calendar.listEvents(30);
+ * await client.calendar.createEvent({ title: "Team sync", start: "2026-07-13T10:00:00Z" });
+ *
+ * // Scan emails for scheduling suggestions
+ * const scan = await client.email.scanForSchedule();
+ *
+ * // Trigger a sync
+ * await client.sync.trigger("sub-account-id");
+ *
+ * // Manage self-model facts
+ * const facts = await client.selfModel.listFacts();
+ * await client.selfModel.editFact("fact-id", { content: "Updated" });
+ *
+ * // Plugin runtime (Developer mode)
+ * const plugins = await client.developer.listRuntimePlugins();
+ * await client.developer.scanRuntimePlugins();
  * ```
  */
 
@@ -99,11 +117,24 @@ export class ACalClient {
     list: (subAccountId?: string) => Promise<Json[]>;
     listAll: () => Promise<Json[]>;
     create: (params: CreateProviderParams) => Promise<Json>;
+    update: (id: string, patch: Json) => Promise<Json>;
+    delete: (id: string) => Promise<void>;
   };
 
   /** Calendar API. */
   readonly calendar: {
     unified: (days?: number) => Promise<Json[]>;
+    listEvents: (days?: number) => Promise<Json[]>;
+    createEvent: (event: Json) => Promise<Json>;
+    updateEvent: (id: string, patch: Json) => Promise<Json>;
+    deleteEvent: (id: string) => Promise<{ status: string }>;
+  };
+
+  /** Sync engine API. */
+  readonly sync: {
+    trigger: (subAccountId: string) => Promise<Json>;
+    listRules: () => Promise<Json[]>;
+    createRule: (rule: Json) => Promise<Json>;
   };
 
   /** Conductor (agent chat) API. */
@@ -114,6 +145,13 @@ export class ACalClient {
   /** Agent API. */
   readonly agents: {
     list: () => Promise<Json[]>;
+  };
+
+  /** Email API. */
+  readonly email: {
+    listMessages: (limit?: number) => Promise<Json[]>;
+    send: (params: Json) => Promise<Json>;
+    scanForSchedule: () => Promise<Json>;
   };
 
   /** Settings API. */
@@ -131,12 +169,33 @@ export class ACalClient {
     setSelfModel: (settings: Json) => Promise<Json>;
   };
 
+  /** Self-model facts API. */
+  readonly selfModel: {
+    listFacts: (category?: string, depth?: string) => Promise<Json[]>;
+    searchFacts: (q: string) => Promise<Json[]>;
+    deleteFact: (factId: string) => Promise<{ deleted: boolean }>;
+    clearAllFacts: () => Promise<{ cleared: boolean }>;
+    editFact: (factId: string, patch: Json) => Promise<Json>;
+    export: () => Promise<Json>;
+  };
+
   /** Swarm negotiation API. */
   readonly swarm: {
     negotiate: (claimA: Json, claimB: Json) => Promise<Json>;
     list: () => Promise<Json[]>;
     get: (id: string) => Promise<Json>;
     detectConflicts: (events: Json[]) => Promise<Json>;
+  };
+
+  /** Nervous system (CAS bio-mimetic architecture) API. */
+  readonly nervousSystem: {
+    overview: () => Promise<Json>;
+    agents: () => Promise<Json[]>;
+    state: () => Promise<Json>;
+    route: (message: string) => Promise<Json>;
+    memories: () => Promise<Json[]>;
+    assessUserState: (message: string) => Promise<Json>;
+    casAgents: () => Promise<Json[]>;
   };
 
   /** Marketplace API. */
@@ -167,6 +226,18 @@ export class ACalClient {
     deleteAgentSpec: (name: string) => Promise<void>;
     exportConfig: () => Promise<Json>;
     importConfig: (config: Json) => Promise<Json>;
+    // Plugin runtime (loaded code from ~/.a-cal/plugins/)
+    listRuntimePlugins: () => Promise<Json[]>;
+    scanRuntimePlugins: () => Promise<Json>;
+    reloadRuntimePlugin: (pluginId: string) => Promise<Json>;
+    enableRuntimePlugin: (pluginId: string) => Promise<Json>;
+    disableRuntimePlugin: (pluginId: string) => Promise<Json>;
+    listRuntimeHooks: () => Promise<{ hooks: string[] }>;
+  };
+
+  /** OAuth flow API. */
+  readonly oauth: {
+    start: (providerId: string) => Promise<Json>;
   };
 
   /**
@@ -209,10 +280,22 @@ export class ACalClient {
       list: (subId) => get<Json[]>(`/providers${subId ? `?sub_account_id=${subId}` : ""}`),
       listAll: () => get<Json[]>("/providers/all"),
       create: (p) => post<Json>("/providers", p),
+      update: (id, patchData) => patch<Json>(`/providers/${id}`, patchData),
+      delete: (id) => del<void>(`/providers/${id}`),
     };
 
     this.calendar = {
       unified: (days = 7) => get<Json[]>(`/calendar/unified?days=${days}`),
+      listEvents: (days = 30) => get<Json[]>(`/calendar/events?days=${days}`),
+      createEvent: (event) => post<Json>("/calendar/events", event),
+      updateEvent: (id, patchData) => patch<Json>(`/calendar/events/${id}`, patchData),
+      deleteEvent: (id) => del<{ status: string }>(`/calendar/events/${id}`),
+    };
+
+    this.sync = {
+      trigger: (subAccountId) => post<Json>("/sync/trigger", { sub_account_id: subAccountId }),
+      listRules: () => get<Json[]>("/sync-rules"),
+      createRule: (rule) => post<Json>("/sync-rules", rule),
     };
 
     this.conductor = {
@@ -221,6 +304,12 @@ export class ACalClient {
 
     this.agents = {
       list: () => get<Json[]>("/agents"),
+    };
+
+    this.email = {
+      listMessages: (limit = 50) => get<Json[]>(`/email/messages?limit=${limit}`),
+      send: (params) => post<Json>("/email/send", params),
+      scanForSchedule: () => post<Json>("/email/scan-schedule"),
     };
 
     this.settings = {
@@ -237,11 +326,36 @@ export class ACalClient {
       setSelfModel: (s) => post<Json>("/settings/self-model", s),
     };
 
+    this.selfModel = {
+      listFacts: (category, depth) => {
+        const params = new URLSearchParams();
+        if (category) params.set("category", category);
+        if (depth) params.set("depth", depth);
+        const qs = params.toString();
+        return get<Json[]>(`/self-model/facts${qs ? `?${qs}` : ""}`);
+      },
+      searchFacts: (q) => get<Json[]>(`/self-model/facts/search?q=${encodeURIComponent(q)}`),
+      deleteFact: (factId) => del<{ deleted: boolean }>(`/self-model/facts/${factId}`),
+      clearAllFacts: () => del<{ cleared: boolean }>("/self-model/facts"),
+      editFact: (factId, patchData) => patch<Json>(`/self-model/facts/${factId}`, patchData),
+      export: () => get<Json>("/self-model/export"),
+    };
+
     this.swarm = {
       negotiate: (a, b) => post<Json>("/swarm/negotiate", { claim_a: a, claim_b: b }),
       list: () => get<Json[]>("/swarm/negotiations"),
       get: (id) => get<Json>(`/swarm/negotiations/${id}`),
       detectConflicts: (events) => post<Json>("/swarm/detect-conflicts", { events }),
+    };
+
+    this.nervousSystem = {
+      overview: () => get<Json>("/nervous-system/overview"),
+      agents: () => get<Json[]>("/nervous-system/agents"),
+      state: () => get<Json>("/nervous-system/state"),
+      route: (message) => post<Json>("/nervous-system/route", { message }),
+      memories: () => get<Json[]>("/nervous-system/memories"),
+      assessUserState: (message) => post<Json>("/nervous-system/assess-user-state", { message }),
+      casAgents: () => get<Json[]>("/nervous-system/cas-agents"),
     };
 
     this.marketplace = {
@@ -280,6 +394,16 @@ export class ACalClient {
         include_custom_agents: true,
       }),
       importConfig: (config) => post<Json>("/developer/config/import", { config }),
+      listRuntimePlugins: () => get<Json[]>("/developer/plugins/runtime/list"),
+      scanRuntimePlugins: () => post<Json>("/developer/plugins/runtime/scan"),
+      reloadRuntimePlugin: (pluginId) => post<Json>(`/developer/plugins/runtime/${pluginId}/reload`),
+      enableRuntimePlugin: (pluginId) => post<Json>(`/developer/plugins/runtime/${pluginId}/enable`),
+      disableRuntimePlugin: (pluginId) => post<Json>(`/developer/plugins/runtime/${pluginId}/disable`),
+      listRuntimeHooks: () => get<{ hooks: string[] }>("/developer/plugins/runtime/hooks"),
+    };
+
+    this.oauth = {
+      start: (providerId) => get<Json>(`/providers/${providerId}/oauth/start`),
     };
   }
 
