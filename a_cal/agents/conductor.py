@@ -165,6 +165,35 @@ class ACalConductor:
         self.autonomy_config = autonomy_config or AutonomyConfig()
         self.spec = CONDUCTOR_SPEC
 
+    def _get_user_timezone(self):
+        """Return the user's configured timezone, falling back to system local.
+
+        Reads the ``timezone`` setting from the provider store (an IANA
+        timezone name like ``America/Chicago``). If unset or invalid, falls
+        back to the system's local timezone, then to UTC.
+        """
+        tz_name = None
+        if self.provider_store:
+            try:
+                tz_name = self.provider_store.get_setting("timezone")
+            except Exception:
+                pass
+        if tz_name:
+            try:
+                from zoneinfo import ZoneInfo
+                return ZoneInfo(tz_name)
+            except Exception:
+                logger.debug("unknown timezone %r, falling back to system", tz_name)
+        # Fall back to system local timezone
+        try:
+            return datetime.now().astimezone().tzinfo
+        except Exception:
+            return timezone.utc
+
+    def _get_user_now(self):
+        """Current datetime in the user's timezone (for date grouping)."""
+        return datetime.now(self._get_user_timezone())
+
     def classify_intent(self, message: str) -> IntentType:
         """Classify user intent using atom's LLM classifier if available,
         otherwise fall back to keyword-based matching."""
@@ -322,6 +351,7 @@ class ACalConductor:
             result = generate_standalone_response(
                 message=message,
                 decision=decision,
+                now=self._get_user_now(),
                 events=cal_data["events"],
                 providers=cal_data["providers"],
                 sub_accounts=cal_data["sub_accounts"],
@@ -368,6 +398,7 @@ class ACalConductor:
         standalone_result = generate_standalone_response(
             message=message,
             decision=decision,
+            now=self._get_user_now(),
             events=cal_data["events"],
             providers=cal_data["providers"],
             sub_accounts=cal_data["sub_accounts"],

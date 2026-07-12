@@ -167,6 +167,8 @@ export class ACalClient {
     setApiKeys: (keys: Record<string, string>) => Promise<Record<string, string>>;
     getSelfModel: () => Promise<Json>;
     setSelfModel: (settings: Json) => Promise<Json>;
+    getTimezone: () => Promise<{ timezone: string }>;
+    setTimezone: (timezone: string) => Promise<{ timezone: string }>;
   };
 
   /** Self-model facts API. */
@@ -324,6 +326,8 @@ export class ACalClient {
       setApiKeys: (keys) => post<Record<string, string>>("/settings/api-keys", { keys }),
       getSelfModel: () => get<Json>("/settings/self-model"),
       setSelfModel: (s) => post<Json>("/settings/self-model", s),
+      getTimezone: () => get<{ timezone: string }>("/settings/timezone"),
+      setTimezone: (tz) => post<{ timezone: string }>("/settings/timezone", { timezone: tz }),
     };
 
     this.selfModel = {

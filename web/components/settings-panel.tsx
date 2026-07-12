@@ -23,6 +23,7 @@ import {
   Eye,
   AlertTriangle,
   Bot,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -68,6 +69,7 @@ const SELF_MODEL_DEPTHS = [
 ];
 
 const SECTIONS = [
+  { id: "general", label: "General", icon: Clock },
   { id: "mode", label: "Skill Mode", icon: SettingsIcon },
   { id: "connections", label: "Connections", icon: LinkIcon },
   { id: "model", label: "Model Routing", icon: Cpu },
@@ -112,6 +114,9 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
   const [backendMode, setBackendMode] = useState<BackendMode>("standalone");
   const [atomStatus, setAtomStatus] = useState<AtomStatus | null>(null);
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>("confirm");
+  const [timezone, setTimezone] = useState<string>("");
+  const [timezoneDraft, setTimezoneDraft] = useState<string>("");
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
 
   // Self-model facts viewer state
   const [showFacts, setShowFacts] = useState(false);
@@ -153,6 +158,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         api.getBackendMode().then((r) => setBackendMode(r.mode as BackendMode)).catch(() => {});
         api.getAtomStatus().then(setAtomStatus).catch(() => {});
         api.getAutonomy().then((a) => setAutonomyLevel(a.default_level)).catch(() => {});
+        api.getTimezone().then((tz) => { setTimezone(tz); setTimezoneDraft(tz); }).catch(() => {});
       } catch {
         // Backend not running — keep defaults (mock data already set)
       }
@@ -192,6 +198,20 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
       await api.setAutonomy({ default_level: level, per_sub_account: {} });
     } catch {
       // Backend not running — local state already updated
+    }
+  };
+
+  /** Save timezone to backend. */
+  const saveTimezone = async () => {
+    if (!timezoneDraft || timezoneDraft === timezone) return;
+    setTimezoneSaving(true);
+    try {
+      const saved = await api.setTimezone(timezoneDraft);
+      setTimezone(saved);
+    } catch {
+      // Backend not running or invalid timezone
+    } finally {
+      setTimezoneSaving(false);
     }
   };
 
@@ -465,6 +485,40 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
 
           {/* Section content */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
+            {activeSection === "general" && (
+              <Section title="General" description="Core preferences that apply across all modes and sub-accounts.">
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Timezone</label>
+                    <p className="text-xs text-[var(--muted-foreground)] mt-0.5 mb-2">
+                      Your timezone determines how the conductor interprets "today", "tomorrow",
+                      and relative time expressions. Uses IANA timezone names.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={timezoneDraft}
+                        onChange={(e) => setTimezoneDraft(e.target.value)}
+                        placeholder="America/Chicago"
+                        className="flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={saveTimezone}
+                        disabled={timezoneSaving || timezoneDraft === timezone}
+                      >
+                        {timezoneSaving ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                    {timezone && timezone !== timezoneDraft && (
+                      <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                        Current: {timezone}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </Section>
+            )}
+
             {activeSection === "mode" && (
               <Section title="Skill Mode" description="Switch the UI complexity and feature set. You can change this anytime.">
                 <div className="space-y-2">

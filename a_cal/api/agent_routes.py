@@ -165,6 +165,28 @@ class _SettingsStore:
         self._conductors.pop(user_id, None)
         return config
 
+    def get_timezone(self, user_id: str) -> str:
+        """Get the user's IANA timezone (e.g. America/Chicago).
+
+        Defaults to the system local timezone if not explicitly set.
+        """
+        tz = self._db.get_setting("timezone")
+        if tz:
+            return tz
+        # Fall back to system local timezone
+        try:
+            import zoneinfo
+            local = datetime.now().astimezone()
+            return str(local.tzinfo)
+        except Exception:
+            return "UTC"
+
+    def set_timezone(self, user_id: str, tz: str) -> str:
+        """Set the user's timezone and invalidate cached conductor."""
+        self._db.set_setting("timezone", tz)
+        self._conductors.pop(user_id, None)
+        return tz
+
 
 _store = _SettingsStore()
 
@@ -389,6 +411,33 @@ def set_autonomy(body: AutonomyRequest):
         per_sub_account=body.per_sub_account,
     )
     return _store.set_autonomy(user_id, config).to_dict()
+
+
+# --- settings: timezone ---------------------------------------------------
+
+@router.get("/settings/timezone")
+def get_timezone():
+    """Get the user's IANA timezone (e.g. America/Chicago)."""
+    user_id = _current_user_id()
+    return {"timezone": _store.get_timezone(user_id)}
+
+
+class TimezoneRequest(BaseModel):
+    timezone: str
+
+
+@router.post("/settings/timezone")
+def set_timezone(body: TimezoneRequest):
+    """Set the user's timezone. Accepts any IANA timezone name."""
+    user_id = _current_user_id()
+    # Validate that the timezone is recognized
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(body.timezone)
+    except Exception:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Unknown timezone: {body.timezone}")
+    return {"timezone": _store.set_timezone(user_id, body.timezone)}
 
 
 # --- settings: self-model --------------------------------------------------

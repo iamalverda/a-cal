@@ -526,6 +526,10 @@ class PersistentStore:
             start_val = start_val.replace(tzinfo=timezone.utc)
         if end_val.tzinfo is None:
             end_val = end_val.replace(tzinfo=timezone.utc)
+        # Normalize to UTC before storing — SQLite DateTime strips timezone
+        # info, so we must store in UTC to keep all events comparable.
+        start_val = start_val.astimezone(timezone.utc)
+        end_val = end_val.astimezone(timezone.utc)
 
         with self._session() as db:
             evt = CalendarEvent(
@@ -566,6 +570,8 @@ class PersistentStore:
                     value = datetime.fromisoformat(value.replace("Z", "+00:00"))
                     if value.tzinfo is None:
                         value = value.replace(tzinfo=timezone.utc)
+                    # Normalize to UTC before storing (SQLite strips tz info)
+                    value = value.astimezone(timezone.utc)
                 if key == "title":
                     evt.title = value
                 elif key == "start":

@@ -211,7 +211,10 @@ class TestConductorEventActions:
     @pytest.mark.asyncio
     async def test_conductor_create_conflict_detected(self, fresh_store):
         """Creating an event that overlaps an existing one should report a conflict."""
-        tomorrow = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        # Use the user's local timezone to match how the conductor interprets
+        # "2pm tomorrow" (the conductor uses local timezone for date parsing).
+        local_now = datetime.now().astimezone()
+        tomorrow = local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         start = tomorrow.replace(hour=14)
         fresh_store.create_event({
             "title": "Busy Block",

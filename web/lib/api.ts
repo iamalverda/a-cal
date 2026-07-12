@@ -294,6 +294,21 @@ export const api = {
     });
   },
 
+  /** Get the user's IANA timezone (e.g. America/Chicago). */
+  async getTimezone(): Promise<string> {
+    const data = await fetchJson(`${API_BASE}/settings/timezone`) as { timezone: string };
+    return data.timezone;
+  },
+
+  /** Set the user's IANA timezone. */
+  async setTimezone(timezone: string): Promise<string> {
+    const data = await fetchJson(`${API_BASE}/settings/timezone`, {
+      method: "POST",
+      body: JSON.stringify({ timezone }),
+    }) as { timezone: string };
+    return data.timezone;
+  },
+
   // --- Self-model facts (transparency view) ---------------------------------
 
   async listSelfModelFacts(category?: string): Promise<SelfModelFact[]> {
