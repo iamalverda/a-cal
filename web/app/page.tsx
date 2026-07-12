@@ -1,0 +1,482 @@
+"use client";
+
+import { useState, useMemo, useEffect } from "react";
+import type { ReactNode } from "react";
+import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail } from "lucide-react";
+import { Network, Brain } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { CalendarView } from "@/components/calendar-view";
+import { SubAccountSidebar } from "@/components/sub-account-sidebar";
+import { ConductorPanel } from "@/components/conductor-panel";
+import { SettingsPanel } from "@/components/settings-panel";
+import { MarketplacePanel } from "@/components/marketplace-panel";
+import { SwarmPanel } from "@/components/swarm-panel";
+import { DeveloperPanel } from "@/components/developer-panel";
+import { WorkflowBuilder } from "@/components/workflow-builder";
+import { NervousSystemPanel } from "@/components/nervous-system-panel";
+import { EmailPanel } from "@/components/email-panel";
+import { api } from "@/lib/api";
+import {
+  mockSubAccounts,
+  mockProviders,
+  mockEvents,
+  mockAgents,
+} from "@/lib/mock-data";
+import type { SkillMode, SubAccount, ProviderConnection, UnifiedEvent, AgentSpec } from "@/types";
+
+export default function Page() {
+  const [mode, setMode] = useState<SkillMode>("pro");
+  const [showSettings, setShowSettings] = useState(false);
+  const [dark, setDark] = useState(true);
+  const [subAccounts, setSubAccounts] = useState<SubAccount[]>(mockSubAccounts);
+  const [providers, setProviders] = useState<Record<string, ProviderConnection[]>>(mockProviders);
+  const [events, setEvents] = useState<UnifiedEvent[]>(mockEvents);
+  const [agents, setAgents] = useState<AgentSpec[]>(mockAgents);
+  const [visibleSubAccounts, setVisibleSubAccounts] = useState<Set<string>>(
+    new Set(mockSubAccounts.filter((s) => !s.is_main).map((s) => s.id))
+  );
+  const [selectedSubAccountId, setSelectedSubAccountId] = useState<string | null>(null);
+  const [showConductor, setShowConductor] = useState(true);
+  const [showAgents, setShowAgents] = useState(false);
+  const [showMarketplace, setShowMarketplace] = useState(false);
+  const [showSwarm, setShowSwarm] = useState(false);
+  const [showDeveloper, setShowDeveloper] = useState(false);
+  const [showWorkflow, setShowWorkflow] = useState(false);
+  const [showNervousSystem, setShowNervousSystem] = useState(false);
+  const [showEmail, setShowEmail] = useState(false);
+  const [oauthResult, setOauthResult] = useState<string | null>(null);
+
+  /** Load real data from the backend on mount, falling back to mock data. */
+  useEffect(() => {
+    async function loadRealData() {
+      try {
+        const [subsRes, eventsRes, agentsData] = await Promise.all([
+          fetch("/api/a-cal/sub-accounts"),
+          fetch("/api/a-cal/calendar/unified?days=7"),
+          api.listAgents().catch(() => null),
+        ]);
+        if (subsRes.ok) {
+          const subs = await subsRes.json();
+          if (subs.length > 0) {
+            setSubAccounts(subs);
+            setVisibleSubAccounts(new Set(subs.filter((s: SubAccount) => !s.is_main).map((s: SubAccount) => s.id)));
+          }
+        }
+        if (eventsRes.ok) {
+          const evs = await eventsRes.json();
+          if (evs.length > 0) setEvents(evs);
+        }
+        if (agentsData && agentsData.length > 0) {
+          setAgents(agentsData);
+        }
+      } catch {
+        // Backend not running — use mock data (already set)
+      }
+    }
+    loadRealData();
+  }, []);
+
+  /** Handle OAuth callback redirect (?oauth_result=success|error|denied). */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("oauth_result");
+    if (result) {
+      setOauthResult(result);
+      // Clean the URL so the notification doesn't persist on refresh
+      const url = new URL(window.location.href);
+      url.searchParams.delete("oauth_result");
+      url.searchParams.delete("provider_id");
+      url.searchParams.delete("error");
+      window.history.replaceState({}, "", url.toString());
+      // Auto-dismiss after 5 seconds
+      const timer = setTimeout(() => setOauthResult(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  /** Switch skill mode and persist to backend. */
+  const handleModeChange = async (newMode: SkillMode) => {
+    setMode(newMode);
+    try {
+      await api.setMode(newMode);
+    } catch {
+      // Backend not running — local state already updated
+    }
+  };
+
+  const toggleVisible = (id: string) => {
+    setVisibleSubAccounts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const agentCount = agents.length;
+  const connectedProviders = useMemo(
+    () => Object.values(providers).flat().filter((p) => p.status === "connected").length,
+    [providers]
+  );
+
+  return (
+    <div className={`flex h-screen overflow-hidden ${dark ? "dark" : ""}`}>
+      {/* Left sidebar — branding + sub-accounts */}
+      <aside className="w-64 shrink-0 border-r border-[var(--border)] flex flex-col bg-[var(--card)]">
+        {/* Logo */}
+        <div className="px-4 py-4 border-b border-[var(--border)]">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-[var(--primary)] flex items-center justify-center">
+              <Sparkles size={18} className="text-[var(--primary-foreground)]" />
+            </div>
+            <div>
+              <div className="font-bold text-base">A-Cal</div>
+              <div className="text-xs text-[var(--muted-foreground)]">Agentic Calendar</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Sub-account sidebar */}
+        <div className="flex-1 overflow-hidden">
+          <SubAccountSidebar
+            subAccounts={subAccounts}
+            providers={providers}
+            visibleSubAccounts={visibleSubAccounts}
+            onToggleVisible={toggleVisible}
+            onSelectSubAccount={setSelectedSubAccountId}
+            selectedSubAccountId={selectedSubAccountId}
+          />
+        </div>
+
+        {/* Bottom nav */}
+        <div className="border-t border-[var(--border)] px-2 py-2 space-y-1">
+          <button
+            onClick={() => setShowAgents(!showAgents)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <Bot size={15} className="text-[var(--muted-foreground)]" />
+            <span>Agents</span>
+            <Badge className="ml-auto bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[10px]">
+              {agentCount}
+            </Badge>
+          </button>
+          {mode !== "simple" && (
+            <button
+              onClick={() => setShowEmail(true)}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+            >
+              <Mail size={15} className="text-[var(--muted-foreground)]" />
+              <span>Email</span>
+            </button>
+          )}
+          {mode !== "simple" && (
+            <button
+              onClick={() => setShowMarketplace(true)}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+            >
+              <Store size={15} className="text-[var(--muted-foreground)]" />
+              <span>Marketplace</span>
+            </button>
+          )}
+          {mode !== "simple" && (
+            <button
+              onClick={() => setShowSwarm(true)}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+            >
+              <Network size={15} className="text-[var(--muted-foreground)]" />
+              <span>Swarm</span>
+            </button>
+          )}
+          {mode !== "simple" && (
+            <button
+              onClick={() => setShowNervousSystem(true)}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+            >
+              <Brain size={15} className="text-[var(--muted-foreground)]" />
+              <span>Nervous System</span>
+            </button>
+          )}
+          {mode !== "simple" && (
+            <button
+              onClick={() => setShowWorkflow(true)}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+            >
+              <Workflow size={15} className="text-[var(--muted-foreground)]" />
+              <span>Workflow Builder</span>
+            </button>
+          )}
+          {mode === "developer" && (
+            <button
+              onClick={() => setShowDeveloper(true)}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+            >
+              <Code2 size={15} className="text-[var(--muted-foreground)]" />
+              <span>Developer Studio</span>
+            </button>
+          )}
+          <button
+            onClick={() => setDark(!dark)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            {dark ? <Moon size={15} /> : <Sun size={15} />}
+            <span>{dark ? "Dark" : "Light"}</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Center — calendar */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+          <div className="flex items-center gap-3">
+            <div className="flex rounded-md border border-[var(--border)] overflow-hidden">
+              {(["simple", "pro", "developer"] as SkillMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => handleModeChange(m)}
+                  className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                    mode === m
+                      ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
+                      : "hover:bg-[var(--accent)]"
+                  } ${m !== "simple" ? "border-l border-[var(--border)]" : ""}`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <Badge className="bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs">
+              {connectedProviders} providers connected
+            </Badge>
+            {mode !== "simple" && (
+              <Badge className="bg-[var(--cal-personal)]/15 text-[var(--cal-personal)] text-xs">
+                <Sparkles size={10} className="mr-1" />
+                {agentCount} agents active
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showConductor ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowConductor(!showConductor)}
+            >
+              <Bot size={14} />
+              Conductor
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)}>
+              <Settings size={18} />
+            </Button>
+          </div>
+        </div>
+
+        {/* OAuth result notification */}
+        {oauthResult && (
+          <div className={cn(
+            "px-4 py-2 text-sm flex items-center gap-2 border-b",
+            oauthResult === "success" && "bg-[var(--cal-personal)]/10 text-[var(--cal-personal)] border-[var(--cal-personal)]/20",
+            oauthResult === "denied" && "bg-[var(--muted)]/30 text-[var(--muted-foreground)] border-[var(--border)]",
+            oauthResult === "error" && "bg-[var(--destructive)]/10 text-[var(--destructive)] border-[var(--destructive)]/20",
+          )}>
+            {oauthResult === "success" && "Provider connected successfully."}
+            {oauthResult === "denied" && "Authorization was denied."}
+            {oauthResult === "error" && "Connection failed — check your OAuth client ID in Developer mode."}
+            <button
+              onClick={() => setOauthResult(null)}
+              className="ml-auto text-xs opacity-60 hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Calendar + conductor */}
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden">
+            <CalendarView
+              events={events}
+              subAccounts={subAccounts}
+              visibleSubAccounts={visibleSubAccounts}
+              onEventCreated={async () => {
+                try {
+                  const res = await fetch("/api/a-cal/calendar/unified?days=7");
+                  if (res.ok) {
+                    const evs = await res.json();
+                    if (evs.length > 0) setEvents(evs);
+                  }
+                } catch {
+                  // keep current events on error
+                }
+              }}
+              onEventUpdated={async () => {
+                try {
+                  const res = await fetch("/api/a-cal/calendar/unified?days=7");
+                  if (res.ok) {
+                    const evs = await res.json();
+                    if (evs.length > 0) setEvents(evs);
+                  }
+                } catch {
+                  // keep current events on error
+                }
+              }}
+            />
+          </div>
+          {showConductor && (
+            <div className="w-[380px] shrink-0 border-l border-[var(--border)] bg-[var(--card)]">
+              <ConductorPanel />
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Settings overlay */}
+      {showSettings && (
+        <SettingsPanel
+          mode={mode}
+          onModeChange={handleModeChange}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* Agents overlay */}
+      {showAgents && (
+        <AgentsOverlay agents={agents} onClose={() => setShowAgents(false)} />
+      )}
+
+      {/* Email overlay */}
+      {showEmail && (
+        <SlideInOverlay title="Email" icon={<Mail size={18} className="text-[var(--primary)]" />} onClose={() => setShowEmail(false)}>
+          <EmailPanel />
+        </SlideInOverlay>
+      )}
+
+      {/* Marketplace overlay */}
+      {showMarketplace && (
+        <SlideInOverlay title="Marketplace" icon={<Store size={18} className="text-[var(--primary)]" />} onClose={() => setShowMarketplace(false)}>
+          <MarketplacePanel />
+        </SlideInOverlay>
+      )}
+
+      {/* Swarm overlay */}
+      {showSwarm && (
+        <SlideInOverlay title="Swarm Negotiations" icon={<Network size={18} className="text-[var(--primary)]" />} onClose={() => setShowSwarm(false)}>
+          <SwarmPanel />
+        </SlideInOverlay>
+      )}
+
+      {/* Workflow Builder overlay */}
+      {showWorkflow && (
+        <SlideInOverlay title="Workflow Builder" icon={<Workflow size={18} className="text-[var(--primary)]" />} onClose={() => setShowWorkflow(false)}>
+          <WorkflowBuilder />
+        </SlideInOverlay>
+      )}
+
+      {/* Nervous System overlay */}
+      {showNervousSystem && (
+        <SlideInOverlay title="Nervous System" icon={<Brain size={18} className="text-[var(--primary)]" />} onClose={() => setShowNervousSystem(false)}>
+          <NervousSystemPanel />
+        </SlideInOverlay>
+      )}
+
+      {/* Developer Studio overlay */}
+      {showDeveloper && (
+        <SlideInOverlay title="Developer Studio" icon={<Code2 size={18} className="text-[var(--primary)]" />} onClose={() => setShowDeveloper(false)}>
+          <DeveloperPanel />
+        </SlideInOverlay>
+      )}
+    </div>
+  );
+}
+
+/** Reusable slide-in overlay panel with backdrop, header, and close button. */
+function SlideInOverlay({
+  title,
+  icon,
+  children,
+  onClose,
+}: {
+  title: string;
+  icon: ReactNode;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex bg-black/40" onClick={onClose}>
+      <div
+        className="ml-auto w-[560px] max-w-[90vw] h-full bg-[var(--card)] shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <div className="flex items-center gap-2">
+            {icon}
+            <h2 className="text-lg font-semibold">{title}</h2>
+          </div>
+          <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xl">
+            &times;
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentsOverlay({ agents, onClose }: { agents: AgentSpec[]; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex bg-black/40" onClick={onClose}>
+      <div
+        className="ml-auto w-[480px] max-w-[90vw] h-full bg-[var(--card)] shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <div className="flex items-center gap-2">
+            <Bot size={18} className="text-[var(--primary)]" />
+            <h2 className="text-lg font-semibold">Agents</h2>
+            <Badge className="ml-1 bg-[var(--primary)]/15 text-[var(--primary)] text-xs">
+              {agents.length}
+            </Badge>
+          </div>
+          <button onClick={onClose} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-xl">
+            &times;
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {agents.map((agent) => (
+            <div key={agent.name} className="rounded-lg border border-[var(--border)] p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-[var(--primary)]/15 flex items-center justify-center">
+                    <Bot size={15} className="text-[var(--primary)]" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-sm">{agent.display_name}</div>
+                    <div className="text-xs text-[var(--muted-foreground)]">{agent.default_tier} tier</div>
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  {agent.privacy_force_local && (
+                    <Badge className="bg-[var(--destructive)]/15 text-[var(--destructive)] text-[10px]">local</Badge>
+                  )}
+                  {agent.can_negotiate && (
+                    <Badge className="bg-[var(--cal-personal)]/15 text-[var(--cal-personal)] text-[10px]">P2P</Badge>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-[var(--muted-foreground)] mb-2">{agent.description}</p>
+              <div className="flex flex-wrap gap-1">
+                {agent.capabilities.map((cap) => (
+                  <Badge key={cap} className="bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[10px]">
+                    {cap.replace(/_/g, " ")}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

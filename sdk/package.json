@@ -1,0 +1,15 @@
+{
+  "name": "@a-cal/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the A-Cal agentic calendar platform",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["calendar", "agentic", "ai", "scheduling", "byok", "self-hosted"],
+  "exports": {
+    ".": "./index.ts"
+  }
+}
