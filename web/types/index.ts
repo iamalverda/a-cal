@@ -551,3 +551,24 @@ export interface CalendarTool {
   description: string;
   parameters: Record<string, Record<string, unknown>>;
 }
+
+// --- API Explorer (Developer Studio) ---------------------------------------
+
+/** A single API route for the API Explorer. */
+export interface ApiRouteInfo {
+  method: string;
+  path: string;
+  summary: string;
+  description: string;
+  tag: string;
+  path_params: Array<{ name: string; in: string; required: boolean }>;
+  query_params: Array<{ name: string; in: string; required: boolean; default: string | null }>;
+  body_schema: {
+    name: string;
+    fields: Record<string, {
+      type: string;
+      default: string | null;
+      required: boolean;
+    }>;
+  } | null;
+}

@@ -44,6 +44,7 @@ import type {
   FreeSlot,
   EventType,
   CalendarTool,
+  ApiRouteInfo,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -689,6 +690,11 @@ export const developerApi = {
       method: "POST",
       body: JSON.stringify({ initial_message: initialMessage || "" }),
     });
+  },
+
+  // API Explorer — list all registered routes
+  async getApiRoutes(): Promise<ApiRouteInfo[]> {
+    return fetchJson(`${API_BASE}/developer/api-routes`);
   },
 };
 

@@ -514,3 +514,120 @@ async def run_saved_workflow(workflow_id: str, body: WorkflowRunInput):
     runner = WorkflowRunner(conductor)
     result = await runner.run(wf, initial_message=body.initial_message)
     return result.to_dict()
+
+
+# --- API Explorer ------------------------------------------------------------
+
+@router.get("/api-routes")
+def list_api_routes():
+    """List all registered API routes for the API Explorer.
+
+    Introspects the FastAPI app's route table and returns structured
+    metadata for each endpoint: method, path, summary, parameters,
+    request body schema, and response schema.
+
+    Returns:
+        List of route dicts grouped by tag.
+    """
+    from a_cal.api.standalone import app
+    import inspect
+
+    # Collect all route objects — FastAPI wraps included routers in
+    # _IncludedRouter objects whose actual routes live on original_router.
+    all_routes: list = []
+    for route in app.routes:
+        if hasattr(route, "original_router"):
+            all_routes.extend(route.original_router.routes)
+        elif hasattr(route, "methods") and hasattr(route, "path"):
+            all_routes.append(route)
+
+    routes: list[dict] = []
+    for route in all_routes:
+        if not hasattr(route, "methods") or not hasattr(route, "path"):
+            continue
+        # Skip non-API routes (health, docs, etc.)
+        if "/api/a-cal" not in route.path and "/health" not in route.path:
+            continue
+        methods = sorted(route.methods - {"HEAD", "OPTIONS"}) if route.methods else []
+        if not methods:
+            continue
+
+        # Extract summary from the route's endpoint function
+        summary = ""
+        doc = ""
+        endpoint = getattr(route, "endpoint", None)
+        if endpoint and endpoint.__doc__:
+            lines = endpoint.__doc__.strip().split("\n")
+            summary = lines[0].strip() if lines else ""
+            doc = endpoint.__doc__.strip()
+
+        # Extract path parameters
+        path_params: list[dict] = []
+        if hasattr(route, "path_convertors"):
+            for segment in route.path.split("/"):
+                if segment.startswith("{") and segment.endswith("}"):
+                    param_name = segment[1:-1]
+                    path_params.append({"name": param_name, "in": "path", "required": True})
+
+        # Extract query/body parameters from the endpoint signature
+        query_params: list[dict] = []
+        body_schema: dict | None = None
+        if endpoint:
+            sig = inspect.signature(endpoint)
+            # Resolve string forward references (from __future__ import annotations)
+            try:
+                import typing
+                hints = typing.get_type_hints(endpoint)
+            except Exception:
+                hints = {}
+            for param_name, param in sig.parameters.items():
+                if param_name in ("self", "request", "response"):
+                    continue
+                # Resolve the annotation — get_type_hints may have resolved it
+                annotation = hints.get(param_name, param.annotation)
+                # Check if it's a Pydantic model (request body)
+                if hasattr(annotation, "model_fields"):
+                    body_schema = {
+                        "name": param_name,
+                        "fields": {
+                            fname: {
+                                "type": str(finfo.annotation),
+                                "default": str(finfo.default) if finfo.default is not None else None,
+                                "required": finfo.is_required(),
+                            }
+                            for fname, finfo in annotation.model_fields.items()
+                        },
+                    }
+                elif param.default is not inspect.Parameter.empty:
+                    query_params.append({
+                        "name": param_name,
+                        "in": "query",
+                        "required": False,
+                        "default": str(param.default) if param.default is not None else None,
+                    })
+                elif f"{{{param_name}}}" in route.path:
+                    # Path parameter not yet captured
+                    path_params.append({
+                        "name": param_name,
+                        "in": "path",
+                        "required": True,
+                    })
+
+        tag = ""
+        if hasattr(route, "tags") and route.tags:
+            tag = route.tags[0]
+
+        routes.append({
+            "method": methods[0] if len(methods) == 1 else ",".join(methods),
+            "path": route.path,
+            "summary": summary,
+            "description": doc,
+            "tag": tag,
+            "path_params": path_params,
+            "query_params": query_params,
+            "body_schema": body_schema,
+        })
+
+    # Sort by tag then path
+    routes.sort(key=lambda r: (r["tag"], r["path"]))
+    return routes

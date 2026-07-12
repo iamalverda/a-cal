@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, Download, ScanLine, RefreshCw, Loader2, AlertCircle, Code2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { ApiExplorer } from "@/components/api-explorer";
 
 const PLUGIN_TYPE_LABELS: Record<string, string> = {
   agent: "Agent",
@@ -366,6 +367,21 @@ export function DeveloperPanel() {
             </Button>
           </>
         )}
+      </section>
+
+      {/* API Explorer section */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium">API Explorer</h2>
+          <Badge className="bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs">
+            REST
+          </Badge>
+        </div>
+        <p className="text-xs text-[var(--muted-foreground)]">
+          Browse and test all A-Cal API endpoints. Click an endpoint to view
+          its parameters and send a live request.
+        </p>
+        <ApiExplorer />
       </section>
     </div>
   );
