@@ -482,3 +482,72 @@ export interface SyncRule {
   priority: number;
   is_active: boolean;
 }
+
+// --- Analytics (zero-calendar integration) ---------------------------------
+
+export interface BusyTimesAnalysis {
+  total_events: number;
+  busy_by_day_of_week: number[];
+  events_by_day_of_week: number[];
+  busy_by_hour: number[];
+  busiest_day: string;
+  busiest_day_hours: number;
+  busiest_hour: number;
+  busiest_hour_count: number;
+}
+
+export interface MeetingStats {
+  total_meeting_minutes: number;
+  total_meeting_hours: number;
+  meeting_count: number;
+  average_meeting_length: number;
+  average_daily_meeting_minutes: number;
+  average_daily_meeting_hours: number;
+  category_counts: Record<string, number>;
+  busiest_day: string;
+  busiest_day_minutes: number;
+  busiest_day_hours: number;
+  daily_meeting_minutes: Record<string, number>;
+}
+
+export interface AnalyticsSummary {
+  busy_times: BusyTimesAnalysis;
+  meeting_stats: MeetingStats;
+  period_days: number;
+}
+
+export interface FreeSlot {
+  start: string;
+  end: string;
+  duration: number;
+}
+
+// --- Event Types (cal.com integration) -------------------------------------
+
+export type SchedulingType = "round_robin" | "collective" | "managed";
+
+export interface AvailabilitySchedule {
+  days: Record<string, string>[][];
+  timezone: string;
+}
+
+export interface EventType {
+  id: string;
+  title: string;
+  slug: string;
+  duration_minutes: number;
+  description: string;
+  scheduling_type: SchedulingType;
+  availability: AvailabilitySchedule;
+  status: string;
+  color: string;
+  metadata: Record<string, unknown>;
+}
+
+// --- Calendar Tools (zero-calendar integration) ----------------------------
+
+export interface CalendarTool {
+  name: string;
+  description: string;
+  parameters: Record<string, Record<string, unknown>>;
+}

@@ -38,6 +38,12 @@ import type {
   RuleType,
   RuleField,
   AutonomyConfig,
+  AnalyticsSummary,
+  BusyTimesAnalysis,
+  MeetingStats,
+  FreeSlot,
+  EventType,
+  CalendarTool,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -385,6 +391,57 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ signal }),
     });
+  },
+
+  // --- Analytics (zero-calendar integration) ---------------------------------
+
+  async getAnalyticsSummary(days = 30): Promise<AnalyticsSummary> {
+    return fetchJson(`${API_BASE}/analytics/summary?days=${days}`);
+  },
+
+  async getBusyTimes(days = 30): Promise<BusyTimesAnalysis> {
+    return fetchJson(`${API_BASE}/analytics/busy-times?days=${days}`);
+  },
+
+  async getMeetingStats(days = 30): Promise<MeetingStats> {
+    return fetchJson(`${API_BASE}/analytics/meeting-stats?days=${days}`);
+  },
+
+  async getFreeSlots(startDate: string, endDate: string, minDuration = 30): Promise<{ free_slots: FreeSlot[]; total: number }> {
+    const params = new URLSearchParams({ start_date: startDate, end_date: endDate, min_duration: String(minDuration) });
+    return fetchJson(`${API_BASE}/analytics/free-slots?${params}`);
+  },
+
+  async suggestReschedule(eventId: string, lookAheadDays = 14): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/analytics/suggest-reschedule`, {
+      method: "POST",
+      body: JSON.stringify({ event_id: eventId, look_ahead_days: lookAheadDays }),
+    });
+  },
+
+  // --- Event Types (cal.com integration) ------------------------------------
+
+  async listEventTypes(): Promise<EventType[]> {
+    return fetchJson(`${API_BASE}/event-types`);
+  },
+
+  async createEventType(data: Partial<EventType>): Promise<EventType> {
+    return fetchJson(`${API_BASE}/event-types`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteEventType(id: string): Promise<{ deleted: string }> {
+    return fetchJson(`${API_BASE}/event-types/${id}`, { method: "DELETE" });
+  },
+
+  async getAvailabilitySchedule(): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/availability/schedule`);
+  },
+
+  async getCalendarTools(): Promise<{ tools: CalendarTool[]; count: number }> {
+    return fetchJson(`${API_BASE}/calendar-tools`);
   },
 
   async getNervousSystemMemories(limit: number = 10): Promise<Array<Record<string, unknown>>> {

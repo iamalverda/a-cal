@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import type { ReactNode } from "react";
-import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail } from "lucide-react";
+import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3 } from "lucide-react";
 import { Network, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import { DeveloperPanel } from "@/components/developer-panel";
 import { WorkflowBuilder } from "@/components/workflow-builder";
 import { NervousSystemPanel } from "@/components/nervous-system-panel";
 import { EmailPanel } from "@/components/email-panel";
+import { AnalyticsPanel } from "@/components/analytics-panel";
 import { AddAccountWizard } from "@/components/add-account-wizard";
 import { api } from "@/lib/api";
 import {
@@ -47,6 +48,7 @@ export default function Page() {
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [showNervousSystem, setShowNervousSystem] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const [oauthResult, setOauthResult] = useState<string | null>(null);
   const [showAddWizard, setShowAddWizard] = useState(false);
 
@@ -204,6 +206,13 @@ export default function Page() {
               <span>Email</span>
             </button>
           )}
+          <button
+            onClick={() => setShowAnalytics(true)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <BarChart3 size={15} className="text-[var(--muted-foreground)]" />
+            <span>Analytics</span>
+          </button>
           {mode !== "simple" && (
             <button
               onClick={() => setShowMarketplace(true)}
@@ -381,6 +390,13 @@ export default function Page() {
       {showEmail && (
         <SlideInOverlay title="Email" icon={<Mail size={18} className="text-[var(--primary)]" />} onClose={() => setShowEmail(false)}>
           <EmailPanel />
+        </SlideInOverlay>
+      )}
+
+      {/* Analytics overlay */}
+      {showAnalytics && (
+        <SlideInOverlay title="Analytics" icon={<BarChart3 size={18} className="text-[var(--primary)]" />} onClose={() => setShowAnalytics(false)}>
+          <AnalyticsPanel />
         </SlideInOverlay>
       )}
 
