@@ -1,0 +1,46 @@
+# A-Cal — Self-hosted deployment via Docker Compose
+#
+# Usage:
+#   docker compose up --build
+#
+# Then open http://localhost:3456
+#
+# Data is persisted in the a-cal-data volume (SQLite DB + plugins).
+# OAuth client credentials and LLM API keys go in .env (see .env.example).
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - a-cal-data:/root/.a-cal
+    environment:
+      - A_CAL_PLUGIN_DIR=/root/.a-cal/plugins
+      - A_CAL_CORS_ORIGINS=http://localhost:3456,http://localhost:3000
+      # OAuth credentials (optional — needed for real Google/Outlook sync)
+      # - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      # - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # - OUTLOOK_CLIENT_ID=${OUTLOOK_CLIENT_ID:-}
+      # - OUTLOOK_CLIENT_SECRET=${OUTLOOK_CLIENT_SECRET:-}
+      # LLM provider keys (optional — needed for cloud model routing)
+      # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3456:3456"
+    environment:
+      - A_CAL_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  a-cal-data:
