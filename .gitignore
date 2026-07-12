@@ -51,3 +51,4 @@ web/.pnpm-store/
 npm-debug.log*
 data/
 web/test-results/
+*.tsbuildinfo
