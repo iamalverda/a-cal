@@ -39,6 +39,19 @@ from a_cal.integrations.atom_bridge import get_atom_adapters
 logger = logging.getLogger(__name__)
 
 
+def _get_plugin_runtime():
+    """Lazy-load the plugin runtime singleton.
+
+    Imported lazily so the conductor works even if the plugin directory
+    doesn't exist yet, and so tests don't need to set up plugins.
+    """
+    try:
+        from a_cal.developer.plugin_runtime import get_runtime
+        return get_runtime()
+    except Exception:
+        return None
+
+
 class IntentType(str, Enum):
     """What the user wants — drives specialist routing."""
 
@@ -179,6 +192,20 @@ class ACalConductor:
             except Exception:
                 pass
 
+        # Allow loaded plugins to override the intent classification.
+        # First plugin returning a non-None string wins.
+        runtime = _get_plugin_runtime()
+        if runtime is not None:
+            try:
+                override = runtime.on_intent_classified(message, keyword_result.value)
+                if override is not None:
+                    try:
+                        return IntentType(override)
+                    except ValueError:
+                        logger.warning("Plugin returned unknown intent: %s", override)
+            except Exception as exc:
+                logger.debug("plugin on_intent_classified failed: %s", exc)
+
         return keyword_result
 
     @staticmethod
@@ -289,11 +316,25 @@ class ACalConductor:
                 event_store=self.event_store,
             )
 
+            # Allow plugins to transform the response before returning.
+            final_response = result["response"]
+            runtime = _get_plugin_runtime()
+            if runtime is not None:
+                try:
+                    transformed = runtime.on_conductor_response(
+                        final_response,
+                        {"intent": decision.intent.value, "standalone": True},
+                    )
+                    if transformed is not None:
+                        final_response = transformed
+                except Exception as exc:
+                    logger.debug("plugin on_conductor_response failed: %s", exc)
+
             return {
                 "user_id": self.user_id,
                 "message": message,
                 "routing": decision.to_dict(),
-                "response": result["response"],
+                "response": final_response,
                 "actions": result["actions"],
                 "routing_trace": routing_trace,
                 "cas_modules_engaged": cas_modules_engaged,
@@ -358,6 +399,19 @@ class ACalConductor:
             logger.error("conductor LLM dispatch failed: %s", exc)
             # Fall back to the standalone response if the LLM fails
             llm_response = standalone_result["response"]
+
+        # Allow plugins to transform the LLM response before returning.
+        runtime = _get_plugin_runtime()
+        if runtime is not None:
+            try:
+                transformed = runtime.on_conductor_response(
+                    llm_response,
+                    {"intent": decision.intent.value, "standalone": False},
+                )
+                if transformed is not None:
+                    llm_response = transformed
+            except Exception as exc:
+                logger.debug("plugin on_conductor_response failed: %s", exc)
 
         return {
             "user_id": self.user_id,

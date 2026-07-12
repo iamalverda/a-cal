@@ -25,6 +25,24 @@ router = APIRouter(prefix="/api/a-cal", tags=["a-cal-data"])
 USER_ID = "local-dev-user"
 
 
+def _fire_plugin_hook(hook_name: str, *args) -> None:
+    """Fire a plugin runtime hook, swallowing all errors.
+
+    Plugin hook failures must never crash event operations. This helper
+    isolates plugin code from the core data path.
+
+    Args:
+        hook_name: Name of the hook to fire (e.g. "on_event_created").
+        *args: Positional arguments to pass to the hook.
+    """
+    try:
+        from a_cal.developer.plugin_runtime import get_runtime
+        runtime = get_runtime()
+        getattr(runtime, hook_name)(*args)
+    except Exception as exc:
+        logger.debug("plugin hook %s failed: %s", hook_name, exc)
+
+
 # --- request/response models -----------------------------------------------
 
 class SubAccountCreate(BaseModel):
@@ -397,6 +415,7 @@ def create_event(body: EventCreate) -> UnifiedEvent:
         "source_sub_account_id": body.source_sub_account_id,
         "metadata": body.metadata,
     })
+    _fire_plugin_hook("on_event_created", evt)
     return _event_to_response(evt)
 
 
@@ -420,6 +439,7 @@ def update_event(event_id: str, body: EventUpdate) -> UnifiedEvent:
     evt = _store.update_event(event_id, patch)
     if not evt:
         raise HTTPException(status_code=404, detail="Event not found")
+    _fire_plugin_hook("on_event_updated", evt)
     return _event_to_response(evt)
 
 
@@ -428,6 +448,7 @@ def delete_event(event_id: str) -> Dict[str, str]:
     """Delete a calendar event by provider_event_id."""
     if not _store.delete_event(event_id):
         raise HTTPException(status_code=404, detail="Event not found")
+    _fire_plugin_hook("on_event_deleted", event_id)
     return {"status": "deleted", "event_id": event_id}
 
 

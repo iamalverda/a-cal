@@ -291,3 +291,70 @@ def import_config(body: ConfigImportRequest):
         "errors": importer.errors,
         "warnings": importer.warnings,
     }
+
+
+# --- plugin runtime (code execution) ----------------------------------------
+
+@router.get("/plugins/runtime/list")
+def list_runtime_plugins():
+    """List all plugins loaded by the runtime (actual code, not just specs).
+
+    Scans ~/.a-cal/plugins/ for .py files, loads each one, and reports
+    which hooks are implemented. Failed loads are included with error messages.
+    """
+    from a_cal.developer.plugin_runtime import get_runtime
+    runtime = get_runtime()
+    loaded = runtime.scan_and_load()
+    return [p.to_dict() for p in loaded]
+
+
+@router.post("/plugins/runtime/scan")
+def scan_plugins():
+    """Trigger a fresh scan of the plugin directory and load all plugins."""
+    from a_cal.developer.plugin_runtime import get_runtime
+    runtime = get_runtime()
+    loaded = runtime.scan_and_load()
+    return {
+        "scanned": len(loaded),
+        "loaded": sum(1 for p in loaded if not p.load_error),
+        "failed": sum(1 for p in loaded if p.load_error),
+        "plugins": [p.to_dict() for p in loaded],
+    }
+
+
+@router.post("/plugins/runtime/{plugin_id}/reload")
+def reload_plugin(plugin_id: str):
+    """Reload a single plugin from disk (useful during development)."""
+    from a_cal.developer.plugin_runtime import get_runtime
+    runtime = get_runtime()
+    result = runtime.reload(plugin_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="plugin not loaded")
+    return result.to_dict()
+
+
+@router.post("/plugins/runtime/{plugin_id}/enable")
+def enable_runtime_plugin(plugin_id: str):
+    """Enable a loaded runtime plugin."""
+    from a_cal.developer.plugin_runtime import get_runtime
+    runtime = get_runtime()
+    if not runtime.enable(plugin_id):
+        raise HTTPException(status_code=404, detail="plugin not loaded")
+    return {"status": "enabled", "plugin_id": plugin_id}
+
+
+@router.post("/plugins/runtime/{plugin_id}/disable")
+def disable_runtime_plugin(plugin_id: str):
+    """Disable a loaded runtime plugin."""
+    from a_cal.developer.plugin_runtime import get_runtime
+    runtime = get_runtime()
+    if not runtime.disable(plugin_id):
+        raise HTTPException(status_code=404, detail="plugin not loaded")
+    return {"status": "disabled", "plugin_id": plugin_id}
+
+
+@router.get("/plugins/runtime/hooks")
+def list_supported_hooks():
+    """List all supported plugin hooks that the runtime can call."""
+    from a_cal.developer.plugin_runtime import SUPPORTED_HOOKS
+    return {"hooks": SUPPORTED_HOOKS}
