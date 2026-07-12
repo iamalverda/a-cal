@@ -389,3 +389,14 @@ export interface NervousSystemOverview {
   recent_memories: Array<Record<string, unknown>>;
   active_habits: Array<Record<string, unknown>>;
 }
+
+export interface RuntimePlugin {
+  id: string;
+  name: string;
+  plugin_type: string;
+  file_path: string;
+  hooks: string[];
+  enabled: boolean;
+  load_error: string | null;
+  loaded_at: string;
+}

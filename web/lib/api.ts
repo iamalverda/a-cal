@@ -24,6 +24,7 @@ import type {
   Plugin,
   ConfigExport,
   ConfigImportResult,
+  RuntimePlugin,
   CASModule,
   CASAgentSpec,
   SystemState,
@@ -505,6 +506,36 @@ export const developerApi = {
       method: "POST",
       body: JSON.stringify({ config }),
     });
+  },
+
+  // Plugin runtime (loaded code, not just specs)
+  async listRuntimePlugins(): Promise<RuntimePlugin[]> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/list`);
+  },
+
+  async scanRuntimePlugins(): Promise<{
+    scanned: number;
+    loaded: number;
+    failed: number;
+    plugins: RuntimePlugin[];
+  }> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/scan`, { method: "POST" });
+  },
+
+  async reloadRuntimePlugin(pluginId: string): Promise<RuntimePlugin> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/${pluginId}/reload`, { method: "POST" });
+  },
+
+  async enableRuntimePlugin(pluginId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/${pluginId}/enable`, { method: "POST" });
+  },
+
+  async disableRuntimePlugin(pluginId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/${pluginId}/disable`, { method: "POST" });
+  },
+
+  async listRuntimeHooks(): Promise<{ hooks: string[] }> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/hooks`);
   },
 };
 
