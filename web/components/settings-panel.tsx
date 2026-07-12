@@ -31,7 +31,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { api, oauthApi } from "@/lib/api";
 import { mockModeConfig } from "@/lib/mock-data";
-import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact } from "@/types";
+import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact, AtomStatus, BackendMode } from "@/types";
 
 interface SettingsPanelProps {
   mode: SkillMode;
@@ -107,6 +107,8 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
   const [connError, setConnError] = useState<string | null>(null);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [apiKeyDraft, setApiKeyDraft] = useState<Record<string, string>>({});
+  const [backendMode, setBackendMode] = useState<BackendMode>("standalone");
+  const [atomStatus, setAtomStatus] = useState<AtomStatus | null>(null);
 
   // Self-model facts viewer state
   const [showFacts, setShowFacts] = useState(false);
@@ -144,6 +146,9 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         setOllamaModels(ollamaStat.models);
         setApiKeys(keysData);
         setApiKeyDraft(keysData);
+        // Load backend mode and atom status (non-blocking — may fail if endpoint missing)
+        api.getBackendMode().then((r) => setBackendMode(r.mode as BackendMode)).catch(() => {});
+        api.getAtomStatus().then(setAtomStatus).catch(() => {});
       } catch {
         // Backend not running — keep defaults (mock data already set)
       }
@@ -293,6 +298,17 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
       });
     } catch {
       // Backend not running — local state already updated
+    }
+  };
+
+  /** Switch backend mode (standalone vs atom) and persist to backend. */
+  const handleBackendModeChange = async (newMode: BackendMode) => {
+    setBackendMode(newMode);
+    try {
+      await api.setBackendMode(newMode);
+    } catch {
+      // Revert on failure
+      setBackendMode(newMode === "atom" ? "standalone" : "atom");
     }
   };
 
@@ -872,6 +888,82 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
                         Email, self-model, and negotiation tasks always use a local model regardless of this setting.
                       </span>
                     </div>
+
+                    {/* Backend mode toggle — only visible in Pro/Developer mode */}
+                    {mode !== "simple" && (
+                      <div className="space-y-3 pt-2 border-t border-[var(--border)]">
+                        <div className="flex items-start justify-between gap-3 py-2">
+                          <div className="flex-1">
+                            <div className="text-sm font-medium flex items-center gap-2">
+                              <Cpu size={14} /> Backend Engine
+                            </div>
+                            <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                              Standalone uses A-Cal&apos;s built-in LLM service. Atom uses atom&apos;s BYOK handler with cognitive tier routing and encrypted credential storage.
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Atom availability indicator */}
+                        {atomStatus && (
+                          <div className={cn(
+                            "flex items-center gap-2 p-2 rounded-md text-xs border",
+                            atomStatus.available
+                              ? "bg-[var(--cal-work)]/10 border-[var(--cal-work)]/30"
+                              : "bg-[var(--muted)] border-[var(--border)] text-[var(--muted-foreground)]"
+                          )}>
+                            <span className={cn(
+                              "w-2 h-2 rounded-full",
+                              atomStatus.available ? "bg-[var(--cal-work)]" : "bg-[var(--muted-foreground)]"
+                            )} />
+                            {atomStatus.available ? (
+                              <span>atom detected — adapters: {[
+                                atomStatus.adapters.token_storage && "token storage",
+                                atomStatus.adapters.llm && "LLM service",
+                                atomStatus.adapters.intent && "intent classifier",
+                              ].filter(Boolean).join(", ") || "initializing"}</span>
+                            ) : (
+                              <span>atom not detected — running in standalone mode</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Mode toggle buttons */}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleBackendModeChange("standalone")}
+                            disabled={!atomStatus?.available && backendMode === "standalone"}
+                            className={cn(
+                              "flex-1 rounded-lg border p-3 text-left transition-colors",
+                              backendMode === "standalone"
+                                ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                                : "border-[var(--border)] hover:bg-[var(--accent)]",
+                              !atomStatus?.available && backendMode === "standalone" && "opacity-50 cursor-not-allowed"
+                            )}
+                          >
+                            <div className="text-sm font-medium">Standalone</div>
+                            <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                              Built-in LLM service with your model routing settings
+                            </div>
+                          </button>
+                          <button
+                            onClick={() => atomStatus?.available && handleBackendModeChange("atom")}
+                            disabled={!atomStatus?.available}
+                            className={cn(
+                              "flex-1 rounded-lg border p-3 text-left transition-colors",
+                              backendMode === "atom"
+                                ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                                : "border-[var(--border)] hover:bg-[var(--accent)]",
+                              !atomStatus?.available && "opacity-50 cursor-not-allowed"
+                            )}
+                          >
+                            <div className="text-sm font-medium">atom</div>
+                            <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                              {atomStatus?.available ? "BYOK, cognitive tier routing, encrypted tokens" : "Not available — install atom to enable"}
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </Section>

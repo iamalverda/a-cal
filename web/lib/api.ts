@@ -32,6 +32,8 @@ import type {
   NervousSystemOverview,
   WorkflowDef,
   WorkflowRunResult,
+  AtomStatus,
+  BackendMode,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -296,6 +298,21 @@ export const api = {
 
   async getOllamaStatus(): Promise<{ available: boolean; models: string[] }> {
     return fetchJson(`${API_BASE}/settings/ollama-status`);
+  },
+
+  async getBackendMode(): Promise<{ mode: string }> {
+    return fetchJson(`${API_BASE}/settings/backend-mode`);
+  },
+
+  async setBackendMode(mode: BackendMode): Promise<{ mode: string }> {
+    return fetchJson(`${API_BASE}/settings/backend-mode`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+  },
+
+  async getAtomStatus(): Promise<AtomStatus> {
+    return fetchJson(`${API_BASE}/settings/atom-status`);
   },
 
   async getApiKeys(): Promise<Record<string, string>> {

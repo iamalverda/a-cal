@@ -5,14 +5,14 @@ A-Cal runs in two modes:
   **Standalone** (default): SQLite storage, StandaloneLLMService for model
   dispatch, keyword-based intent classification. No external dependencies.
 
-  **Atom-backed** (when atom is on PYTHONPATH): encrypted OAuth token storage
+  **Atom-backed** (when atom is detected): encrypted OAuth token storage
   via atom's ConnectionService, LLM inference via atom's LLMService with
   BYOKHandler and cognitive tier routing, and LLM-powered intent
   classification via atom's IntentClassifier.
 
-The bridge detects atom at import time and provides adapter objects that
-implement the same interfaces as their standalone counterparts. Callers
-don't need to know which mode is active — they call the same methods.
+The bridge auto-detects atom by searching known locations for atom's
+``backend/`` directory and adding it to ``sys.path``. Callers don't need
+to know which mode is active — they call the same methods.
 
 Usage::
 
@@ -30,23 +30,154 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+import os
+import sys
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Directories to search for atom's backend/ folder, relative to common
+# locations. The first match that contains core/llm_service.py wins.
+_ATOM_SEARCH_PATHS: List[str] = [
+    # Sibling directory (A-Cal and atom in the same parent folder)
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "atom", "backend"),
+    # A-Cal project root / atom
+    os.path.join(os.path.dirname(__file__), "..", "..", "atom", "backend"),
+    # Environment variable override
+    os.environ.get("ATOM_BACKEND_PATH", ""),
+]
+
+
+def _find_atom_backend() -> Optional[str]:
+    """Search known locations for atom's backend directory.
+
+    Returns the absolute path to atom's ``backend/`` folder if found,
+    or None if atom is not installed locally.
+    """
+    for candidate in _ATOM_SEARCH_PATHS:
+        if not candidate:
+            continue
+        path = os.path.abspath(candidate)
+        if os.path.isfile(os.path.join(path, "core", "llm_service.py")):
+            return path
+    return None
+
+
+def _ensure_atom_on_path() -> Optional[str]:
+    """Add atom's backend to sys.path if found and not already present.
+
+    Returns the path that was added (or was already present), or None
+    if atom's backend could not be located.
+    """
+    # Check if atom is already importable (someone added it manually).
+    try:
+        import core.llm_service  # type: ignore  # noqa: F401
+        import core.connection_service  # type: ignore  # noqa: F401
+        return "<already on sys.path>"
+    except ImportError:
+        pass
+
+    backend_path = _find_atom_backend()
+    if backend_path is None:
+        return None
+
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
+        logger.info("atom backend added to sys.path: %s", backend_path)
+
+    return backend_path
 
 
 def is_atom_available() -> bool:
     """Check whether atom's backend is importable.
 
-    Returns True if ``core.connection_service`` and ``core.llm_service``
-    can be imported (atom is on PYTHONPATH), False otherwise.
+    Auto-detects atom's ``backend/`` directory by searching known locations
+    and adding it to ``sys.path`` if found. Returns True if atom's
+    ``core.connection_service`` and ``core.llm_service`` can be imported.
+
+    Set the ``A_CAL_DISABLE_ATOM`` environment variable to force atom off
+    (useful for testing standalone mode even when atom is installed).
     """
+    if os.environ.get("A_CAL_DISABLE_ATOM", "").lower() in ("1", "true", "yes"):
+        return False
+
+    path = _ensure_atom_on_path()
+    if path is None:
+        return False
+
     try:
         import core.connection_service  # type: ignore  # noqa: F401
         import core.llm_service  # type: ignore  # noqa: F401
         return True
     except ImportError:
         return False
+
+
+def _init_atom_db() -> None:
+    """Create atom's database tables if they don't exist.
+
+    Atom's ConnectionService expects a ``user_connections`` table. When
+    atom is first detected, we ensure its tables exist so OAuth token
+    storage works without requiring atom's full migration system.
+    """
+    try:
+        from core.database import Base, engine  # type: ignore
+        from core.models import UserConnection  # type: ignore  # noqa: F401
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        logger.debug("atom DB init skipped: %s", exc)
+
+
+def get_atom_status() -> Dict[str, Any]:
+    """Return a status dict describing atom availability for the frontend.
+
+    Returns:
+        Dict with keys:
+        - available: bool
+        - backend_path: str or None
+        - adapters: dict of adapter name -> bool (which are ready)
+    """
+    if os.environ.get("A_CAL_DISABLE_ATOM", "").lower() in ("1", "true", "yes"):
+        return {
+            "available": False,
+            "backend_path": None,
+            "adapters": {"token_storage": False, "llm": False, "intent": False},
+        }
+
+    path = _ensure_atom_on_path()
+    if path is None:
+        return {
+            "available": False,
+            "backend_path": None,
+            "adapters": {"token_storage": False, "llm": False, "intent": False},
+        }
+
+    token_ok = llm_ok = intent_ok = False
+    try:
+        import core.connection_service  # type: ignore  # noqa: F401
+        token_ok = True
+    except ImportError:
+        pass
+    try:
+        import core.llm_service  # type: ignore  # noqa: F401
+        llm_ok = True
+    except ImportError:
+        pass
+    try:
+        import core.intent_classifier  # type: ignore  # noqa: F401
+        intent_ok = True
+    except ImportError:
+        pass
+
+    return {
+        "available": token_ok or llm_ok or intent_ok,
+        "backend_path": path,
+        "adapters": {
+            "token_storage": token_ok,
+            "llm": llm_ok,
+            "intent": intent_ok,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -58,8 +189,15 @@ class AtomTokenStorage:
 
     In standalone mode, OAuth tokens are stored in the provider connection's
     ``config`` JSON column (plaintext in SQLite). When atom is available,
-    tokens are encrypted via atom's CredentialVault/ConnectionService and
-    stored in atom's ``UserConnection`` table with Fernet encryption at rest.
+    tokens are encrypted via atom's ConnectionService and stored in atom's
+    ``UserConnection`` table with Fernet encryption at rest.
+
+    Atom's ConnectionService uses a different API than the bridge's original
+    design: ``save_connection`` takes ``integration_id`` and ``name``
+    (not ``connection_id`` and ``provider``), ``get_connection_credentials``
+    is async and takes ``(connection_id, user_id)``, and ``delete_connection``
+    takes ``(connection_id, user_id)``. This adapter translates between the
+    two interfaces.
     """
 
     def __init__(self) -> None:
@@ -69,10 +207,17 @@ class AtomTokenStorage:
             ImportError: If atom is not available (caller should check
                 ``is_atom_available()`` first).
         """
+        if not is_atom_available():
+            raise ImportError("atom is not available")
         from core.connection_service import ConnectionService  # type: ignore
 
         self._svc = ConnectionService()
         logger.info("AtomTokenStorage initialized with atom ConnectionService")
+
+    @staticmethod
+    def _integration_id(provider_type: str) -> str:
+        """Build a stable integration_id for A-Cal provider types."""
+        return f"a_cal_{provider_type}"
 
     def save_oauth_tokens(
         self, user_id: str, provider_type: str, tokens: Dict[str, Any],
@@ -85,22 +230,27 @@ class AtomTokenStorage:
             tokens: Token dict (access_token, refresh_token, etc.).
 
         Returns:
-            The connection ID in atom's UserConnection table.
+            The connection ID (UUID) in atom's UserConnection table.
         """
-        connection_id = f"a_cal_{provider_type}_{user_id}"
-        self._svc.save_connection(
+        integration_id = self._integration_id(provider_type)
+        conn = self._svc.save_connection(
             user_id=user_id,
-            connection_id=connection_id,
-            provider=provider_type,
+            integration_id=integration_id,
+            name=provider_type,
             credentials=tokens,
         )
-        logger.info("Stored encrypted OAuth tokens for %s/%s", user_id, provider_type)
-        return connection_id
+        logger.info("Stored encrypted OAuth tokens for %s/%s (conn_id=%s)",
+                     user_id, provider_type, conn.id)
+        return conn.id
 
-    def get_oauth_tokens(
+    async def get_oauth_tokens(
         self, user_id: str, provider_type: str,
     ) -> Optional[Dict[str, Any]]:
         """Retrieve and decrypt OAuth tokens for a provider.
+
+        Looks up the connection by integration_id, then fetches credentials.
+        Atom's ``get_connection_credentials`` is async and may refresh
+        expired tokens automatically.
 
         Args:
             user_id: The atom user/workspace ID.
@@ -109,8 +259,14 @@ class AtomTokenStorage:
         Returns:
             Decrypted token dict, or None if not found.
         """
-        connection_id = f"a_cal_{provider_type}_{user_id}"
-        return self._svc.get_connection_credentials(user_id, connection_id)
+        integration_id = self._integration_id(provider_type)
+        connections = self._svc.get_connections(user_id, integration_id)
+        if not connections:
+            return None
+
+        # Use the first matching connection (there should be only one per integration_id).
+        conn_id = connections[0]["id"]
+        return await self._svc.get_connection_credentials(conn_id, user_id)
 
     def delete_oauth_tokens(self, user_id: str, provider_type: str) -> bool:
         """Delete stored OAuth tokens for a provider.
@@ -122,8 +278,13 @@ class AtomTokenStorage:
         Returns:
             True if deleted, False if not found.
         """
-        connection_id = f"a_cal_{provider_type}_{user_id}"
-        return self._svc.delete_connection(user_id, connection_id)
+        integration_id = self._integration_id(provider_type)
+        connections = self._svc.get_connections(user_id, integration_id)
+        if not connections:
+            return False
+
+        conn_id = connections[0]["id"]
+        return self._svc.delete_connection(conn_id, user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +296,13 @@ class AtomLLMAdapter:
 
     The conductor calls ``generate_response(prompt, system_prompt, task,
     tenant_id)``. This adapter translates that call into atom's
-    ``LLMService.generate(prompt, system_instruction, ...)`` and returns
-    a normalized LLMResponse-compatible dict.
+    ``LLMService.generate(prompt, system_instruction, model, workspace_id)``
+    and returns the text.
 
-    atom's LLMService handles BYOK key resolution, cognitive tier routing,
-    and governance de-escalation — so A-Cal gets all of that for free.
+    Atom's LLMService uses a BYOKHandler with cognitive tier routing,
+    governance de-escalation, and continuous learning personalization.
+    API keys must be configured in atom's BYOK system (separate from
+    A-Cal's standalone settings).
     """
 
     def __init__(self, workspace_id: str = "default") -> None:
@@ -151,6 +314,8 @@ class AtomLLMAdapter:
         Raises:
             ImportError: If atom is not available.
         """
+        if not is_atom_available():
+            raise ImportError("atom is not available")
         from core.llm_service import get_llm_service  # type: ignore
 
         self._llm = get_llm_service(workspace_id=workspace_id)
@@ -203,6 +368,8 @@ class AtomIntentClassifier:
         Raises:
             ImportError: If atom is not available.
         """
+        if not is_atom_available():
+            raise ImportError("atom is not available")
         from core.intent_classifier import IntentClassifier  # type: ignore
 
         self._classifier = IntentClassifier(workspace_id=workspace_id)
@@ -253,6 +420,9 @@ def get_atom_adapters(
     if not is_atom_available():
         return None, None, None
 
+    # Ensure atom's database tables exist (needed for ConnectionService).
+    _init_atom_db()
+
     token_storage: Optional[AtomTokenStorage] = None
     llm_service: Optional[Any] = None
     intent_classifier: Optional[AtomIntentClassifier] = None
@@ -279,3 +449,19 @@ def get_atom_adapters(
         )
 
     return token_storage, llm_service, intent_classifier
+
+
+def get_atom_token_storage() -> Optional[AtomTokenStorage]:
+    """Convenience: return just the token storage adapter, or None.
+
+    Used by oauth_routes.py to avoid initializing the LLM service
+    (which is heavier) when only token storage is needed.
+    """
+    if not is_atom_available():
+        return None
+    _init_atom_db()
+    try:
+        return AtomTokenStorage()
+    except Exception as exc:
+        logger.warning("AtomTokenStorage init failed: %s", exc)
+        return None

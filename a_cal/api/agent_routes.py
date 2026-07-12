@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from a_cal.agents.conductor import ACalConductor
 from a_cal.agents.registry import AgentRegistry
 from a_cal.agents.llm_service import StandaloneLLMService
-from a_cal.integrations.atom_bridge import get_atom_adapters
+from a_cal.integrations.atom_bridge import get_atom_adapters, get_atom_status
 from a_cal.db.store import PersistentStore as _DBStore
 from a_cal.agents.llm_service import check_ollama_available, list_ollama_models
 from a_cal.settings.modes import get_mode_config, SkillMode
@@ -81,15 +81,32 @@ class _SettingsStore:
         if user_id not in self._conductors:
             llm_service = None
             if self.get_llm_enabled(user_id):
-                # Prefer atom's LLM service when available (handles BYOK,
-                # cognitive tier routing, governance). Fall back to standalone.
-                _, atom_llm, _ = get_atom_adapters(workspace_id=user_id)
-                if atom_llm:
-                    llm_service = atom_llm
+                backend_mode = self.get_backend_mode(user_id)
+                if backend_mode == "atom":
+                    # Atom mode: use atom's LLM service (BYOK, cognitive
+                    # tier routing, governance). Falls back to standalone
+                    # if atom adapters fail to initialize.
+                    _, atom_llm, _ = get_atom_adapters(workspace_id=user_id)
+                    if atom_llm:
+                        llm_service = atom_llm
+                    else:
+                        logger.warning(
+                            "backend_mode=atom but atom adapters unavailable, "
+                            "falling back to standalone"
+                        )
+                        routing = self.get_routing(user_id)
+                        api_keys = self._db.get_raw_api_keys()
+                        llm_service = StandaloneLLMService(
+                            routing=routing, api_keys=api_keys,
+                        )
                 else:
+                    # Standalone mode (default): use StandaloneLLMService
+                    # with user-configured model routing and API keys.
                     routing = self.get_routing(user_id)
                     api_keys = self._db.get_raw_api_keys()
-                    llm_service = StandaloneLLMService(routing=routing, api_keys=api_keys)
+                    llm_service = StandaloneLLMService(
+                        routing=routing, api_keys=api_keys,
+                    )
             self._conductors[user_id] = ACalConductor(
                 user_id=user_id,
                 llm_service=llm_service,
@@ -121,6 +138,16 @@ class _SettingsStore:
         # Invalidate cached conductor so it picks up new keys.
         self._conductors.pop(user_id, None)
         return result
+
+    def get_backend_mode(self, user_id: str) -> str:
+        """Get the backend mode: 'standalone' or 'atom'."""
+        return self._db.get_setting("backend_mode", "standalone")
+
+    def set_backend_mode(self, user_id: str, mode: str) -> str:
+        """Set the backend mode and invalidate cached conductor."""
+        self._db.set_setting("backend_mode", mode)
+        self._conductors.pop(user_id, None)
+        return mode
 
 
 _store = _SettingsStore()
@@ -430,6 +457,50 @@ async def ollama_status():
     models = await list_ollama_models() if available else []
     return {"available": available, "models": models}
 
+
+# --- settings: backend mode (standalone vs atom) ---------------------------
+
+class BackendModeRequest(BaseModel):
+    """Payload for switching backend mode."""
+    mode: str  # "standalone" or "atom"
+
+
+@router.get("/settings/backend-mode")
+def get_backend_mode():
+    """Get the current backend mode (standalone or atom)."""
+    user_id = _current_user_id()
+    mode = _store.get_backend_mode(user_id)
+    return {"mode": mode}
+
+
+@router.post("/settings/backend-mode")
+def set_backend_mode(body: BackendModeRequest):
+    """Switch the backend mode.
+
+    In standalone mode (default), A-Cal uses its own LLM service with
+    user-configured model routing. In atom mode, A-Cal uses atom's
+    LLMService with BYOKHandler, cognitive tier routing, and governance.
+    Atom mode requires atom to be installed locally.
+    """
+    user_id = _current_user_id()
+    if body.mode not in ("standalone", "atom"):
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="mode must be 'standalone' or 'atom'",
+        )
+    mode = _store.set_backend_mode(user_id, body.mode)
+    return {"mode": mode}
+
+
+@router.get("/settings/atom-status")
+def atom_status():
+    """Check whether atom is available and which adapters are ready.
+
+    The frontend uses this to show the user whether atom mode is available
+    and to enable/disable the backend mode toggle accordingly.
+    """
+    return get_atom_status()
 
 
 class LLMEnabledRequest(BaseModel):

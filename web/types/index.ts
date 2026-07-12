@@ -443,3 +443,17 @@ export interface WorkflowRunResult {
   started_at: string;
   finished_at: string;
 }
+
+// --- Atom integration types -------------------------------------------------
+
+export interface AtomStatus {
+  available: boolean;
+  backend_path: string | null;
+  adapters: {
+    token_storage: boolean;
+    llm: boolean;
+    intent: boolean;
+  };
+}
+
+export type BackendMode = "standalone" | "atom";

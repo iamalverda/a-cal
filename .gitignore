@@ -49,3 +49,5 @@ web/.pnpm-store/
 # Logs
 *.log
 npm-debug.log*
+data/
+web/test-results/
