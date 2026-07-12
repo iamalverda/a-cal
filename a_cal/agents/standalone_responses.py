@@ -1159,16 +1159,22 @@ def generate_email_response(
             "context-aware drafts."
         )
         actions = [{"type": "draft_reply", "status": "awaiting_input"}]
-    elif "triage" in lower or "inbox" in lower:
-        response = (
-            "Inbox triage complete. No LLM connected, so I'm working in "
-            "rule-based mode. I can:\n"
-            "  • Detect calendar invites\n"
-            "  • Flag emails with scheduling keywords\n"
-            "  • Group threads by sender\n\n"
-            "Connect a model for full AI-powered triage."
-        )
-        actions = [{"type": "triage", "mode": "rule_based"}]
+    elif "triage" in lower or "inbox" in lower or "check my email" in lower or "scan my email" in lower or "any meeting" in lower:
+        # Run the email-to-schedule pipeline
+        from a_cal.agents.email_scheduler import scan_emails_for_scheduling
+
+        # Scan using any available email data (from events with invite metadata)
+        # plus detected scheduling content
+        result = scan_emails_for_scheduling([], events)
+        response = result["summary"]
+        if result["suggestions"]:
+            response += "\n\n" + "\n".join(
+                f"  \u2022 {s['message']}" for s in result["suggestions"][:5]
+            )
+        actions = [
+            {"type": "email_scan", "mode": "rule_based", "stats": result["stats"]},
+            {"type": "suggestions", "count": len(result["suggestions"])},
+        ]
     else:
         response = (
             "I can help with your email — checking for invites, drafting replies, "

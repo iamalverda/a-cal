@@ -62,6 +62,26 @@ export const api = {
     });
   },
 
+  /** Update a sub-account's settings (sync mode, agent enabled, visibility, etc.). */
+  async updateSubAccount(subId: string, patch: {
+    name?: string;
+    sync_mode?: string;
+    agent_enabled?: boolean;
+    settings?: Record<string, unknown>;
+  }): Promise<SubAccount> {
+    return fetchJson(`${API_BASE}/sub-accounts/${subId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  /** Delete a sub-account and all its provider connections. */
+  async deleteSubAccount(subId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/sub-accounts/${subId}`, {
+      method: "DELETE",
+    });
+  },
+
   // --- Provider connections -----------------------------------------------
 
   async listProviders(subAccountId: string): Promise<ProviderConnection[]> {
@@ -157,6 +177,18 @@ export const api = {
     return fetchJson(`${API_BASE}/email/send`, {
       method: "POST",
       body: JSON.stringify(data),
+    });
+  },
+
+  /** Scan emails for scheduling-related content and return suggestions. */
+  async scanEmailForSchedule(): Promise<{
+    detections: Array<Record<string, unknown>>;
+    suggestions: Array<Record<string, unknown>>;
+    summary: string;
+    stats: Record<string, number>;
+  }> {
+    return fetchJson(`${API_BASE}/email/scan-schedule`, {
+      method: "POST",
     });
   },
 

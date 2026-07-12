@@ -195,6 +195,60 @@ async def conductor_chat(body: ConductorChatRequest):
     return result
 
 
+# --- email-to-schedule ----------------------------------------------------
+
+@router.post("/email/scan-schedule")
+async def scan_emails_for_schedule():
+    """Scan connected email providers for scheduling-related content.
+
+    Runs the email-to-schedule pipeline: reads recent emails, detects meeting
+    proposals, extracts proposed times, and cross-references with the user's
+    calendar to find conflicts. Returns actionable suggestions.
+
+    Privacy: email content is processed locally. No email body text is sent
+    to external services. When an LLM is used for richer analysis, privacy-
+    tiered routing forces email processing to local models.
+    """
+    from a_cal.agents.email_scheduler import scan_emails_for_scheduling
+    from a_cal.providers.factory import build_email_provider
+
+    user_id = _current_user_id()
+
+    # Get email providers
+    from a_cal.api.standalone_data import _store as data_store
+    all_providers = data_store.list_providers()
+    email_types = {"imap_smtp", "gmail"}
+    email_providers = [
+        p for p in all_providers
+        if p["provider_type"] in email_types and p.get("status") == "connected"
+    ]
+
+    # Fetch recent emails
+    emails: list[dict[str, Any]] = []
+    for p in email_providers:
+        try:
+            provider = build_email_provider(p)
+            messages, _ = await provider.list_messages(since_cursor=None, limit=50)
+            for msg in messages:
+                emails.append({
+                    "subject": msg.subject,
+                    "from_address": msg.from_address,
+                    "snippet": msg.snippet or "",
+                    "body_text": msg.body_text or "",
+                    "has_calendar_invite": False,
+                    "received_at": msg.received_at.isoformat() if msg.received_at else None,
+                })
+        except Exception as exc:
+            logger.warning("email fetch failed for %s: %s", p["id"], exc)
+
+    # Get calendar events
+    events = data_store.get_unified_calendar(days=14)
+
+    # Run the pipeline
+    result = scan_emails_for_scheduling(emails, events)
+    return result
+
+
 # --- agents ----------------------------------------------------------------
 
 @router.get("/agents")

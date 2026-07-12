@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from a_cal.marketplace.store import MarketplaceStore
+from a_cal.marketplace.persistent_store import PersistentMarketplaceStore
 from a_cal.marketplace.types import (
     MarketplaceItem,
     MarketplaceItemType,
@@ -24,15 +25,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/a-cal/marketplace", tags=["a-cal-marketplace"])
 
 
-# --- singleton store (standalone mode) --------------------------------------
+# --- singleton store — uses SQLite persistence, falls back to in-memory -----
 
 _store: Optional[MarketplaceStore] = None
 
 
-def _get_store() -> MarketplaceStore:
+def _get_store():
+    """Get the marketplace store, preferring persistent (SQLite) storage.
+
+    Falls back to in-memory store if the database is unavailable.
+    """
     global _store
     if _store is None:
-        _store = MarketplaceStore()
+        try:
+            _store = PersistentMarketplaceStore()
+            logger.info("Marketplace using persistent SQLite store")
+        except Exception as e:
+            logger.warning("Falling back to in-memory marketplace store: %s", e)
+            _store = MarketplaceStore()
     return _store
 
 

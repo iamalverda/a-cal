@@ -17,6 +17,7 @@ import { DeveloperPanel } from "@/components/developer-panel";
 import { WorkflowBuilder } from "@/components/workflow-builder";
 import { NervousSystemPanel } from "@/components/nervous-system-panel";
 import { EmailPanel } from "@/components/email-panel";
+import { AddAccountWizard } from "@/components/add-account-wizard";
 import { api } from "@/lib/api";
 import {
   mockSubAccounts,
@@ -47,6 +48,7 @@ export default function Page() {
   const [showNervousSystem, setShowNervousSystem] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
   const [oauthResult, setOauthResult] = useState<string | null>(null);
+  const [showAddWizard, setShowAddWizard] = useState(false);
 
   /** Load real data from the backend on mount, falling back to mock data. */
   useEffect(() => {
@@ -115,6 +117,29 @@ export default function Page() {
     });
   };
 
+  /** Update a sub-account in local state after a backend PATCH. */
+  const handleSubAccountUpdated = (updated: SubAccount) => {
+    setSubAccounts((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+  };
+
+  /** Remove a sub-account from local state after deletion. */
+  const handleSubAccountDeleted = (id: string) => {
+    setSubAccounts((prev) => prev.filter((s) => s.id !== id));
+    setVisibleSubAccounts((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    if (selectedSubAccountId === id) setSelectedSubAccountId(null);
+  };
+
+  /** Handle new sub-account created by the wizard — add to state and select it. */
+  const handleSubAccountCreated = (sub: SubAccount) => {
+    setSubAccounts((prev) => [...prev, sub]);
+    setVisibleSubAccounts((prev) => new Set(prev).add(sub.id));
+    setSelectedSubAccountId(sub.id);
+  };
+
   const agentCount = agents.length;
   const connectedProviders = useMemo(
     () => Object.values(providers).flat().filter((p) => p.status === "connected").length,
@@ -147,6 +172,9 @@ export default function Page() {
             onToggleVisible={toggleVisible}
             onSelectSubAccount={setSelectedSubAccountId}
             selectedSubAccountId={selectedSubAccountId}
+            onAddAccount={() => setShowAddWizard(true)}
+            onSubAccountUpdated={handleSubAccountUpdated}
+            onSubAccountDeleted={handleSubAccountDeleted}
           />
         </div>
 
@@ -384,6 +412,14 @@ export default function Page() {
         <SlideInOverlay title="Developer Studio" icon={<Code2 size={18} className="text-[var(--primary)]" />} onClose={() => setShowDeveloper(false)}>
           <DeveloperPanel />
         </SlideInOverlay>
+      )}
+
+      {/* Add Sub-Calendar wizard */}
+      {showAddWizard && (
+        <AddAccountWizard
+          onClose={() => setShowAddWizard(false)}
+          onCreated={handleSubAccountCreated}
+        />
       )}
     </div>
   );

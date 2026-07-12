@@ -167,6 +167,53 @@ class Negotiation(Base):
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
+class MarketplaceItemDB(Base):
+    """A marketplace item published by a user or built-in."""
+    __tablename__ = "a_cal_marketplace_items"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    name = Column(String(255), nullable=False)
+    item_type = Column(String(50), nullable=False)
+    author = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    provenance = Column(JSONType, nullable=False, default=dict)
+    config = Column(JSONType, nullable=False, default=dict)
+    tags = Column(JSONType, nullable=False, default=list)
+    remixed_from = Column(String(36), nullable=True)
+    install_count = Column(Integer, nullable=False, default=0)
+    rating = Column(String(10), nullable=False, default="0.0")
+    rating_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=_utcnow)
+
+
+class InstallRecordDB(Base):
+    """A record of a user installing a marketplace item."""
+    __tablename__ = "a_cal_marketplace_installs"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    item_id = Column(String(36), ForeignKey("a_cal_marketplace_items.id"), nullable=False)
+    installed_config = Column(JSONType, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class PluginDB(Base):
+    """A registered plugin in the developer layer."""
+    __tablename__ = "a_cal_plugins"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    name = Column(String(255), nullable=False)
+    plugin_type = Column(String(50), nullable=False)
+    version = Column(String(50), nullable=False, default="0.1.0")
+    author = Column(String(255), nullable=False, default="local-dev-user")
+    description = Column(Text, nullable=False, default="")
+    config_schema = Column(JSONType, nullable=False, default=dict)
+    default_config = Column(JSONType, nullable=False, default=dict)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
 def get_db_path() -> str:
     """Get the SQLite database file path.
 
