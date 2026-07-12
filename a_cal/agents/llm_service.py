@@ -223,6 +223,9 @@ class StandaloneLLMService:
             "options": {
                 "num_ctx": 8192,
                 "num_predict": 256,
+                # Low temperature for factual calendar responses — prevents
+                # the model from inventing events or times that don't exist.
+                "temperature": 0.3,
             },
         }
 

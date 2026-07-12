@@ -164,3 +164,57 @@ class TestConductorWithLLM:
         assert data["response"] is not None  # real rule-based response
         assert "routing" in data
         assert "actions" in data
+
+
+# --- Ollama call parameters tests ------------------------------------------
+
+class TestOllamaCallParameters:
+    """Verify Ollama API call includes correct parameters for quality + speed."""
+
+    def test_ollama_options_include_temperature(self):
+        """Ollama call should include temperature:0.3 for deterministic responses."""
+        import inspect
+        from a_cal.agents.llm_service import StandaloneLLMService
+
+        # Inspect the _call_ollama method source to verify temperature is set
+        source = inspect.getsource(StandaloneLLMService._call_ollama)
+        assert "temperature" in source, (
+            "Ollama call should set temperature for deterministic responses"
+        )
+        assert "0.3" in source, "Temperature should be 0.3 for factual calendar responses"
+
+    def test_ollama_options_include_num_ctx(self):
+        """Ollama call should limit context window to 8192 for speed."""
+        import inspect
+        from a_cal.agents.llm_service import StandaloneLLMService
+
+        source = inspect.getsource(StandaloneLLMService._call_ollama)
+        assert "num_ctx" in source
+        assert "8192" in source
+
+    def test_ollama_options_include_keep_alive(self):
+        """Ollama call should set keep_alive to keep model in memory."""
+        import inspect
+        from a_cal.agents.llm_service import StandaloneLLMService
+
+        source = inspect.getsource(StandaloneLLMService._call_ollama)
+        assert "keep_alive" in source
+
+
+# --- Conductor anti-hallucination tests ------------------------------------
+
+class TestConductorAntiHallucination:
+    """Verify the conductor's hybrid mode includes anti-hallucination directives."""
+
+    def test_conductor_prompt_includes_ground_rules(self):
+        """Conductor's hybrid mode system prompt should include anti-hallucination directives."""
+        import inspect
+        from a_cal.agents.conductor import ACalConductor
+
+        source = inspect.getsource(ACalConductor.handle)
+        assert "GROUND RULES" in source or "ground truth" in source, (
+            "Conductor hybrid mode should include anti-hallucination directives"
+        )
+        assert "invent" in source or "hallucinate" in source or "NOT invent" in source, (
+            "Conductor should explicitly tell the LLM not to invent events"
+        )

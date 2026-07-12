@@ -39,8 +39,9 @@ test.describe("Workflow Builder", () => {
     // Click Load to see saved workflows
     await page.getByRole("button", { name: /^Load$/ }).click();
 
-    // Should show the saved workflow in the list
-    await expect(page.getByText("E2E Saved Workflow")).toBeVisible({ timeout: 5000 });
+    // Should show the saved workflow in the list (use first to handle
+    // duplicate entries from previous test runs that weren't cleaned up)
+    await expect(page.getByText("E2E Saved Workflow").first()).toBeVisible({ timeout: 5000 });
   });
 
   test("should add a node and show step count", async ({ page }) => {

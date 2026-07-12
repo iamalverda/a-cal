@@ -362,7 +362,25 @@ class ACalConductor:
 
         # Build the LLM prompt with standalone context so the model knows
         # what operations were already performed and can reference them.
-        system_prompt = decision.specialist.system_prompt if decision.specialist else self.spec.system_prompt
+        specialist_prompt = decision.specialist.system_prompt if decision.specialist else self.spec.system_prompt
+        # Augment the specialist's system prompt with anti-hallucination
+        # directives. The standalone agent already performed real actions
+        # (created events, found slots, listed providers) — the LLM's job
+        # is to communicate those results naturally, not invent new ones.
+        system_prompt = (
+            f"{specialist_prompt}\n\n"
+            f"IMPORTANT GROUND RULES:\n"
+            f"- The [System context] below contains the REAL results of actions "
+            f"already taken. Treat it as ground truth.\n"
+            f"- Do NOT invent events, times, or dates that are not in the system "
+            f"context. If the system found 0 events, say the schedule is clear.\n"
+            f"- If an action was already performed (e.g. event created, slot found), "
+            f"reference it directly. Do not repeat or contradict it.\n"
+            f"- Keep responses concise (2-4 sentences). The user wants answers, "
+            f"not essays.\n"
+            f"- If you are unsure about something not in the system context, say so "
+            f"rather than guessing."
+        )
         action_summary = ""
         if standalone_result.get("actions"):
             action_lines = []
