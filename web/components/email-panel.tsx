@@ -1,12 +1,51 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Mail, RefreshCw, Inbox, CalendarPlus, Send, Loader2, ChevronRight } from "lucide-react";
+import { Mail, RefreshCw, Inbox, CalendarPlus, Send, Loader2, ChevronRight, ScanLine, AlertTriangle, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { EmailMessage } from "@/types";
+
+interface ExtractedTime {
+  raw_text: string;
+  datetime: string | null;
+  duration_minutes: number | null;
+  confidence: number;
+}
+
+interface SchedulingDetection {
+  is_scheduling_related: boolean;
+  is_meeting_proposal: boolean;
+  is_calendar_invite: boolean;
+  is_reschedule: boolean;
+  is_cancellation: boolean;
+  detected_keywords: string[];
+  extracted_times: ExtractedTime[];
+  proposed_by: string;
+  subject: string;
+  snippet: string;
+  confidence: number;
+}
+
+interface SchedulingSuggestion {
+  type: string;
+  email_subject: string;
+  email_from: string;
+  proposed_time: ExtractedTime | null;
+  conflict_with: string | null;
+  suggested_alternative: string | null;
+  confidence: number;
+  message: string;
+}
+
+interface ScanResult {
+  detections: SchedulingDetection[];
+  suggestions: SchedulingSuggestion[];
+  summary: string;
+  stats: Record<string, number>;
+}
 
 /**
  * EmailPanel — displays messages from connected email providers.
@@ -20,6 +59,9 @@ export function EmailPanel() {
   const [invitesOnly, setInvitesOnly] = useState(false);
   const [selected, setSelected] = useState<EmailMessage | null>(null);
   const [showCompose, setShowCompose] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [showScan, setShowScan] = useState(false);
 
   const loadMessages = useCallback(async () => {
     setLoading(true);
@@ -36,6 +78,19 @@ export function EmailPanel() {
   useEffect(() => {
     loadMessages();
   }, [loadMessages]);
+
+  const handleScan = useCallback(async () => {
+    setScanning(true);
+    setShowScan(true);
+    try {
+      const result = await api.scanEmailForSchedule() as unknown as ScanResult;
+      setScanResult(result);
+    } catch {
+      setScanResult(null);
+    } finally {
+      setScanning(false);
+    }
+  }, []);
 
   const filtered = invitesOnly ? messages.filter((m) => m.has_calendar_invite) : messages;
   const inviteCount = messages.filter((m) => m.has_calendar_invite).length;
@@ -57,6 +112,10 @@ export function EmailPanel() {
           Invites {inviteCount > 0 && `(${inviteCount})`}
         </Button>
         <div className="flex-1" />
+        <Button variant="outline" size="sm" onClick={handleScan} disabled={scanning}>
+          {scanning ? <Loader2 size={14} className="animate-spin" /> : <ScanLine size={14} />}
+          Scan for Schedule
+        </Button>
         <Button variant="outline" size="sm" onClick={() => setShowCompose(true)}>
           <Send size={14} />
           Compose
@@ -150,6 +209,15 @@ export function EmailPanel() {
           </div>
         )}
       </div>
+
+      {/* Scheduling scan results */}
+      {showScan && (
+        <ScanResultsPanel
+          result={scanResult}
+          scanning={scanning}
+          onClose={() => setShowScan(false)}
+        />
+      )}
 
       {/* Compose modal */}
       {showCompose && <ComposeModal onClose={() => setShowCompose(false)} onSent={loadMessages} />}
@@ -255,6 +323,156 @@ function ComposeModal({
               </Button>
             </div>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+/** Panel showing scheduling suggestions from email scan. */
+function ScanResultsPanel({
+  result,
+  scanning,
+  onClose,
+}: {
+  result: ScanResult | null;
+  scanning: boolean;
+  onClose: () => void;
+}) {
+  const suggestionIcons: Record<string, typeof CheckCircle2> = {
+    create_event: CalendarPlus,
+    conflict_warning: AlertTriangle,
+    decline: XCircle,
+    reschedule_propose: Clock,
+  };
+
+  const suggestionColors: Record<string, string> = {
+    create_event: "text-[var(--cal-work)]",
+    conflict_warning: "text-orange-500",
+    decline: "text-red-500",
+    reschedule_propose: "text-[var(--cal-personal)]",
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Scheduling Suggestions</h3>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <ChevronRight size={16} />
+          </Button>
+        </div>
+
+        {scanning ? (
+          <div className="flex h-32 items-center justify-center gap-2 text-sm text-[var(--muted-foreground)]">
+            <Loader2 size={16} className="animate-spin" />
+            Scanning emails for scheduling content...
+          </div>
+        ) : !result || result.suggestions.length === 0 ? (
+          <div className="flex h-32 flex-col items-center justify-center gap-2 text-sm text-[var(--muted-foreground)]">
+            <ScanLine size={24} className="opacity-40" />
+            {result ? "No scheduling-related content found in recent emails." : "Scan failed. Make sure an email provider is connected."}
+          </div>
+        ) : (
+          <>
+            {result.summary && (
+              <p className="mb-4 text-sm text-[var(--muted-foreground)]">{result.summary}</p>
+            )}
+
+            <div className="flex gap-4 overflow-y-auto">
+              {/* Suggestions */}
+              <div className="flex-1">
+                <h4 className="mb-2 text-sm font-medium">
+                  Suggestions ({result.suggestions.length})
+                </h4>
+                <div className="flex flex-col gap-2">
+                  {result.suggestions.map((s, i) => {
+                    const Icon = suggestionIcons[s.type] || Clock;
+                    const color = suggestionColors[s.type] || "text-[var(--foreground)]";
+                    return (
+                      <div
+                        key={i}
+                        className="rounded-md border border-[var(--border)] p-3"
+                      >
+                        <div className="mb-1 flex items-center gap-2">
+                          <Icon size={16} className={color} />
+                          <span className="text-sm font-medium capitalize">
+                            {s.type.replace(/_/g, " ")}
+                          </span>
+                          {s.confidence > 0 && (
+                            <Badge variant="outline" className="ml-auto text-[10px] py-0">
+                              {Math.round(s.confidence * 100)}%
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-[var(--foreground)]">{s.message}</p>
+                        {s.proposed_time && (
+                          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                            Proposed: {s.proposed_time.raw_text}
+                            {s.proposed_time.datetime && ` (${new Date(s.proposed_time.datetime).toLocaleString()})`}
+                          </p>
+                        )}
+                        {s.conflict_with && (
+                          <p className="mt-1 text-xs text-orange-500">
+                            Conflicts with: {s.conflict_with}
+                          </p>
+                        )}
+                        {s.suggested_alternative && (
+                          <p className="mt-1 text-xs text-[var(--cal-personal)]">
+                            Alternative: {s.suggested_alternative}
+                          </p>
+                        )}
+                        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                          From: {s.email_from}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Detections */}
+              {result.detections.length > 0 && (
+                <div className="w-[40%]">
+                  <h4 className="mb-2 text-sm font-medium">
+                    Detected ({result.detections.length})
+                  </h4>
+                  <div className="flex flex-col gap-1.5">
+                    {result.detections
+                      .filter((d) => d.is_scheduling_related)
+                      .map((d, i) => (
+                        <div key={i} className="rounded-md border border-[var(--border)] p-2">
+                          <p className="truncate text-xs font-medium">{d.subject || "(no subject)"}</p>
+                          <div className="flex gap-1">
+                            {d.is_meeting_proposal && (
+                              <Badge variant="outline" className="text-[10px] py-0">Proposal</Badge>
+                            )}
+                            {d.is_calendar_invite && (
+                              <Badge variant="outline" className="text-[10px] py-0">Invite</Badge>
+                            )}
+                            {d.is_reschedule && (
+                              <Badge variant="outline" className="text-[10px] py-0">Reschedule</Badge>
+                            )}
+                            {d.is_cancellation && (
+                              <Badge variant="outline" className="text-[10px] py-0">Cancel</Badge>
+                            )}
+                          </div>
+                          {d.extracted_times.length > 0 && (
+                            <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
+                              Times: {d.extracted_times.map((t) => t.raw_text).join(", ")}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>
