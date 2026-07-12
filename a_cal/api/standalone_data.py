@@ -329,6 +329,10 @@ async def trigger_sync(body: SyncTriggerRequest) -> Dict[str, Any]:
         except Exception as exc:
             logger.warning("self-model extraction after sync failed: %s", exc)
 
+    # Fire on_sync_complete plugin hook (fire-and-forget).
+    sync_events_data = [ev.to_storage_dict() for ev in all_events]
+    _fire_plugin_hook("on_sync_complete", body.sub_account_id, sync_events_data)
+
     event_count = len(_store.get_unified_calendar(30))
     return {
         "sub_account_id": body.sub_account_id,
