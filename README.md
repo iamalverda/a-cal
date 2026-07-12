@@ -30,8 +30,10 @@ and what flows to the main calendar per sub-account.
 A conductor agent routes natural-language requests to 5 specialist agents
 (schedule, sync, email, negotiate, self-model), augmented by 10 bio-mimetic
 CAS modules (thalamus gate, RAS, basal ganglia, hippocampus, insula, etc.)
-organized as a nervous system coordinator. Users talk to the conductor in
-plain language; the conductor dispatches to specialists and makes real changes.
+organized as a nervous system coordinator. The conductor runs in hybrid mode:
+rule-based actions execute real calendar operations, then the LLM (if enabled)
+crafts a natural-language response with that context. Works standalone without
+any LLM, or with any provider.
 
 ### Self-Model
 A-Cal learns about the user at a depth they choose (pattern memory, attention/
@@ -74,10 +76,11 @@ installing.
 
 ### Developer Layer
 - Plugin system (register/unregister/enable/disable/configure)
+- Plugin runtime (load Python plugins from disk, fire hooks on events/conductor/sync)
 - Config-as-code (export/import full config as JSON)
 - Agent spec CRUD (create custom agents beyond the 6 built-ins)
 - Visual workflow builder (chain agent steps, export/import)
-- Full REST API (`/api/a-cal/*`)
+- Full REST API (`/api/a-cal/*`) and TypeScript SDK
 
 ---
 
@@ -109,6 +112,17 @@ pnpm dev
 
 Open http://localhost:3456 to see the full A-Cal interface.
 
+### Docker
+
+```bash
+cd a-cal
+cp .env.example .env  # edit with your OAuth credentials
+docker compose up --build
+# → backend at http://localhost:8000, frontend at http://localhost:3456
+```
+
+The `a-cal-data` volume persists the SQLite database across container restarts.
+
 ### Run Tests
 
 ```bash
@@ -129,75 +143,94 @@ cd web && npx next build
 ```
 a_cal/
   agents/
-    conductor.py          # Intent classification + routing + LLM dispatch
-    specs.py              # 6 built-in agent specs (conductor + 5 specialists)
-    cas_specs.py          # 10 CAS bio-mimetic agent specs
-    nervous_system.py     # Nervous system coordinator (signal routing)
-    standalone_responses.py  # Rule-based responses without an LLM
-    llm_service.py        # Standalone LLM service (Ollama, OpenAI, etc.)
-    registry.py           # Agent registry
+    conductor.py           # Intent classification + routing + LLM dispatch
+    specs.py               # 6 built-in agent specs (conductor + 5 specialists)
+    cas_specs.py           # 10 CAS bio-mimetic agent specs
+    nervous_system.py      # Nervous system coordinator (signal routing)
+    llm_service.py         # LLM service (hybrid mode, any provider)
+    email_scheduler.py     # Email-to-schedule detection (invites, conflicts)
+    standalone_responses.py  # Standalone LLM response generation
+    registry.py            # Agent registry and lookup
   api/
-    standalone.py         # FastAPI app mounting all routers
-    agent_routes.py       # Conductor chat, settings, self-model facts
-    standalone_data.py    # Sub-accounts, providers, sync, calendar view
-    oauth_routes.py       # OAuth start/callback for Google/Outlook/Gmail
-    swarm_routes.py       # Federated swarm negotiation endpoints
-    marketplace_routes.py # Marketplace browse/install/remix/rate
-    developer_routes.py   # Plugins, agent CRUD, config export/import
-    routes.py             # Production routes (with atom's database)
+    standalone.py          # FastAPI app entry point (configurable CORS)
+    standalone_data.py     # Data/sync routes (sub-accounts, events, email)
+    agent_routes.py        # Conductor, settings, self-model, nervous system
+    developer_routes.py    # Plugin runtime, agent specs, config export/import
+    marketplace_routes.py  # Marketplace browse/search/install/remix
+    swarm_routes.py        # Swarm negotiation endpoints
+    oauth_routes.py        # OAuth start/callback flows
   db/
-    store.py              # SQLite-backed persistent store (all entities)
-    models.py             # SQLAlchemy models
-  self_model/
-    types.py              # Depth hierarchy, fact categories, privacy tiers
-    store.py              # JSON-based fact storage (LanceDB in full deployment)
-    extractor.py          # Depth-gated fact extraction from events/emails
-    model.py              # SelfModel — context injection, enrichment, export
-    settings.py           # User-controlled settings (depth, toggles, privacy)
-  sync/
-    engine.py             # Four sync modes
-    rules.py              # Include/exclude/transform rule evaluation
+    store.py               # SQLite persistent store (settings, model routing)
+    models.py              # SQLAlchemy models (SubAccount, Provider, SyncRule)
   providers/
-    base.py               # CalendarProvider/EmailProvider ABCs + DTOs
-    factory.py            # Build a live provider from a connection
-    google_provider.py    # Google Calendar (via OAuth)
-    outlook_provider.py   # Microsoft Outlook (via OAuth)
-    caldav_provider.py    # Any CalDAV server (Radicale, Nextcloud, ...)
-    gmail_provider.py     # Gmail (via OAuth)
-    oauth.py              # OAuth flow helpers
+    base.py                # Provider ABC
+    google_provider.py     # Google Calendar (via OAuth)
+    outlook_provider.py    # Outlook (via OAuth)
+    caldav_provider.py     # Any CalDAV server (Radicale, Nextcloud, ...)
+    gmail_provider.py      # Gmail (via OAuth)
+    factory.py             # Provider factory
+    oauth.py               # OAuth flow helpers
   email/
-    imap_smtp_provider.py # Any email provider via stdlib IMAP/SMTP
+    imap_smtp_provider.py  # Any email provider via stdlib IMAP/SMTP
+  self_model/
+    model.py               # Self-model logic and fact management
+    extractor.py           # Auto-learning from synced events
+    store.py               # JSON file-based fact storage
+    types.py               # Fact categories, depth tiers, privacy levels
+    settings.py            # Self-model depth and category settings
   marketplace/
-    store.py              # In-memory marketplace store
-    types.py              # MarketplaceItem, Provenance, InstallRecord
+    store.py               # In-memory marketplace store
+    persistent_store.py    # SQLAlchemy-backed marketplace store
+    types.py               # MarketplaceItem, Provenance, InstallRecord
   developer/
-    plugins.py            # Plugin system (PluginBase + PluginRegistry)
-    config_io.py          # Config export/import with schema versioning
-    agent_crud.py         # Custom agent spec CRUD
+    plugins.py             # Plugin system (PluginBase + PluginRegistry)
+    plugin_runtime.py      # Plugin runtime (load from disk, fire hooks, reload)
+    config_io.py           # Config export/import with schema versioning
+    agent_crud.py          # Custom agent spec CRUD
   settings/
-    modes.py              # Simple/Pro/Developer skill mode configs
-    model_routing.py      # Model routing config (12 providers)
+    modes.py               # Simple/Pro/Developer skill mode configs
+    model_routing.py       # Model routing config (12 providers, privacy tiers)
+  sync/
+    engine.py              # Four-mode sync engine
+    rules.py               # Sync rule evaluation
   integrations/
-    atom_bridge.py        # Runtime atom detection + adapter bridge
+    atom_bridge.py         # Runtime atom detection + adapter bridge
   swarm/
-    coordinator.py        # Swarm negotiation loop
-    protocol.py           # Message types, states, priority system
+    coordinator.py         # Swarm negotiation loop
+    protocol.py            # Message types, states, priority system
 
 web/
-  app/page.tsx            # Main page (loads all panels)
+  app/
+    page.tsx               # Main page (loads all panels)
+    layout.tsx             # Root layout
   components/
-    calendar-view.tsx     # Unified calendar timeline
-    conductor-panel.tsx   # Chat interface for talking to agents
-    settings-panel.tsx    # Model routing, self-model, connections, privacy
-    sub-account-sidebar.tsx  # Sub-account management
-    email-panel.tsx       # Inbox, compose, invite detection
-    marketplace-panel.tsx # Browse, search, install, remix
-    developer-panel.tsx   # Plugins, agent specs, config export/import
-    workflow-builder.tsx  # Visual workflow composition
-    swarm-panel.tsx       # Negotiation history and audit trail
+    calendar-view.tsx      # Unified calendar timeline
+    conductor-panel.tsx    # Chat interface for talking to agents
+    settings-panel.tsx     # Model routing, self-model, connections, privacy
+    sub-account-sidebar.tsx   # Sub-account management
+    add-account-wizard.tsx    # Sub-account creation wizard
+    email-panel.tsx        # Inbox, compose, invite detection, schedule scan
+    marketplace-panel.tsx  # Browse, search, install, remix
+    developer-panel.tsx    # Plugins, agent specs, config, runtime plugins
+    workflow-builder.tsx   # Visual workflow composition
+    swarm-panel.tsx        # Negotiation history and audit trail
     nervous-system-panel.tsx  # CAS module overview and signal routing
-  lib/api.ts              # Full API client (all backend endpoints)
-  types/index.ts          # TypeScript types mirroring Python models
+    ui/                    # Shared UI primitives (badge, button, input, select, switch)
+  lib/
+    api.ts                 # Full API client (all backend endpoints)
+    mock-data.ts           # Fallback mock data for offline frontend
+    utils.ts               # Shared utilities
+  types/
+    index.ts               # TypeScript types mirroring Python models
+
+sdk/
+  index.ts                 # Full TypeScript SDK (60+ endpoints)
+  package.json             # SDK package metadata
+
+plugins/
+  examples/                # 5 example plugins (event_tagger, conflict_notifier,
+                           #   response_enhancer, custom_agent, sync_rules_pack)
+  README.md                # Plugin development guide with hook reference
 ```
 
 ---
@@ -235,6 +268,8 @@ web/
 |----------|---------|-------------|
 | `A_CAL_BASE_URL` | `http://localhost:8000` | Backend URL (for OAuth callbacks) |
 | `A_CAL_FRONTEND_URL` | `http://localhost:3456` | Frontend URL (for OAuth redirects) |
+| `A_CAL_CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
+| `A_CAL_PLUGIN_DIR` | `~/.a-cal/plugins` | Directory for plugin Python files |
 | `A_CAL_GOOGLE_CLIENT_ID` | — | Google OAuth client ID |
 | `A_CAL_GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
 | `A_CAL_MS_CLIENT_ID` | — | Microsoft OAuth client ID |
@@ -254,6 +289,14 @@ web/
 3. In A-Cal Settings → Model Routing, select Ollama as the provider
 4. Toggle "Enable AI responses" to activate real LLM-powered agent responses
 
+### Plugin Development
+1. Create a `.py` file in `~/.a-cal/plugins/` (or your `A_CAL_PLUGIN_DIR`)
+2. Define a `Plugin` class with at least one supported hook:
+   - `on_event_created`, `on_event_updated`, `on_event_deleted`
+   - `on_sync_complete`, `on_intent_classified`, `on_conductor_response`
+3. See `plugins/examples/` for working examples and `plugins/README.md` for
+   the full hook reference
+
 ---
 
 ## Optional Dependencies
@@ -266,11 +309,13 @@ web/
 
 ## Project Status
 
-413 passing tests. 57 Python files, 21 TypeScript files. Frontend build
-passes (152 kB first load). Standalone server runs all endpoints without atom.
-Conductor routes natural language across all 5 intents with real calendar
-operations. Self-model extractor learns from synced events. Natural-language
-account creation works end-to-end.
+506 passing tests. 60 Python source files (14k lines), 23 TypeScript files
+(7k lines). Frontend build passes, TypeScript typecheck clean. Standalone
+server runs all 80+ endpoints without atom. Conductor routes natural language
+across all 5 intents with real calendar operations. Self-model extractor
+learns from synced events. Natural-language account creation works end-to-end.
+Docker self-hosting via `docker compose up`. 5 example plugins with full
+hook coverage. SDK covers all 60+ REST endpoints.
 
 See `outputs/A-Cal_end_goal.md` in the workspace root for the full product
 charter and design decisions.
