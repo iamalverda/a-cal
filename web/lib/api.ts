@@ -37,6 +37,7 @@ import type {
   SyncRule,
   RuleType,
   RuleField,
+  AutonomyConfig,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -259,6 +260,17 @@ export const api = {
 
   async setModelRouting(config: ModelRoutingConfig): Promise<ModelRoutingConfig> {
     return fetchJson(`${API_BASE}/settings/model-routing`, {
+      method: "POST",
+      body: JSON.stringify(config),
+    });
+  },
+
+  async getAutonomy(): Promise<AutonomyConfig> {
+    return fetchJson(`${API_BASE}/settings/autonomy`);
+  },
+
+  async setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig> {
+    return fetchJson(`${API_BASE}/settings/autonomy`, {
       method: "POST",
       body: JSON.stringify(config),
     });

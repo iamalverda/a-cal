@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Calendar,
   Mail,
@@ -14,11 +14,12 @@ import {
   Bot,
   ChevronDown,
   Check,
+  Shield,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn, colorFromString } from "@/lib/utils";
 import { api } from "@/lib/api";
-import type { SubAccount, ProviderConnection, SyncMode } from "@/types";
+import type { SubAccount, ProviderConnection, SyncMode, AutonomyLevel } from "@/types";
 import { SyncRulesEditor } from "@/components/sync-rules-editor";
 
 interface SubAccountSidebarProps {
@@ -50,6 +51,14 @@ const SYNC_MODE_LABELS: Record<SyncMode, string> = {
 
 const SYNC_MODES: SyncMode[] = ["mirror_filter", "intelligent_merge", "layered_federation", "per_sub_agent"];
 
+const AUTONOMY_LABELS: Record<AutonomyLevel, string> = {
+  suggest_only: "Suggest Only",
+  confirm: "Confirm",
+  full_auto: "Full Auto",
+};
+
+const AUTONOMY_LEVELS: AutonomyLevel[] = ["suggest_only", "confirm", "full_auto"];
+
 function statusIcon(status: string) {
   switch (status) {
     case "connected": return <CheckCircle2 size={12} className="text-[var(--cal-personal)]" />;
@@ -71,7 +80,20 @@ export function SubAccountSidebar({
   onSubAccountDeleted,
 }: SubAccountSidebarProps) {
   const [showSyncMenu, setShowSyncMenu] = useState(false);
+  const [showAutonomyMenu, setShowAutonomyMenu] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [autonomyOverrides, setAutonomyOverrides] = useState<Record<string, AutonomyLevel>>({});
+  const [globalAutonomy, setGlobalAutonomy] = useState<AutonomyLevel>("confirm");
+
+  // Load autonomy config on mount
+  useEffect(() => {
+    api.getAutonomy()
+      .then((cfg) => {
+        setGlobalAutonomy(cfg.default_level);
+        setAutonomyOverrides(cfg.per_sub_account);
+      })
+      .catch(() => {});
+  }, []);
 
   const mainAccount = subAccounts.find((s) => s.is_main);
   const subAccountsList = subAccounts.filter((s) => !s.is_main);
@@ -88,6 +110,33 @@ export function SubAccountSidebar({
     } catch {
       // Backend not running — update locally
       onSubAccountUpdated({ ...selected, sync_mode: mode });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  /** Update autonomy override for the selected sub-account. */
+  const handleAutonomyChange = async (level: AutonomyLevel) => {
+    if (!selected) return;
+    setShowAutonomyMenu(false);
+    setUpdating(true);
+    const newOverrides = { ...autonomyOverrides };
+
+    // If the selected level matches the global default, remove the override
+    if (level === globalAutonomy) {
+      delete newOverrides[selected.id];
+    } else {
+      newOverrides[selected.id] = level;
+    }
+
+    setAutonomyOverrides(newOverrides);
+    try {
+      await api.setAutonomy({
+        default_level: globalAutonomy,
+        per_sub_account: newOverrides,
+      });
+    } catch {
+      // Backend not running — local state already updated
     } finally {
       setUpdating(false);
     }
@@ -250,6 +299,48 @@ export function SubAccountSidebar({
                         sa.agent_enabled ? "translate-x-4" : "translate-x-0"
                       )} />
                     </button>
+                  </div>
+
+                  {/* Autonomy override */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowAutonomyMenu(!showAutonomyMenu)}
+                      className="flex items-center gap-1.5 w-full px-2 py-1.5 text-xs rounded-md border border-[var(--border)] hover:bg-[var(--accent)]/50 transition-colors"
+                      disabled={updating}
+                    >
+                      <Shield size={12} className="text-[var(--muted-foreground)]" />
+                      <span className="font-medium">Autonomy:</span>
+                      <span className="text-[var(--muted-foreground)] flex-1 text-left">
+                        {AUTONOMY_LABELS[autonomyOverrides[sa.id] ?? globalAutonomy]}
+                        {autonomyOverrides[sa.id] && <span className="text-[10px] ml-1">(override)</span>}
+                      </span>
+                      <ChevronDown size={12} className="text-[var(--muted-foreground)]" />
+                    </button>
+                    {showAutonomyMenu && (
+                      <div className="absolute z-20 left-0 right-0 mt-1 rounded-md border border-[var(--border)] bg-[var(--card)] shadow-lg overflow-hidden">
+                        {AUTONOMY_LEVELS.map((level) => {
+                          const isActive = (autonomyOverrides[sa.id] ?? globalAutonomy) === level;
+                          return (
+                            <button
+                              key={level}
+                              onClick={() => handleAutonomyChange(level)}
+                              className={cn(
+                                "flex items-center gap-2 w-full px-3 py-2 text-xs text-left hover:bg-[var(--accent)]/50 transition-colors",
+                                isActive && "bg-[var(--primary)]/8 font-medium"
+                              )}
+                            >
+                              {AUTONOMY_LABELS[level]}
+                              {level === globalAutonomy && !autonomyOverrides[sa.id] && (
+                                <span className="text-[10px] text-[var(--muted-foreground)] ml-auto">default</span>
+                              )}
+                              {isActive && autonomyOverrides[sa.id] && (
+                                <Check size={12} className="ml-auto text-[var(--primary)]" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {/* Sync rules */}

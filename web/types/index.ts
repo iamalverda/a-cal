@@ -90,6 +90,15 @@ export interface ModelRoutingConfig {
   privacy_force_local: boolean;
 }
 
+/** Agent autonomy level — controls how much freedom agents have to act. */
+export type AutonomyLevel = "suggest_only" | "confirm" | "full_auto";
+
+/** Agent autonomy configuration — global default + per-sub-account overrides. */
+export interface AutonomyConfig {
+  default_level: AutonomyLevel;
+  per_sub_account: Record<string, AutonomyLevel>;
+}
+
 export interface SelfModelDepth {
   depth: string;
   enabled_categories: Record<string, boolean>;

@@ -22,6 +22,7 @@ import {
   Download,
   Eye,
   AlertTriangle,
+  Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -31,7 +32,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { api, oauthApi } from "@/lib/api";
 import { mockModeConfig } from "@/lib/mock-data";
-import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact, AtomStatus, BackendMode } from "@/types";
+import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact, AtomStatus, BackendMode, AutonomyLevel } from "@/types";
 
 interface SettingsPanelProps {
   mode: SkillMode;
@@ -70,6 +71,7 @@ const SECTIONS = [
   { id: "mode", label: "Skill Mode", icon: SettingsIcon },
   { id: "connections", label: "Connections", icon: LinkIcon },
   { id: "model", label: "Model Routing", icon: Cpu },
+  { id: "autonomy", label: "Agent Autonomy", icon: Bot },
   { id: "self_model", label: "Self-Model", icon: Brain },
   { id: "privacy", label: "Privacy", icon: Shield },
   { id: "developer", label: "Developer", icon: Code2 },
@@ -109,6 +111,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
   const [apiKeyDraft, setApiKeyDraft] = useState<Record<string, string>>({});
   const [backendMode, setBackendMode] = useState<BackendMode>("standalone");
   const [atomStatus, setAtomStatus] = useState<AtomStatus | null>(null);
+  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>("confirm");
 
   // Self-model facts viewer state
   const [showFacts, setShowFacts] = useState(false);
@@ -149,6 +152,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         // Load backend mode and atom status (non-blocking — may fail if endpoint missing)
         api.getBackendMode().then((r) => setBackendMode(r.mode as BackendMode)).catch(() => {});
         api.getAtomStatus().then(setAtomStatus).catch(() => {});
+        api.getAutonomy().then((a) => setAutonomyLevel(a.default_level)).catch(() => {});
       } catch {
         // Backend not running — keep defaults (mock data already set)
       }
@@ -176,6 +180,16 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         per_task_overrides: {},
         privacy_force_local: true,
       });
+    } catch {
+      // Backend not running — local state already updated
+    }
+  };
+
+  /** Save autonomy level to backend. */
+  const saveAutonomy = async (level: AutonomyLevel) => {
+    setAutonomyLevel(level);
+    try {
+      await api.setAutonomy({ default_level: level, per_sub_account: {} });
     } catch {
       // Backend not running — local state already updated
     }

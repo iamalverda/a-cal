@@ -25,6 +25,7 @@ from a_cal.db.store import PersistentStore as _DBStore
 from a_cal.agents.llm_service import check_ollama_available, list_ollama_models
 from a_cal.settings.modes import get_mode_config, SkillMode
 from a_cal.settings.model_routing import ModelRoutingConfig
+from a_cal.settings.autonomy import AutonomyConfig, AutonomyLevel
 from a_cal.self_model.settings import SelfModelSettings
 from a_cal.self_model.store import SelfModelStore
 
@@ -107,12 +108,14 @@ class _SettingsStore:
                     llm_service = StandaloneLLMService(
                         routing=routing, api_keys=api_keys,
                     )
+            autonomy = self.get_autonomy(user_id)
             self._conductors[user_id] = ACalConductor(
                 user_id=user_id,
                 llm_service=llm_service,
                 nervous_system=_get_nervous_system(),
                 event_store=self._db,
                 provider_store=self._db,
+                autonomy_config=autonomy,
             )
         return self._conductors[user_id]
 
@@ -148,6 +151,19 @@ class _SettingsStore:
         self._db.set_setting("backend_mode", mode)
         self._conductors.pop(user_id, None)
         return mode
+
+    def get_autonomy(self, user_id: str) -> AutonomyConfig:
+        """Get the user's agent autonomy configuration."""
+        data = self._db.get_setting("autonomy_config")
+        if data:
+            return AutonomyConfig.from_dict(data)
+        return AutonomyConfig()
+
+    def set_autonomy(self, user_id: str, config: AutonomyConfig) -> AutonomyConfig:
+        """Set autonomy config and invalidate cached conductor."""
+        self._db.set_setting("autonomy_config", config.to_dict())
+        self._conductors.pop(user_id, None)
+        return config
 
 
 _store = _SettingsStore()
@@ -195,6 +211,12 @@ class SelfModelSettingsRequest(BaseModel):
     proactive_suggestions_enabled: bool = False
     feed_into_calendar_view: bool = True
     feed_into_agents: bool = True
+
+
+class AutonomyRequest(BaseModel):
+    """Payload for updating agent autonomy settings."""
+    default_level: str = "confirm"
+    per_sub_account: Dict[str, str] = Field(default_factory=dict)
 
 
 # --- conductor chat --------------------------------------------------------
@@ -324,6 +346,49 @@ def set_model_routing(body: ModelRoutingRequest):
         privacy_force_local=body.privacy_force_local,
     )
     return _store.set_routing(user_id, config).to_dict()
+
+
+# --- settings: agent autonomy ---------------------------------------------
+
+@router.get("/settings/autonomy")
+def get_autonomy():
+    """Get the user's agent autonomy configuration.
+
+    Returns the global default autonomy level and any per-sub-account
+    overrides. The conductor uses this to decide whether to execute
+    actions automatically, ask for confirmation, or only suggest.
+    """
+    user_id = _current_user_id()
+    return _store.get_autonomy(user_id).to_dict()
+
+
+@router.post("/settings/autonomy")
+def set_autonomy(body: AutonomyRequest):
+    """Update agent autonomy settings.
+
+    Valid levels: 'suggest_only' (propose only), 'confirm' (execute with
+    confirmation), 'full_auto' (execute without asking).
+    """
+    valid_levels = {lvl.value for lvl in AutonomyLevel}
+    if body.default_level not in valid_levels:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail=f"default_level must be one of: {', '.join(sorted(valid_levels))}",
+        )
+    for sa_id, level in body.per_sub_account.items():
+        if level not in valid_levels:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid level '{level}' for sub-account '{sa_id}'",
+            )
+    user_id = _current_user_id()
+    config = AutonomyConfig(
+        default_level=body.default_level,
+        per_sub_account=body.per_sub_account,
+    )
+    return _store.set_autonomy(user_id, config).to_dict()
 
 
 # --- settings: self-model --------------------------------------------------

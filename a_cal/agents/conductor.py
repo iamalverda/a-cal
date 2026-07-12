@@ -35,6 +35,7 @@ from a_cal.agents.specs import (
 )
 from a_cal.agents.standalone_responses import generate_standalone_response
 from a_cal.integrations.atom_bridge import get_atom_adapters
+from a_cal.settings.autonomy import AutonomyConfig, AutonomyLevel
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,7 @@ class ACalConductor:
         nervous_system: Any = None,
         event_store: Any = None,
         provider_store: Any = None,
+        autonomy_config: Optional[AutonomyConfig] = None,
     ) -> None:
         self.self_model = self_model
         self.llm_service = llm_service
@@ -159,6 +161,7 @@ class ACalConductor:
         self.nervous_system = nervous_system
         self.event_store = event_store
         self.provider_store = provider_store
+        self.autonomy_config = autonomy_config or AutonomyConfig()
         self.spec = CONDUCTOR_SPEC
 
     def classify_intent(self, message: str) -> IntentType:
@@ -302,6 +305,16 @@ class ACalConductor:
             except Exception as exc:
                 logger.debug("nervous system routing failed: %s", exc)
 
+        # Resolve the effective autonomy level for this request.
+        # Per-sub-account overrides apply when the conductor knows which
+        # sub-account is involved; for now, the global default is used.
+        autonomy_level = self.autonomy_config.resolve(None)
+        suggest_only = autonomy_level == AutonomyLevel.SUGGEST_ONLY
+        confirmation_required = autonomy_level == AutonomyLevel.CONFIRM
+        # In SUGGEST_ONLY mode, pass event_store=None so the standalone
+        # generators propose actions without executing mutations.
+        effective_event_store = None if suggest_only else self.event_store
+
         if self.llm_service is None:
             # Standalone: generate real rule-based responses
             cal_data = self._get_calendar_data()
@@ -313,7 +326,7 @@ class ACalConductor:
                 sub_accounts=cal_data["sub_accounts"],
                 self_model=self.self_model,
                 agents=self.list_specialists(),
-                event_store=self.event_store,
+                event_store=effective_event_store,
             )
 
             # Allow plugins to transform the response before returning.
@@ -340,6 +353,8 @@ class ACalConductor:
                 "cas_modules_engaged": cas_modules_engaged,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "standalone": True,
+                "autonomy_level": autonomy_level.value,
+                "confirmation_required": confirmation_required,
             }
 
         # Hybrid mode: run the standalone response generator to perform
@@ -357,7 +372,7 @@ class ACalConductor:
             sub_accounts=cal_data["sub_accounts"],
             self_model=self.self_model,
             agents=self.list_specialists(),
-            event_store=self.event_store,
+            event_store=effective_event_store,
         )
 
         # Build the LLM prompt with standalone context so the model knows
@@ -442,6 +457,8 @@ class ACalConductor:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "standalone": False,
             "actions_source": "hybrid",
+            "autonomy_level": autonomy_level.value,
+            "confirmation_required": confirmation_required,
         }
 
     def list_specialists(self) -> List[Dict[str, Any]]:
