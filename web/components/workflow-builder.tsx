@@ -24,6 +24,9 @@ import {
   Shield,
   Zap,
   Settings2,
+  Play,
+  FolderOpen,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -32,7 +35,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { api, developerApi } from "@/lib/api";
-import type { AgentSpec } from "@/types";
+import type { AgentSpec, WorkflowRunResult } from "@/types";
 
 /** A single node in the workflow. */
 interface WorkflowNode {
@@ -40,16 +43,19 @@ interface WorkflowNode {
   agent: string;
   label: string;
   config: Record<string, unknown>;
-  conditional?: string;
+  conditional?: string | null;
 }
 
 /** A complete workflow definition. */
 interface WorkflowDef {
+  id?: string;
   name: string;
   description: string;
   nodes: WorkflowNode[];
   trigger: "manual" | "schedule_change" | "email_received" | "conflict_detected";
   version: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 /** Agent icon mapping. */
@@ -88,6 +94,10 @@ export function WorkflowBuilder() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [exportJson, setExportJson] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [runResult, setRunResult] = useState<WorkflowRunResult | null>(null);
+  const [running, setRunning] = useState(false);
+  const [showLoadList, setShowLoadList] = useState(false);
+  const [savedWorkflows, setSavedWorkflows] = useState<Array<{ id: string; name: string; description: string; nodes: Array<{ id: string; agent: string; label: string; config: Record<string, unknown>; conditional?: string | null }>; trigger: string; version: string; created_at: string; updated_at: string }>>([]);
 
   /** Load available agents on mount. */
   useEffect(() => {
@@ -210,6 +220,89 @@ export function WorkflowBuilder() {
       setSaved(true);
     }
   }, [workflow]);
+
+  /** Save workflow to the backend. */
+  const handleSave = useCallback(async () => {
+    try {
+      const result = await developerApi.saveWorkflow({
+        id: (workflow as WorkflowDef & { id?: string }).id ?? "",
+        name: workflow.name,
+        description: workflow.description,
+        nodes: workflow.nodes,
+        trigger: workflow.trigger,
+        version: workflow.version,
+      });
+      setWorkflow((p) => ({ ...p, id: result.id, created_at: result.created_at, updated_at: result.updated_at }));
+      setSaved(true);
+    } catch {
+      setSaved(true);
+    }
+  }, [workflow]);
+
+  /** Load saved workflows from the backend. */
+  const handleLoadList = useCallback(async () => {
+    try {
+      const wfs = await developerApi.listWorkflows();
+      setSavedWorkflows(wfs);
+      setShowLoadList(true);
+    } catch {
+      setShowLoadList(false);
+    }
+  }, []);
+
+  /** Load a specific workflow into the builder. */
+  const handleLoadWorkflow = useCallback((wf: typeof savedWorkflows[0]) => {
+    setWorkflow({
+      id: wf.id,
+      name: wf.name,
+      description: wf.description,
+      nodes: wf.nodes,
+      trigger: wf.trigger as WorkflowDef["trigger"],
+      version: wf.version,
+    });
+    setShowLoadList(false);
+    setSaved(true);
+  }, []);
+
+  /** Run the current workflow. */
+  const handleRun = useCallback(async () => {
+    setRunning(true);
+    setRunResult(null);
+    try {
+      const result = await developerApi.runWorkflow(
+        {
+          name: workflow.name,
+          description: workflow.description,
+          nodes: workflow.nodes,
+          trigger: workflow.trigger,
+          version: workflow.version,
+        },
+      );
+      setRunResult(result);
+    } catch (e) {
+      setRunResult({
+        workflow_id: "",
+        success: false,
+        steps: [],
+        final_output: "",
+        error: e instanceof Error ? e.message : "Failed to run workflow",
+        started_at: "",
+        finished_at: "",
+      });
+    } finally {
+      setRunning(false);
+    }
+  }, [workflow]);
+
+  /** Delete a saved workflow. */
+  const handleDeleteSaved = useCallback(async (id: string) => {
+    try {
+      await developerApi.deleteWorkflow(id);
+      setSavedWorkflows((prev) => prev.filter((w) => w.id !== id));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const selectedNode = workflow.nodes.find((n) => n.id === selectedNodeId);
   const availableAgents = agents.length > 0 ? agents : [
@@ -440,8 +533,18 @@ export function WorkflowBuilder() {
 
       {/* Action bar */}
       <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
+        <Button variant="outline" size="sm" onClick={handleSave}>
+          <Save size={14} className="mr-1" /> Save
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleLoadList}>
+          <FolderOpen size={14} className="mr-1" /> Load
+        </Button>
+        <Button variant="default" size="sm" onClick={handleRun} disabled={running || workflow.nodes.length === 0}>
+          {running ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Play size={14} className="mr-1" />}
+          {running ? "Running..." : "Run"}
+        </Button>
         <Button variant="outline" size="sm" onClick={handlePublish}>
-          <Save size={14} className="mr-1" /> Save & Publish
+          <Save size={14} className="mr-1" /> Publish
         </Button>
         <Button variant="outline" size="sm" onClick={handleExport}>
           <Download size={14} className="mr-1" /> Export JSON
@@ -462,6 +565,87 @@ export function WorkflowBuilder() {
           {workflow.nodes.length} step{workflow.nodes.length !== 1 ? "s" : ""}
         </div>
       </div>
+
+      {/* Load workflow list */}
+      {showLoadList && (
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 max-h-64 overflow-auto">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium">Saved Workflows</span>
+            <button onClick={() => setShowLoadList(false)} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+              <X size={14} />
+            </button>
+          </div>
+          {savedWorkflows.length === 0 ? (
+            <p className="text-xs text-[var(--muted-foreground)]">No saved workflows yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {savedWorkflows.map((wf) => (
+                <div key={wf.id} className="flex items-center gap-2 rounded-md border border-[var(--border)] p-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{wf.name}</div>
+                    <div className="text-xs text-[var(--muted-foreground)] truncate">
+                      {wf.nodes.length} steps | {wf.trigger}
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => handleLoadWorkflow(wf)}>
+                    Load
+                  </Button>
+                  <button
+                    onClick={() => handleDeleteSaved(wf.id)}
+                    className="text-[var(--muted-foreground)] hover:text-red-500 p-1"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Run result */}
+      {runResult && (
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 max-h-64 overflow-auto">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium">Run Result</span>
+              {runResult.success ? (
+                <Badge className="bg-green-500/15 text-green-600 text-xs">Success</Badge>
+              ) : (
+                <Badge className="bg-red-500/15 text-red-600 text-xs">Failed</Badge>
+              )}
+            </div>
+            <button onClick={() => setRunResult(null)} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+              <X size={14} />
+            </button>
+          </div>
+          {runResult.error && (
+            <p className="text-xs text-red-500 mb-2">{runResult.error}</p>
+          )}
+          {runResult.steps.length > 0 && (
+            <div className="space-y-2">
+              {runResult.steps.map((step, idx) => (
+                <div key={idx} className="text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{step.label}</span>
+                    {step.skipped && <Badge className="bg-[var(--muted)] text-xs">Skipped</Badge>}
+                    {step.error && <Badge className="bg-red-500/15 text-red-600 text-xs">Error</Badge>}
+                  </div>
+                  {step.output && (
+                    <p className="text-[var(--muted-foreground)] mt-1 ml-3">{step.output.slice(0, 200)}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {runResult.final_output && (
+            <div className="mt-2 pt-2 border-t border-[var(--border)]">
+              <div className="text-xs font-medium mb-1">Final Output</div>
+              <p className="text-xs text-[var(--muted-foreground)]">{runResult.final_output.slice(0, 300)}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Export preview */}
       {exportJson && (

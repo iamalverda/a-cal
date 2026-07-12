@@ -358,3 +358,159 @@ def list_supported_hooks():
     """List all supported plugin hooks that the runtime can call."""
     from a_cal.developer.plugin_runtime import SUPPORTED_HOOKS
     return {"hooks": SUPPORTED_HOOKS}
+
+# --- Workflows ---------------------------------------------------------------
+
+from a_cal.workflows.models import WorkflowDef, WorkflowNode
+from a_cal.workflows.store import WorkflowStore
+from a_cal.workflows.runner import WorkflowRunner
+
+_workflow_stores: Dict[str, WorkflowStore] = {}
+
+
+def _get_workflow_store(user_id: str) -> WorkflowStore:
+    """Get or create a WorkflowStore for the user."""
+    if user_id not in _workflow_stores:
+        from a_cal.db.store import PersistentStore as _DB
+        _workflow_stores[user_id] = WorkflowStore(_DB())
+    return _workflow_stores[user_id]
+
+
+class WorkflowNodeInput(BaseModel):
+    """Input for a single workflow node."""
+
+    id: str = ""
+    agent: str = ""
+    label: str = ""
+    config: Dict[str, Any] = Field(default_factory=dict)
+    conditional: Optional[str] = None
+
+
+class WorkflowInput(BaseModel):
+    """Input for creating/updating a workflow."""
+
+    id: str = ""
+    name: str
+    description: str = ""
+    nodes: List[WorkflowNodeInput] = Field(default_factory=list)
+    trigger: str = "manual"
+    version: str = "0.1.0"
+
+
+class WorkflowRunInput(BaseModel):
+    """Input for running a workflow directly (without saving)."""
+
+    name: str = ""
+    description: str = ""
+    nodes: List[WorkflowNodeInput] = Field(default_factory=list)
+    trigger: str = "manual"
+    version: str = "0.1.0"
+    initial_message: str = ""
+
+
+@router.get("/workflows")
+def list_workflows():
+    """List all saved workflows."""
+    store = _get_workflow_store(_current_user_id())
+    return [w.to_dict() for w in store.list_workflows()]
+
+
+@router.post("/workflows")
+def save_workflow(body: WorkflowInput):
+    """Create or update a workflow.
+
+    If ``id`` is omitted, a new workflow is created. Otherwise the existing
+    workflow with that ID is updated.
+    """
+    store = _get_workflow_store(_current_user_id())
+    wf = WorkflowDef(
+        id=body.id,
+        name=body.name,
+        description=body.description,
+        nodes=[
+            WorkflowNode(
+                id=n.id,
+                agent=n.agent,
+                label=n.label,
+                config=n.config,
+                conditional=n.conditional,
+            )
+            for n in body.nodes
+        ],
+        trigger=body.trigger,
+        version=body.version,
+    )
+    saved = store.save_workflow(wf)
+    return saved.to_dict()
+
+
+@router.get("/workflows/{workflow_id}")
+def get_workflow(workflow_id: str):
+    """Get a single workflow by ID."""
+    store = _get_workflow_store(_current_user_id())
+    wf = store.get_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="workflow not found")
+    return wf.to_dict()
+
+
+@router.delete("/workflows/{workflow_id}")
+def delete_workflow(workflow_id: str):
+    """Delete a workflow by ID."""
+    store = _get_workflow_store(_current_user_id())
+    if not store.delete_workflow(workflow_id):
+        raise HTTPException(status_code=404, detail="workflow not found")
+    return {"status": "deleted", "id": workflow_id}
+
+
+@router.post("/workflows/run")
+async def run_workflow_direct(body: WorkflowRunInput):
+    """Execute a workflow definition without saving it.
+
+    Useful for testing a workflow before saving. The workflow is executed
+    immediately and the results are returned.
+    """
+    from a_cal.api.agent_routes import _store as _agent_store
+
+    user_id = _current_user_id()
+    conductor = _agent_store.get_conductor(user_id)
+
+    wf = WorkflowDef(
+        name=body.name,
+        description=body.description,
+        nodes=[
+            WorkflowNode(
+                id=n.id,
+                agent=n.agent,
+                label=n.label,
+                config=n.config,
+                conditional=n.conditional,
+            )
+            for n in body.nodes
+        ],
+        trigger=body.trigger,
+        version=body.version,
+    )
+
+    runner = WorkflowRunner(conductor)
+    result = await runner.run(wf, initial_message=body.initial_message)
+    return result.to_dict()
+
+
+@router.post("/workflows/{workflow_id}/run")
+async def run_saved_workflow(workflow_id: str, body: WorkflowRunInput):
+    """Execute a saved workflow by ID.
+
+    Optionally pass an ``initial_message`` to seed the first node.
+    """
+    store = _get_workflow_store(_current_user_id())
+    wf = store.get_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="workflow not found")
+
+    from a_cal.api.agent_routes import _store as _agent_store
+    conductor = _agent_store.get_conductor(_current_user_id())
+
+    runner = WorkflowRunner(conductor)
+    result = await runner.run(wf, initial_message=body.initial_message)
+    return result.to_dict()

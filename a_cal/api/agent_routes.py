@@ -457,6 +457,41 @@ def set_llm_enabled(body: LLMEnabledRequest):
     return {"enabled": enabled}
 
 
+@router.post("/settings/preload-model")
+async def preload_model():
+    """Preload the configured LLM model into memory (Ollama warmup).
+
+    Local models need to be loaded into RAM before the first real request,
+    which can add 30-90 seconds of latency. The frontend should call this
+    endpoint when the page loads (or when the user enables the LLM) so the
+    first chat message is fast. Returns immediately — warmup runs in the
+    background.
+
+    Only works for Ollama (local) providers. Cloud providers don't need
+    warmup.
+    """
+    import asyncio
+
+    from a_cal.agents.llm_service import StandaloneLLMService
+
+    user_id = _current_user_id()
+    if not _store.get_llm_enabled(user_id):
+        return {"status": "skipped", "reason": "LLM not enabled"}
+
+    routing = _store.get_routing(user_id)
+    api_keys = _store._db.get_raw_api_keys()
+    svc = StandaloneLLMService(routing=routing, api_keys=api_keys)
+
+    async def _do_warmup() -> None:
+        try:
+            await svc.warmup()
+        except Exception:
+            logger.debug("model preload failed (not critical)")
+
+    asyncio.create_task(_do_warmup())
+    return {"status": "warming_up"}
+
+
 # ---------------------------------------------------------------------------
 # Nervous System — CAS bio-mimetic agent architecture
 # ---------------------------------------------------------------------------

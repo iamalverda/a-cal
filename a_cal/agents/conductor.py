@@ -396,7 +396,7 @@ class ACalConductor:
                 tenant_id=self.user_id,
             )
         except Exception as exc:
-            logger.error("conductor LLM dispatch failed: %s", exc)
+            logger.error("conductor LLM dispatch failed: %r", exc)
             # Fall back to the standalone response if the LLM fails
             llm_response = standalone_result["response"]
 

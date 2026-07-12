@@ -359,9 +359,11 @@ class TestListEventsResponse:
         and return a list of events, not a generic chat response."""
         store = PersistentStore(in_memory=True)
 
-        # Create an event in the future (get_unified_calendar returns from now onward)
+        # Create an event later today (get_unified_calendar returns from now onward).
+        # Use +30 minutes instead of +2 hours so the event stays on the same
+        # UTC day even when the test runs late in the day.
         now = datetime.now(timezone.utc)
-        future_start = now + timedelta(hours=2)
+        future_start = now + timedelta(minutes=30)
         future_end = future_start + timedelta(minutes=30)
         store.create_event({
             "title": "Test Planning Session",

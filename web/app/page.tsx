@@ -73,6 +73,11 @@ export default function Page() {
         if (agentsData && agentsData.length > 0) {
           setAgents(agentsData);
         }
+
+        // Warm up the local LLM model in the background so the first
+        // chat message is fast. Fire-and-forget — if it fails, the first
+        // real request will cold-start the model (just slower).
+        fetch("/api/a-cal/settings/preload-model", { method: "POST" }).catch(() => {});
       } catch {
         // Backend not running — use mock data (already set)
       }

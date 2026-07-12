@@ -30,6 +30,8 @@ import type {
   SystemState,
   RoutingTrace,
   NervousSystemOverview,
+  WorkflowDef,
+  WorkflowRunResult,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -536,6 +538,43 @@ export const developerApi = {
 
   async listRuntimeHooks(): Promise<{ hooks: string[] }> {
     return fetchJson(`${API_BASE}/developer/plugins/runtime/hooks`);
+  },
+
+  // Workflows — save, load, run
+  async listWorkflows(): Promise<WorkflowDef[]> {
+    return fetchJson(`${API_BASE}/developer/workflows`);
+  },
+
+  async saveWorkflow(workflow: Omit<WorkflowDef, "created_at" | "updated_at">): Promise<WorkflowDef> {
+    return fetchJson(`${API_BASE}/developer/workflows`, {
+      method: "POST",
+      body: JSON.stringify(workflow),
+    });
+  },
+
+  async getWorkflow(id: string): Promise<WorkflowDef> {
+    return fetchJson(`${API_BASE}/developer/workflows/${id}`);
+  },
+
+  async deleteWorkflow(id: string): Promise<{ status: string; id: string }> {
+    return fetchJson(`${API_BASE}/developer/workflows/${id}`, { method: "DELETE" });
+  },
+
+  async runWorkflow(
+    workflow: { name: string; description: string; nodes: WorkflowDef["nodes"]; trigger: string; version: string },
+    initialMessage?: string,
+  ): Promise<WorkflowRunResult> {
+    return fetchJson(`${API_BASE}/developer/workflows/run`, {
+      method: "POST",
+      body: JSON.stringify({ ...workflow, initial_message: initialMessage || "" }),
+    });
+  },
+
+  async runSavedWorkflow(id: string, initialMessage?: string): Promise<WorkflowRunResult> {
+    return fetchJson(`${API_BASE}/developer/workflows/${id}/run`, {
+      method: "POST",
+      body: JSON.stringify({ initial_message: initialMessage || "" }),
+    });
   },
 };
 

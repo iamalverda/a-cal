@@ -400,3 +400,46 @@ export interface RuntimePlugin {
   load_error: string | null;
   loaded_at: string;
 }
+
+// --- Workflows --------------------------------------------------------------
+
+export interface WorkflowNodeDef {
+  id: string;
+  agent: string;
+  label: string;
+  config: Record<string, unknown>;
+  conditional?: string | null;
+}
+
+export interface WorkflowDef {
+  id: string;
+  name: string;
+  description: string;
+  nodes: WorkflowNodeDef[];
+  trigger: "manual" | "schedule_change" | "email_received" | "conflict_detected";
+  version: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowStepResult {
+  node_id: string;
+  node_index: number;
+  agent: string;
+  label: string;
+  skipped: boolean;
+  output?: string;
+  actions?: Array<Record<string, unknown>>;
+  routing?: Record<string, unknown> | null;
+  error?: string;
+}
+
+export interface WorkflowRunResult {
+  workflow_id: string;
+  success: boolean;
+  steps: WorkflowStepResult[];
+  final_output: string;
+  error: string | null;
+  started_at: string;
+  finished_at: string;
+}
