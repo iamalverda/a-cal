@@ -242,3 +242,104 @@ class TestAgentSpecStore:
         names = [d["name"] for d in dicts]
         assert "custom_1" in names
         assert "a_cal_conductor" in names
+
+
+class TestAgentSpecStorePersistence:
+    """Tests verifying custom agent specs survive a store re-creation."""
+
+    def test_custom_specs_persisted_across_stores(self, tmp_path):
+        """Custom specs created with a DB-backed store survive re-creation."""
+        from a_cal.db.store import PersistentStore
+        from a_cal.db.models import create_engine_and_session
+
+        db_file = str(tmp_path / "test_agent_specs.db")
+        store1 = PersistentStore.__new__(PersistentStore)
+        store1._engine, store1._SessionLocal = create_engine_and_session(db_file)
+        store1._seed_if_empty()
+
+        agent_store1 = AgentSpecStore(db=store1)
+        spec = AgentSpec(
+            name="my_persistent_agent",
+            display_name="Persistent Agent",
+            description="Survives restart",
+            system_prompt="You are persistent.",
+        )
+        agent_store1.create(spec)
+
+        # Simulate server restart
+        store2 = PersistentStore.__new__(PersistentStore)
+        store2._engine, store2._SessionLocal = create_engine_and_session(db_file)
+        store2._seed_if_empty()
+
+        agent_store2 = AgentSpecStore(db=store2)
+        retrieved = agent_store2.get("my_persistent_agent")
+        assert retrieved is not None
+        assert retrieved.display_name == "Persistent Agent"
+        assert retrieved.system_prompt == "You are persistent."
+
+    def test_deleted_specs_stay_deleted_across_stores(self, tmp_path):
+        """Deleted custom specs are gone in a fresh store."""
+        from a_cal.db.store import PersistentStore
+        from a_cal.db.models import create_engine_and_session
+
+        db_file = str(tmp_path / "test_agent_delete.db")
+        store1 = PersistentStore.__new__(PersistentStore)
+        store1._engine, store1._SessionLocal = create_engine_and_session(db_file)
+        store1._seed_if_empty()
+
+        agent_store1 = AgentSpecStore(db=store1)
+        agent_store1.create(AgentSpec(
+            name="temp_agent",
+            display_name="Temp",
+            description="Will be deleted",
+            system_prompt="You are temporary.",
+        ))
+        assert agent_store1.delete("temp_agent") is True
+
+        store2 = PersistentStore.__new__(PersistentStore)
+        store2._engine, store2._SessionLocal = create_engine_and_session(db_file)
+        store2._seed_if_empty()
+
+        agent_store2 = AgentSpecStore(db=store2)
+        assert agent_store2.get("temp_agent") is None
+        assert len(agent_store2.list_custom()) == 0
+
+    def test_updated_specs_persist_across_stores(self, tmp_path):
+        """Updated custom specs retain changes in a fresh store."""
+        from a_cal.db.store import PersistentStore
+        from a_cal.db.models import create_engine_and_session
+
+        db_file = str(tmp_path / "test_agent_update.db")
+        store1 = PersistentStore.__new__(PersistentStore)
+        store1._engine, store1._SessionLocal = create_engine_and_session(db_file)
+        store1._seed_if_empty()
+
+        agent_store1 = AgentSpecStore(db=store1)
+        agent_store1.create(AgentSpec(
+            name="updatable_agent",
+            display_name="Original",
+            description="Will be updated",
+            system_prompt="Original prompt",
+        ))
+        agent_store1.update("updatable_agent", {"display_name": "Updated Name"})
+
+        store2 = PersistentStore.__new__(PersistentStore)
+        store2._engine, store2._SessionLocal = create_engine_and_session(db_file)
+        store2._seed_if_empty()
+
+        agent_store2 = AgentSpecStore(db=store2)
+        retrieved = agent_store2.get("updatable_agent")
+        assert retrieved is not None
+        assert retrieved.display_name == "Updated Name"
+
+    def test_in_memory_store_works_without_db(self):
+        """AgentSpecStore without db still works (backward compat)."""
+        store = AgentSpecStore()
+        store.create(AgentSpec(
+            name="in_memory_agent",
+            display_name="In-Memory",
+            description="No DB",
+            system_prompt="You are in-memory.",
+        ))
+        assert store.get("in_memory_agent") is not None
+        assert len(store.list_custom()) == 1

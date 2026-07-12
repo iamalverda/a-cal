@@ -40,7 +40,8 @@ def _get_plugin_registry(user_id: str) -> PluginRegistry:
 
 def _get_agent_store(user_id: str) -> AgentSpecStore:
     if user_id not in _agent_stores:
-        _agent_stores[user_id] = AgentSpecStore()
+        from a_cal.db.store import PersistentStore
+        _agent_stores[user_id] = AgentSpecStore(db=PersistentStore())
     return _agent_stores[user_id]
 
 
