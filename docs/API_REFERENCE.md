@@ -659,7 +659,19 @@ POST /developer/config/import
 ```
 GET /health
 ```
-Response: `{ "status": "ok", "version": "0.5.0" }`
+Response:
+```json
+{
+  "status": "ok",
+  "mode": "standalone",
+  "version": "0.7.0",
+  "database": "sqlite"
+}
+```
+
+The `database` field reports the active backend: `sqlite` (default) or
+`postgresql` (when `DATABASE_URL` is set). Use this to verify your
+PostgreSQL configuration is active.
 
 ---
 
