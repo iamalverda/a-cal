@@ -14,12 +14,12 @@ test.describe("Skill mode switching", () => {
     await expect(page.getByRole("button", { name: "Email" })).toBeVisible();
   });
 
-  test("switching to simple mode hides advanced panels", async ({ page }) => {
+  test("switching to simple mode hides advanced panels but keeps marketplace", async ({ page }) => {
     await page.goto("/");
     // Switch to simple
     await page.getByRole("button", { name: "simple", exact: true }).click();
-    // Marketplace and Email should be hidden
-    await expect(page.getByRole("button", { name: "Marketplace" })).not.toBeVisible();
+    // Marketplace stays visible (tiered Browse-only surface) but Email hides
+    await expect(page.getByRole("button", { name: "Marketplace" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Email" })).not.toBeVisible();
     // Developer Studio should not be visible
     await expect(page.getByRole("button", { name: "Developer Studio" })).not.toBeVisible();

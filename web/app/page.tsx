@@ -262,15 +262,13 @@ export default function Page() {
             <BarChart3 size={15} className="text-[var(--muted-foreground)]" />
             <span>Analytics</span>
           </button>
-          {mode !== "simple" && (
-            <button
-              onClick={() => setShowMarketplace(true)}
-              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
-            >
-              <Store size={15} className="text-[var(--muted-foreground)]" />
-              <span>Marketplace</span>
-            </button>
-          )}
+          <button
+            onClick={() => setShowMarketplace(true)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <Store size={15} className="text-[var(--muted-foreground)]" />
+            <span>Marketplace</span>
+          </button>
           {mode !== "simple" && (
             <button
               onClick={() => setShowSwarm(true)}
@@ -452,7 +450,7 @@ export default function Page() {
       {/* Marketplace overlay */}
       {showMarketplace && (
         <SlideInOverlay title="Marketplace" icon={<Store size={18} className="text-[var(--primary)]" />} onClose={() => setShowMarketplace(false)}>
-          <MarketplacePanel />
+          <MarketplacePanel mode={mode} />
         </SlideInOverlay>
       )}
 

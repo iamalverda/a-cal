@@ -2,15 +2,16 @@
 
 /** Marketplace panel — browse, search, install, remix, share, and pull from remote registries.
 
-Visible in Pro and Developer modes. Three tabs:
-  - Browse: local marketplace with provenance metadata
-  - Share: export items as a portable bundle, import bundles from others
-  - Remote: browse a remote A-Cal registry and pull items locally
+Mode-tiered discovery (Q9): the visible surface adapts to the user's skill mode.
+  - Simple: curated one-click templates/themes only (Browse tab, no code/config)
+  - Pro: plugins, recipes, automation galleries with remix (Browse + Share + Remote)
+  - Developer: full marketplace including raw SDK packages, agent spec source,
+    provenance/config details (Browse + Share + Remote)
  */
 
 import { useState, useEffect, useCallback } from "react";
 import { marketplaceApi } from "@/lib/api";
-import type { MarketplaceItem } from "@/types";
+import type { MarketplaceItem, SkillMode } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,16 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
 };
 
 type Tab = "browse" | "share" | "remote";
+
+/** Item types surfaced in Simple mode — curated, no-code one-click installs. */
+const SIMPLE_ITEM_TYPES: ReadonlySet<string> = new Set(["ui_theme", "plugin_config"]);
+
+/** Tabs visible per skill mode. */
+const TABS_BY_MODE: Record<SkillMode, Tab[]> = {
+  simple: ["browse"],
+  pro: ["browse", "share", "remote"],
+  developer: ["browse", "share", "remote"],
+};
 
 interface ManifestSummary {
   id: string;
@@ -44,7 +55,7 @@ interface RegistryManifest {
   items: ManifestSummary[];
 }
 
-export function MarketplacePanel() {
+export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
   const [tab, setTab] = useState<Tab>("browse");
   const [items, setItems] = useState<MarketplaceItem[]>([]);
   const [query, setQuery] = useState("");
@@ -64,6 +75,13 @@ export function MarketplacePanel() {
   const [remoteMsg, setRemoteMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [pullingId, setPullingId] = useState<string | null>(null);
 
+  const visibleTabs = TABS_BY_MODE[mode];
+  const isSimple = mode === "simple";
+  const isDeveloper = mode === "developer";
+  const displayedItems = isSimple
+    ? items.filter((it) => SIMPLE_ITEM_TYPES.has(it.item_type))
+    : items;
+
   const loadItems = useCallback(async () => {
     setLoading(true);
     try {
@@ -81,6 +99,11 @@ export function MarketplacePanel() {
   useEffect(() => {
     if (tab === "browse") loadItems();
   }, [loadItems, tab]);
+
+  // Reset to a visible tab if the current tab isn't available in this mode.
+  useEffect(() => {
+    if (!visibleTabs.includes(tab)) setTab(visibleTabs[0] ?? "browse");
+  }, [visibleTabs, tab]);
 
   const handleInstall = async (itemId: string) => {
     try {
@@ -169,7 +192,7 @@ export function MarketplacePanel() {
     <div className="flex flex-col gap-4 p-4">
       {/* Tab switcher */}
       <div className="flex gap-1 border-b border-border">
-        {(["browse", "share", "remote"] as Tab[]).map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -206,7 +229,7 @@ export function MarketplacePanel() {
           )}
 
           <div className="grid gap-3">
-            {items.map((item) => (
+            {displayedItems.map((item) => (
               <div
                 key={item.id}
                 className="rounded-lg border border-border p-4 flex flex-col gap-2"
@@ -247,6 +270,17 @@ export function MarketplacePanel() {
                   ))}
                 </div>
 
+                {isDeveloper && (
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer select-none">Config &amp; provenance</summary>
+                    <div className="mt-1 flex flex-col gap-0.5 pl-2 border-l border-border">
+                      <span>type: <code className="font-mono">{item.item_type}</code></span>
+                      <span>id: <code className="font-mono">{item.id}</code></span>
+                      {item.provenance.summary && <span>{item.provenance.summary}</span>}
+                    </div>
+                  </details>
+                )}
+
                 <div className="flex items-center gap-2 pt-1">
                   {installedIds.has(item.id) ? (
                     <Badge variant="secondary">Installed</Badge>
@@ -256,7 +290,7 @@ export function MarketplacePanel() {
                     </Button>
                   )}
                   <span className="text-xs text-muted-foreground">by {item.author}</span>
-                  {item.remixed_from && (
+                  {item.remixed_from && !isSimple && (
                     <Badge variant="outline" className="text-xs">Remix</Badge>
                   )}
                 </div>
