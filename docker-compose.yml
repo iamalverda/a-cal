@@ -1,11 +1,12 @@
 # A-Cal — Self-hosted deployment via Docker Compose
 #
 # Usage:
-#   docker compose up --build
+#   docker compose up --build              # SQLite (default, zero config)
+#   docker compose --profile postgres up   # PostgreSQL backend
 #
 # Then open http://localhost:3456
 #
-# Data is persisted in the a-cal-data volume (SQLite DB + plugins).
+# Data is persisted in volumes (SQLite DB or PostgreSQL).
 # OAuth client credentials and LLM API keys go in .env (see .env.example).
 
 services:
@@ -20,6 +21,8 @@ services:
     environment:
       - A_CAL_PLUGIN_DIR=/root/.a-cal/plugins
       - A_CAL_CORS_ORIGINS=http://localhost:3456,http://localhost:3000
+      # PostgreSQL connection (when using --profile postgres)
+      - DATABASE_URL=${DATABASE_URL:-}
       # OAuth credentials (optional — needed for real Google/Outlook sync)
       # - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
@@ -29,6 +32,10 @@ services:
       # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
 
   frontend:
     build:
@@ -42,5 +49,26 @@ services:
       - backend
     restart: unless-stopped
 
+  # PostgreSQL service — activate with: docker compose --profile postgres up
+  # Requires psycopg2-binary: pip install a-cal[postgres]
+  postgres:
+    profiles: ["postgres"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: acal
+      POSTGRES_USER: acal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-acal-dev}
+    volumes:
+      - a-cal-postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U acal"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   a-cal-data:
+  a-cal-postgres:

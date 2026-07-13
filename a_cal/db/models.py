@@ -35,19 +35,34 @@ class Base(DeclarativeBase):
 class JSONType(TypeDecorator):
     """Platform-independent JSON column.
 
-    Stores JSON as TEXT in SQLite. Uses native JSON in PostgreSQL.
+    Stores JSON as TEXT in SQLite. Uses native JSONB in PostgreSQL for
+    indexing and query performance.
     """
     impl = Text
     cache_ok = True
 
+    def load_dialect_impl(self, dialect):
+        """Use JSONB on PostgreSQL, TEXT on everything else."""
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(
+                __import__("sqlalchemy").dialects.postgresql.JSONB()
+            )
+        return dialect.type_descriptor(Text())
+
     def process_bind_param(self, value: Any, dialect: object) -> Optional[str]:
         if value is None:
             return None
+        # On PostgreSQL with JSONB, SQLAlchemy handles serialization.
+        if dialect.name == "postgresql":
+            return value
         return json.dumps(value)
 
     def process_result_value(self, value: Optional[str], dialect: object) -> Any:
         if value is None or value == "":
             return None
+        # On PostgreSQL, psycopg2 returns Python objects from JSONB.
+        if isinstance(value, (dict, list)):
+            return value
         return json.loads(value)
 
 
@@ -237,10 +252,25 @@ class EventTypeDB(Base):
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
+def get_database_url() -> Optional[str]:
+    """Get the database URL from the environment.
+
+    Checks ``DATABASE_URL`` first (standard convention, works with PostgreSQL
+    and any SQLAlchemy-compatible URL). Returns None if not set, in which case
+    the caller falls back to SQLite.
+
+    Examples:
+        postgresql://user:pass@localhost:5432/acal
+        postgresql+psycopg2://user:pass@localhost:5432/acal
+    """
+    return os.getenv("DATABASE_URL")
+
+
 def get_db_path() -> str:
     """Get the SQLite database file path.
 
     Defaults to ``~/.a-cal/a-cal.db``. Override with ``A_CAL_DB_PATH`` env var.
+    Only used when ``DATABASE_URL`` is not set.
     """
     env_path = os.getenv("A_CAL_DB_PATH")
     if env_path:
@@ -254,36 +284,66 @@ def get_db_path() -> str:
 def create_engine_and_session(db_path: Optional[str] = None):
     """Create a SQLAlchemy engine and session factory.
 
+    Supports both SQLite (standalone mode) and PostgreSQL (production / atom
+    deployment). Connection selection priority:
+
+    1. Explicit ``db_path`` argument (used by tests for ``:memory:``).
+    2. ``DATABASE_URL`` env var (PostgreSQL or any SQLAlchemy URL).
+    3. Default SQLite path from ``get_db_path()``.
+
     Args:
-        db_path: Path to the SQLite database file. If None, uses default.
+        db_path: Path to the SQLite database file, or ``:memory:`` for tests.
+            If None, checks ``DATABASE_URL`` then falls back to SQLite.
 
     Returns:
         Tuple of (engine, SessionLocal) for database operations.
     """
+    # Resolve the effective db_path: explicit arg > env var > default path
     if db_path is None:
-        db_path = get_db_path()
+        env_url = get_database_url()
+        if env_url:
+            # External database (PostgreSQL, etc.) — use the URL directly
+            url = env_url
+            is_sqlite = False
+            is_in_memory = False
+        else:
+            db_path = get_db_path()
+            url = f"sqlite:///{db_path}"
+            is_sqlite = True
+            is_in_memory = db_path == ":memory:"
+    elif db_path == ":memory:":
+        url = "sqlite://"
+        is_sqlite = True
+        is_in_memory = True
+    else:
+        url = f"sqlite:///{db_path}"
+        is_sqlite = True
+        is_in_memory = False
 
-    # Use check_same_thread=False for FastAPI's async/threaded request handling
-    # Use StaticPool for in-memory databases so all sessions share one connection
-    if db_path == ":memory:":
+    # Build engine with appropriate connection settings
+    if is_in_memory:
         from sqlalchemy.pool import StaticPool
         engine = create_engine(
-            "sqlite://",
+            url,
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
-    else:
+    elif is_sqlite:
         engine = create_engine(
-            f"sqlite:///{db_path}",
+            url,
             connect_args={"check_same_thread": False},
         )
+    else:
+        # PostgreSQL or other external database
+        engine = create_engine(url, pool_pre_ping=True)
 
-    # Enable WAL mode for better concurrent read performance
-    @sa_event.listens_for(engine, "connect")
-    def set_wal_mode(dbapi_conn, conn_record):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.close()
+    # SQLite-specific optimizations (WAL mode for concurrent reads)
+    if is_sqlite:
+        @sa_event.listens_for(engine, "connect")
+        def set_wal_mode(dbapi_conn, conn_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.close()
 
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
