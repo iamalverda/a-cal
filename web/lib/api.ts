@@ -732,3 +732,21 @@ export const oauthApi = {
     return fetchJson(`${API_BASE}/providers/${providerId}/oauth/start`);
   },
 };
+
+// --- Health ----------------------------------------------------------------
+
+export interface HealthResponse {
+  status: string;
+  mode: string;
+  version: string;
+  database: string;
+}
+
+export const healthApi = {
+  /** Check backend health, including database backend type. */
+  async check(): Promise<HealthResponse> {
+    const res = await fetch("/api/health");
+    if (!res.ok) throw new Error(`health check failed: ${res.status}`);
+    return res.json() as Promise<HealthResponse>;
+  },
+};
