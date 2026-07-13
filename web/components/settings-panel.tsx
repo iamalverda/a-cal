@@ -33,7 +33,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { api, oauthApi } from "@/lib/api";
 import { mockModeConfig } from "@/lib/mock-data";
-import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact, AtomStatus, BackendMode, AutonomyLevel } from "@/types";
+import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact, AtomStatus, BackendMode, AutonomyLevel, EmailDepth } from "@/types";
 
 interface SettingsPanelProps {
   mode: SkillMode;
@@ -72,12 +72,19 @@ const SECTIONS = [
   { id: "general", label: "General", icon: Clock },
   { id: "mode", label: "Skill Mode", icon: SettingsIcon },
   { id: "connections", label: "Connections", icon: LinkIcon },
+  { id: "email", label: "Email Depth", icon: Mail },
   { id: "model", label: "Model Routing", icon: Cpu },
   { id: "autonomy", label: "Agent Autonomy", icon: Bot },
   { id: "self_model", label: "Self-Model", icon: Brain },
   { id: "privacy", label: "Privacy", icon: Shield },
   { id: "developer", label: "Developer", icon: Code2 },
   { id: "marketplace", label: "Marketplace", icon: Store },
+];
+
+const EMAIL_DEPTHS = [
+  { value: "sync_notify", label: "Sync & Notify", description: "Read inbox for events and invites. Send notifications. No agent actions — you handle everything manually." },
+  { value: "agent_mediated", label: "Agent-Mediated Inbox", description: "Parse emails into events, contacts, and actions. Draft replies for your approval. Agents suggest but do not send." },
+  { value: "full_two_way", label: "Full Two-Way Agent", description: "Send, decline, and renegotiate within provider permissions. Email-side memory tied to events. Agents act autonomously (subject to autonomy settings)." },
 ];
 
 export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProps) {
@@ -114,6 +121,8 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
   const [backendMode, setBackendMode] = useState<BackendMode>("standalone");
   const [atomStatus, setAtomStatus] = useState<AtomStatus | null>(null);
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>("confirm");
+  const [emailDepth, setEmailDepth] = useState<EmailDepth>("sync_notify");
+  const [emailAutoScan, setEmailAutoScan] = useState(false);
   const [timezone, setTimezone] = useState<string>("");
   const [timezoneDraft, setTimezoneDraft] = useState<string>("");
   const [timezoneSaving, setTimezoneSaving] = useState(false);
@@ -158,6 +167,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         api.getBackendMode().then((r) => setBackendMode(r.mode as BackendMode)).catch(() => {});
         api.getAtomStatus().then(setAtomStatus).catch(() => {});
         api.getAutonomy().then((a) => setAutonomyLevel(a.default_level)).catch(() => {});
+        api.getEmailSettings().then((e) => { setEmailDepth(e.depth); setEmailAutoScan(e.auto_scan_enabled); }).catch(() => {});
         api.getTimezone().then((tz) => { setTimezone(tz); setTimezoneDraft(tz); }).catch(() => {});
       } catch {
         // Backend not running — keep defaults (mock data already set)
@@ -212,6 +222,27 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
       // Backend not running or invalid timezone
     } finally {
       setTimezoneSaving(false);
+    }
+  };
+
+  /** Save email depth setting to backend. */
+  const saveEmailDepth = async (depth: EmailDepth) => {
+    setEmailDepth(depth);
+    try {
+      await api.setEmailSettings({ depth, auto_scan_enabled: emailAutoScan });
+    } catch (e) {
+      console.error("Failed to save email depth", e);
+    }
+  };
+
+  /** Toggle auto-scan and persist. */
+  const toggleEmailAutoScan = async () => {
+    const next = !emailAutoScan;
+    setEmailAutoScan(next);
+    try {
+      await api.setEmailSettings({ depth: emailDepth, auto_scan_enabled: next });
+    } catch (e) {
+      console.error("Failed to save auto-scan setting", e);
     }
   };
 
@@ -779,6 +810,52 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
 
                   <div className="p-3 rounded-lg bg-[var(--muted)]/30 text-xs text-[var(--muted-foreground)]">
                     CalDAV and IMAP/SMTP work with any provider out of the box. Google and Outlook use OAuth and require setup in Developer mode.
+                  </div>
+                </div>
+              </Section>
+            )}
+
+            {activeSection === "email" && (
+              <Section title="Email Integration Depth" description="Control how deeply A-Cal's agents integrate with your email. This is separate from connecting a provider — you can have Gmail connected for sync only, or fully agent-mediated.">
+                <div className="space-y-4">
+                  {EMAIL_DEPTHS.map((d) => (
+                    <button
+                      key={d.value}
+                      onClick={() => saveEmailDepth(d.value as EmailDepth)}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                        emailDepth === d.value
+                          ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                          : "border-[var(--border)] hover:bg-[var(--accent)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{d.label}</span>
+                        {emailDepth === d.value && (
+                          <span className="text-xs text-[var(--primary)] font-medium">Active</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-[var(--muted-foreground)] mt-1">
+                        {d.description}
+                      </div>
+                    </button>
+                  ))}
+
+                  <div className="flex items-start justify-between gap-3 py-2 border-t border-[var(--border)]">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">Auto-scan inbox for scheduling</div>
+                      <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                        Automatically detect meeting proposals, invites, and reschedules in incoming emails.
+                      </div>
+                    </div>
+                    <button
+                      onClick={toggleEmailAutoScan}
+                      className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${
+                        emailAutoScan ? "bg-[var(--primary)]" : "bg-[var(--muted)]"
+                      }`}
+                      aria-label="Toggle auto-scan"
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${emailAutoScan ? "translate-x-5" : ""}`} />
+                    </button>
                   </div>
                 </div>
               </Section>

@@ -38,6 +38,7 @@ import type {
   RuleType,
   RuleField,
   AutonomyConfig,
+  EmailIntegrationConfig,
   AnalyticsSummary,
   BusyTimesAnalysis,
   MeetingStats,
@@ -278,6 +279,17 @@ export const api = {
 
   async setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig> {
     return fetchJson(`${API_BASE}/settings/autonomy`, {
+      method: "POST",
+      body: JSON.stringify(config),
+    });
+  },
+
+  async getEmailSettings(): Promise<EmailIntegrationConfig> {
+    return fetchJson(`${API_BASE}/settings/email`);
+  },
+
+  async setEmailSettings(config: Partial<EmailIntegrationConfig>): Promise<EmailIntegrationConfig> {
+    return fetchJson(`${API_BASE}/settings/email`, {
       method: "POST",
       body: JSON.stringify(config),
     });

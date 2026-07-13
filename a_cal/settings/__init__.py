@@ -18,6 +18,7 @@ from a_cal.settings.modes import (
     get_mode_config,
 )
 from a_cal.settings.model_routing import ModelRoutingConfig, ModelProvider
+from a_cal.settings.email import EmailDepth, EmailIntegrationConfig
 
 __all__ = [
     "SkillMode",
@@ -29,4 +30,6 @@ __all__ = [
     "get_mode_config",
     "ModelRoutingConfig",
     "ModelProvider",
+    "EmailDepth",
+    "EmailIntegrationConfig",
 ]

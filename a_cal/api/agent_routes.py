@@ -26,6 +26,7 @@ from a_cal.agents.llm_service import check_ollama_available, list_ollama_models
 from a_cal.settings.modes import get_mode_config, SkillMode
 from a_cal.settings.model_routing import ModelRoutingConfig
 from a_cal.settings.autonomy import AutonomyConfig, AutonomyLevel
+from a_cal.settings.email import EmailIntegrationConfig, EmailDepth
 from a_cal.self_model.settings import SelfModelSettings
 from a_cal.self_model.model import SelfModel
 from a_cal.self_model.store import SelfModelStore
@@ -78,6 +79,16 @@ class _SettingsStore:
     def set_self_model_settings(self, user_id: str, settings: SelfModelSettings) -> SelfModelSettings:
         self._db.set_setting("self_model_settings", settings.to_dict())
         return settings
+
+    def get_email_settings(self, user_id: str) -> EmailIntegrationConfig:
+        data = self._db.get_setting("email_settings")
+        if data:
+            return EmailIntegrationConfig.from_dict(data)
+        return EmailIntegrationConfig()
+
+    def set_email_settings(self, user_id: str, config: EmailIntegrationConfig) -> EmailIntegrationConfig:
+        self._db.set_setting("email_settings", config.to_dict())
+        return config
 
     def get_conductor(self, user_id: str) -> ACalConductor:
         if user_id not in self._conductors:
@@ -440,6 +451,53 @@ def set_timezone(body: TimezoneRequest):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Unknown timezone: {body.timezone}")
     return {"timezone": _store.set_timezone(user_id, body.timezone)}
+
+
+# --- settings: email integration depth ------------------------------------
+
+class EmailSettingsRequest(BaseModel):
+    depth: str = "sync_notify"
+    per_provider: Dict[str, str] = Field(default_factory=dict)
+    auto_scan_enabled: bool = False
+
+
+@router.get("/settings/email")
+def get_email_settings():
+    """Get the user's email integration depth configuration.
+
+    Controls how deeply agents integrate with email (charter §5):
+      - sync_notify: read inbox, send notifications, no agent actions
+      - agent_mediated: parse emails, draft replies for approval
+      - full_two_way: send/decline/renegotiate autonomously
+    """
+    user_id = _current_user_id()
+    return _store.get_email_settings(user_id).to_dict()
+
+
+@router.post("/settings/email")
+def set_email_settings(body: EmailSettingsRequest):
+    """Update email integration depth settings."""
+    valid_depths = {d.value for d in EmailDepth}
+    if body.depth not in valid_depths:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail=f"depth must be one of: {', '.join(sorted(valid_depths))}",
+        )
+    for ptype, depth in body.per_provider.items():
+        if depth not in valid_depths:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid depth '{depth}' for provider '{ptype}'",
+            )
+    user_id = _current_user_id()
+    config = EmailIntegrationConfig(
+        depth=body.depth,
+        per_provider=body.per_provider,
+        auto_scan_enabled=body.auto_scan_enabled,
+    )
+    return _store.set_email_settings(user_id, config).to_dict()
 
 
 # --- settings: self-model --------------------------------------------------

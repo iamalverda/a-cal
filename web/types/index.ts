@@ -99,6 +99,15 @@ export interface AutonomyConfig {
   per_sub_account: Record<string, AutonomyLevel>;
 }
 
+/** Email integration depth — how deeply agents integrate with email (charter §5). */
+export type EmailDepth = "sync_notify" | "agent_mediated" | "full_two_way";
+
+export interface EmailIntegrationConfig {
+  depth: EmailDepth;
+  per_provider: Record<string, EmailDepth>;
+  auto_scan_enabled: boolean;
+}
+
 export interface SelfModelDepth {
   depth: string;
   enabled_categories: Record<string, boolean>;

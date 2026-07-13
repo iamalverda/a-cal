@@ -168,7 +168,9 @@ export class ACalClient {
     getSelfModel: () => Promise<Json>;
     setSelfModel: (settings: Json) => Promise<Json>;
     getTimezone: () => Promise<{ timezone: string }>;
-    setTimezone: (timezone: string) => Promise<{ timezone: string }>;
+    getTimezone: (timezone: string) => Promise<{ timezone: string }>;
+    getEmailSettings: () => Promise<Json>;
+    setEmailSettings: (config: Json) => Promise<Json>;
   };
 
   /** Self-model facts API. */
