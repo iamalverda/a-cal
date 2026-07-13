@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "a-cal"
-version = "0.5.0"
+version = "0.7.0"
 description = "A-Cal — agentic calendar platform with unified identity, sub-accounts, agent swarm, and total customization"
 requires-python = ">=3.11"
 license = { text = "AGPL-3.0-or-later" }
@@ -14,11 +14,20 @@ dependencies = [
     "sqlalchemy>=2",
     "httpx>=0.27",
     "uvicorn>=0.29",
+    "email-validator>=2",
+    "itsdangerous>=2",
 ]
 
 [project.optional-dependencies]
 caldav = ["caldav>=1.3", "icalendar>=5"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+atom = [
+    "cryptography>=42",
+    "aiosqlite>=0.20",
+    "tiktoken>=0.7",
+]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "radicale>=3"]
+postgres = ["psycopg2-binary>=2.9"]
+migrations = ["alembic>=1.13"]
 
 [tool.setuptools.packages.find]
 include = ["a_cal*"]
@@ -26,3 +35,14 @@ include = ["a_cal*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "F401", "F403", "F405", "E402"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F841"]

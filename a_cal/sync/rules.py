@@ -37,7 +37,7 @@ class RuleOutcome:
 
     included: bool = True
     agent_review: bool = False
-    transformed_event: Optional[CalendarEventDTO] = None
+    transformed_event: CalendarEventDTO | None = None
 
 
 def _field_value(event: CalendarEventDTO, field: str) -> str:
@@ -77,8 +77,20 @@ def evaluate_rules(event: CalendarEventDTO, rules: list) -> RuleOutcome:
     rule_type, field, pattern, action, priority, is_active. Sorted by priority.
     Returns the outcome: included flag, agent-review flag, and possibly a
     transformed copy of the event.
+
+    Semantics:
+    - If there are INCLUDE rules, the event starts as *excluded* and must
+      match at least one INCLUDE rule to be included (whitelist mode).
+    - If there are no INCLUDE rules, the event starts as *included* and
+      only EXCLUDE rules can remove it (blacklist mode).
+    - An EXCLUDE match always wins (immediately returns excluded).
+    - TRANSFORM and AGENT rules apply to matched events regardless.
     """
-    outcome = RuleOutcome(included=True)
+    has_include_rules = any(
+        r.get("rule_type") == RuleType.INCLUDE.value and r.get("is_active", True)
+        for r in rules
+    )
+    outcome = RuleOutcome(included=not has_include_rules)
     current = event
 
     for rule in sorted(rules, key=lambda r: r.get("priority", 0)):

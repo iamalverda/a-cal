@@ -6,6 +6,7 @@ shared configs, search, install, remix, and rate items.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from a_cal.marketplace.store import MarketplaceStore
+from a_cal.marketplace.persistent_store import PersistentMarketplaceStore
 from a_cal.marketplace.types import (
     MarketplaceItem,
     MarketplaceItemType,
@@ -24,21 +26,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/a-cal/marketplace", tags=["a-cal-marketplace"])
 
 
-# --- singleton store (standalone mode) --------------------------------------
+# --- singleton store — uses SQLite persistence, falls back to in-memory -----
 
-_store: Optional[MarketplaceStore] = None
+_store: MarketplaceStore | None = None
 
 
-def _get_store() -> MarketplaceStore:
+def _get_store():
+    """Get the marketplace store, preferring persistent (SQLite) storage.
+
+    Falls back to in-memory store if the database is unavailable.
+    """
     global _store
     if _store is None:
-        _store = MarketplaceStore()
+        try:
+            _store = PersistentMarketplaceStore()
+            logger.info("Marketplace using persistent SQLite store")
+        except Exception as e:
+            logger.warning("Falling back to in-memory marketplace store: %s", e)
+            _store = MarketplaceStore()
     return _store
 
 
 def _current_user_id() -> str:
-    """Placeholder — wired to atom's auth in production."""
-    return "local-dev-user"
+    """Return the current user ID from the auth context."""
+    from a_cal.auth.session import get_current_user_id
+    return get_current_user_id()
 
 
 # --- request/response models -----------------------------------------------
@@ -57,15 +69,16 @@ class PublishItemRequest(BaseModel):
     item_type: str  # MarketplaceItemType value
     description: str = ""
     provenance: ProvenanceInput = Field(default_factory=ProvenanceInput)
-    config: Dict[str, Any] = Field(default_factory=dict)
-    tags: List[str] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
 
 
 class RemixRequest(BaseModel):
-    parent_item_id: str
+    # parent_item_id is redundant with the path param but kept for SDK compat.
+    parent_item_id: str = ""
     name: str
     description: str = ""
-    config_overrides: Dict[str, Any] = Field(default_factory=dict)
+    config_overrides: dict[str, Any] = Field(default_factory=dict)
     changes_summary: str = ""
 
 
@@ -99,8 +112,8 @@ def _item_from_request(body: PublishItemRequest, author: str) -> MarketplaceItem
 
 @router.get("/items")
 def list_items(
-    item_type: Optional[str] = Query(None),
-    tag: Optional[str] = Query(None),
+    item_type: str | None = Query(None),
+    tag: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ):
     """Browse marketplace items, optionally filtered by type or tag."""
@@ -202,3 +215,232 @@ def rate_item(item_id: str, body: RateRequest):
     except KeyError:
         raise HTTPException(status_code=404, detail="item not found")
     return item.to_dict()
+
+
+# --- registry endpoints (export / import / remote browsing) -----------------
+
+from a_cal.marketplace.registry import (
+    BUNDLE_FORMAT,
+    BUNDLE_VERSION,
+    REGISTRY_FORMAT,
+    REGISTRY_VERSION,
+    RegistryBundle,
+    RegistryClient,
+    RegistryManifest,
+    build_manifest_from_store,
+)
+
+
+class ExportRequest(BaseModel):
+    """Request to export marketplace items as a portable bundle."""
+    item_ids: list[str] = Field(default_factory=list)
+    # If empty, exports all items in the store.
+
+
+class ImportBundleRequest(BaseModel):
+    """Request to import items from a bundle (JSON string)."""
+    bundle_json: str
+
+
+class RemoteRegistryRequest(BaseModel):
+    """Request to browse or pull from a remote registry."""
+    registry_url: str
+
+
+class PullItemRequest(BaseModel):
+    """Request to pull a specific item from a remote registry."""
+    registry_url: str
+    item_id: str
+
+
+@router.get("/registry/manifest")
+def get_registry_manifest():
+    """Get the local registry manifest (catalog of all items).
+
+    This endpoint serves the manifest that a remote RegistryClient would
+    fetch. It can be used as a static registry by pointing other A-Cal
+    instances at this server's URL.
+    """
+    store = _get_store()
+    manifest = build_manifest_from_store(store)
+    # Set the registry_url to the current server (best effort)
+    manifest.registry_url = "/api/a-cal/marketplace/registry"
+    return manifest.to_dict()
+
+
+@router.post("/export")
+def export_items(body: ExportRequest):
+    """Export marketplace items as a portable JSON bundle.
+
+    If ``item_ids`` is empty, exports all items in the store. The bundle
+    can be shared as a file and imported into another A-Cal instance via
+    the ``POST /import`` endpoint.
+    """
+    store = _get_store()
+    user_id = _current_user_id()
+
+    if body.item_ids:
+        items = []
+        for item_id in body.item_ids:
+            item = store.get_item(item_id)
+            if item is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"item not found: {item_id}",
+                )
+            items.append(item)
+    else:
+        items = store.list_items(limit=200)
+
+    bundle = RegistryBundle(items=items, exported_by=user_id)
+    return bundle.to_dict()
+
+
+@router.post("/import")
+def import_items(body: ImportBundleRequest):
+    """Import marketplace items from a JSON bundle.
+
+    Parses the bundle, validates the format, and publishes each item to
+    the local store. Items that already exist (by ID) are skipped.
+
+    Returns a summary of imported and skipped items.
+    """
+    store = _get_store()
+
+    try:
+        bundle = RegistryBundle.from_json(body.bundle_json)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid JSON: {exc}")
+
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for item in bundle.items:
+        existing = store.get_item(item.id)
+        if existing is not None:
+            skipped += 1
+            continue
+        try:
+            store.publish(item)
+            imported += 1
+        except Exception as exc:
+            errors.append(f"{item.name}: {exc}")
+
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors,
+        "exported_by": bundle.exported_by,
+        "exported_at": bundle.exported_at,
+    }
+
+
+@router.post("/registry/browse")
+def browse_remote_registry(body: RemoteRegistryRequest):
+    """Fetch a remote registry's manifest for browsing.
+
+    Returns the manifest with item summaries (no full configs). Use
+    ``POST /registry/pull`` to fetch and install a specific item.
+    """
+    try:
+        client = RegistryClient(body.registry_url)
+        manifest = client.get_manifest()
+        return manifest.to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"failed to fetch registry: {exc}",
+        )
+
+
+@router.post("/registry/pull")
+def pull_from_remote_registry(body: PullItemRequest):
+    """Pull a specific item from a remote registry and publish it locally.
+
+    Fetches the full item config from the remote registry, then publishes
+    it to the local store. If the item already exists locally, it is
+    skipped.
+    """
+    store = _get_store()
+
+    try:
+        client = RegistryClient(body.registry_url)
+        item = client.pull_item(body.item_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"failed to pull item: {exc}",
+        )
+
+    existing = store.get_item(item.id)
+    if existing is not None:
+        return {
+            "published": False,
+            "item": existing.to_dict(),
+            "message": "item already exists locally",
+        }
+
+    published = store.publish(item)
+    return {
+        "published": True,
+        "item": published.to_dict(),
+    }
+
+
+# --- community profile / showcase ------------------------------------------
+
+@router.get("/community/profile")
+def get_community_profile():
+    """Get the current user's community profile / showcase.
+
+    Aggregates the user's authored marketplace items, remixes, installs,
+    and stats into a shareable profile view (charter §9: profiles,
+    showcases).
+    """
+    store = _get_store()
+    user_id = _current_user_id()
+
+    authored = store.get_items_by_author(user_id)
+    installs = store.get_user_installs(user_id)
+
+    # Separate original items from remixes
+    original_items = [i for i in authored if not i.remixed_from]
+    remix_items = [i for i in authored if i.remixed_from]
+
+    # Total installs across all authored items
+    total_installs_of_authored = sum(i.install_count for i in authored)
+    total_remixes_of_authored = sum(
+        len(store.get_remixes_of(i.id)) for i in authored
+    )
+
+    # Average rating across authored items with ratings
+    rated = [i.rating for i in authored if i.rating > 0]
+    avg_rating = sum(rated) / len(rated) if rated else 0.0
+
+    return {
+        "user_id": user_id,
+        "stats": {
+            "total_authored": len(authored),
+            "total_originals": len(original_items),
+            "total_remixes": len(remix_items),
+            "total_installed": len(installs),
+            "total_installs_of_authored": total_installs_of_authored,
+            "total_remixes_of_authored": total_remixes_of_authored,
+            "avg_rating": round(avg_rating, 2),
+        },
+        "authored": [i.to_dict() for i in authored],
+        "originals": [i.to_dict() for i in original_items],
+        "remixes": [i.to_dict() for i in remix_items],
+        "installed": [
+            {
+                "item_id": rec.item_id,
+                "installed_at": rec.installed_at,
+            }
+            for rec in installs
+        ],
+    }

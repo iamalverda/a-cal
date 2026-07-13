@@ -46,17 +46,17 @@ class CalendarEventDTO:
     title: str
     start: datetime
     end: datetime
-    description: Optional[str] = None
-    location: Optional[str] = None
-    attendees: List[Dict[str, str]] = field(default_factory=list)
+    description: str | None = None
+    location: str | None = None
+    attendees: list[dict[str, str]] = field(default_factory=list)
     status: str = "confirmed"
-    calendar_id: Optional[str] = None  # the provider's own calendar id
-    color: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    source_sub_account_id: Optional[str] = None
-    etag: Optional[str] = None  # for optimistic concurrency on writes
+    calendar_id: str | None = None  # the provider's own calendar id
+    color: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    source_sub_account_id: str | None = None
+    etag: str | None = None  # for optimistic concurrency on writes
 
-    def to_storage_dict(self) -> Dict[str, Any]:
+    def to_storage_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict for caching/mirroring in the local store."""
         return {
             "provider_event_id": self.provider_event_id,
@@ -80,8 +80,8 @@ class CalendarEventDTO:
 class SyncPage:
     """One page of incremental results from a provider."""
 
-    events: List[CalendarEventDTO]
-    next_cursor: Optional[str] = None  # None => no more pages
+    events: list[CalendarEventDTO]
+    next_cursor: str | None = None  # None => no more pages
     has_more: bool = False
 
 
@@ -93,13 +93,13 @@ class EmailMessageDTO:
     provider_type: str
     subject: str
     from_address: str
-    to_addresses: List[str] = field(default_factory=list)
-    received_at: Optional[datetime] = None
-    snippet: Optional[str] = None
-    body_text: Optional[str] = None
-    thread_id: Optional[str] = None
-    labels: List[str] = field(default_factory=list)
-    headers: Dict[str, str] = field(default_factory=dict)
+    to_addresses: list[str] = field(default_factory=list)
+    received_at: datetime | None = None
+    snippet: str | None = None
+    body_text: str | None = None
+    thread_id: str | None = None
+    labels: list[str] = field(default_factory=list)
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 class CalendarProvider(ABC):
@@ -114,13 +114,13 @@ class CalendarProvider(ABC):
 
     @abstractmethod
     async def list_events(
-        self, start: datetime, end: datetime, calendar_id: Optional[str] = None
-    ) -> List[CalendarEventDTO]:
+        self, start: datetime, end: datetime, calendar_id: str | None = None
+    ) -> list[CalendarEventDTO]:
         """Return events in [start, end)."""
 
     @abstractmethod
     async def list_changes(
-        self, since_cursor: Optional[str], start: datetime, end: datetime
+        self, since_cursor: str | None, start: datetime, end: datetime
     ) -> SyncPage:
         """Incremental change pull. If the provider lacks INCREMENTAL_SYNC,
         fall back to a full list and return the whole window as one page."""
@@ -134,7 +134,7 @@ class CalendarProvider(ABC):
         """Update an existing event (uses provider_event_id + etag)."""
 
     @abstractmethod
-    async def cancel_event(self, provider_event_id: str, calendar_id: Optional[str] = None) -> None:
+    async def cancel_event(self, provider_event_id: str, calendar_id: str | None = None) -> None:
         """Cancel/delete an event."""
 
     def supports(self, cap: ProviderCapability) -> bool:
@@ -148,14 +148,14 @@ class EmailProvider(ABC):
 
     @abstractmethod
     async def list_messages(
-        self, since_cursor: Optional[str], folder: str = "INBOX", limit: int = 50
-    ) -> tuple[List[EmailMessageDTO], Optional[str]]:
+        self, since_cursor: str | None, folder: str = "INBOX", limit: int = 50
+    ) -> tuple[list[EmailMessageDTO], str | None]:
         """Return a page of messages and a next cursor."""
 
     @abstractmethod
     async def send_message(
-        self, to: List[str], subject: str, body_text: str,
-        in_reply_to: Optional[str] = None, thread_id: Optional[str] = None,
+        self, to: list[str], subject: str, body_text: str,
+        in_reply_to: str | None = None, thread_id: str | None = None,
     ) -> str:
         """Send a message; return the provider message id."""
 
@@ -168,8 +168,8 @@ class EmailProvider(ABC):
 
 # --- provider registry -----------------------------------------------------
 
-_CALENDAR_PROVIDERS: Dict[str, type] = {}
-_EMAIL_PROVIDERS: Dict[str, type] = {}
+_CALENDAR_PROVIDERS: dict[str, type] = {}
+_EMAIL_PROVIDERS: dict[str, type] = {}
 
 
 def register_calendar_provider(provider_type: str) -> Any:

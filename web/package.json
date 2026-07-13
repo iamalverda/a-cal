@@ -8,26 +8,30 @@
     "build": "next build",
     "start": "next start --port 3456",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "pretest:e2e": "next build"
   },
   "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "framer-motion": "^12.23.12",
+    "lucide-react": "^0.544.0",
     "next": "15.5.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "date-fns": "^4.1.0",
-    "lucide-react": "^0.544.0",
-    "framer-motion": "^12.23.12",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^3.5.0",
-    "class-variance-authority": "^0.7.1"
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.2",
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "postcss": "^8.5.0",
     "tailwindcss": "^4.2.2",
-    "@tailwindcss/postcss": "^4.2.2",
-    "postcss": "^8.5.0"
+    "typescript": "^5.9.2"
   }
 }

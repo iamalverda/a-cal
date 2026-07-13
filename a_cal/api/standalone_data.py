@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -22,7 +22,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-data"])
 
-USER_ID = "local-dev-user"
+from a_cal.auth.session import get_current_user_id as _get_uid
+
+USER_ID = "local-dev-user"  # Legacy fallback; use _uid() for runtime
+
+
+def _fire_plugin_hook(hook_name: str, *args) -> None:
+    """Fire a plugin runtime hook, swallowing all errors.
+
+    Plugin hook failures must never crash event operations. This helper
+    isolates plugin code from the core data path.
+
+    Args:
+        hook_name: Name of the hook to fire (e.g. "on_event_created").
+        *args: Positional arguments to pass to the hook.
+    """
+    try:
+        from a_cal.developer.plugin_runtime import get_runtime
+        runtime = get_runtime()
+        getattr(runtime, hook_name)(*args)
+    except Exception as exc:
+        logger.debug("plugin hook %s failed: %s", hook_name, exc)
 
 
 # --- request/response models -----------------------------------------------
@@ -33,9 +53,9 @@ class SubAccountCreate(BaseModel):
     kind: str = "unified"
     sync_mode: str = "mirror_filter"
     is_main: bool = False
-    parent_sub_account_id: Optional[str] = None
+    parent_sub_account_id: str | None = None
     agent_enabled: bool = False
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class SubAccountOut(BaseModel):
@@ -46,7 +66,7 @@ class SubAccountOut(BaseModel):
     is_main: bool
     sync_mode: str
     agent_enabled: bool
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderConnectionCreate(BaseModel):
@@ -54,9 +74,9 @@ class ProviderConnectionCreate(BaseModel):
     sub_account_id: str
     provider_type: str
     provider_account_id: str
-    display_name: Optional[str] = None
-    config: Dict[str, Any] = Field(default_factory=dict)
-    scopes: List[str] = Field(default_factory=list)
+    display_name: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    scopes: list[str] = Field(default_factory=list)
 
 
 class ProviderConnectionOut(BaseModel):
@@ -65,9 +85,9 @@ class ProviderConnectionOut(BaseModel):
     sub_account_id: str
     provider_type: str
     provider_account_id: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
     status: str
-    last_sync_at: Optional[datetime] = None
+    last_sync_at: datetime | None = None
 
 
 class SyncRuleCreate(BaseModel):
@@ -76,7 +96,7 @@ class SyncRuleCreate(BaseModel):
     rule_type: str
     field: str = "title"
     pattern: str = "*"
-    action: Dict[str, Any] = Field(default_factory=dict)
+    action: dict[str, Any] = Field(default_factory=dict)
     priority: int = 0
 
 
@@ -87,11 +107,11 @@ class EmailMessageOut(BaseModel):
     provider_connection_id: str
     subject: str
     from_address: str
-    to_addresses: List[str] = Field(default_factory=list)
-    received_at: Optional[datetime] = None
-    snippet: Optional[str] = None
+    to_addresses: list[str] = Field(default_factory=list)
+    received_at: datetime | None = None
+    snippet: str | None = None
     has_calendar_invite: bool = False
-    labels: List[str] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list)
 
 
 class UnifiedEvent(BaseModel):
@@ -101,10 +121,10 @@ class UnifiedEvent(BaseModel):
     title: str
     start: datetime
     end: datetime
-    description: Optional[str] = None
-    location: Optional[str] = None
-    source_sub_account_id: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    description: str | None = None
+    location: str | None = None
+    source_sub_account_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 
@@ -134,8 +154,8 @@ def create_sub_account(body: SubAccountCreate) -> SubAccountOut:
     )
 
 
-@router.get("/sub-accounts", response_model=List[SubAccountOut])
-def list_sub_accounts() -> List[SubAccountOut]:
+@router.get("/sub-accounts", response_model=list[SubAccountOut])
+def list_sub_accounts() -> list[SubAccountOut]:
     """List all sub-accounts for the current user."""
     return [
         SubAccountOut(
@@ -147,7 +167,7 @@ def list_sub_accounts() -> List[SubAccountOut]:
 
 
 @router.patch("/sub-accounts/{sub_id}", response_model=SubAccountOut)
-def update_sub_account(sub_id: str, body: Dict[str, Any]) -> SubAccountOut:
+def update_sub_account(sub_id: str, body: dict[str, Any]) -> SubAccountOut:
     """Update a sub-account's settings (sync mode, agent_enabled, etc.)."""
     result = _store.update_sub_account(sub_id, body)
     if not result:
@@ -159,7 +179,7 @@ def update_sub_account(sub_id: str, body: Dict[str, Any]) -> SubAccountOut:
 
 
 @router.delete("/sub-accounts/{sub_id}")
-def delete_sub_account(sub_id: str) -> Dict[str, str]:
+def delete_sub_account(sub_id: str) -> dict[str, str]:
     """Delete a sub-account and its associated providers."""
     if not _store.delete_sub_account(sub_id):
         raise HTTPException(status_code=404, detail="Sub-account not found")
@@ -187,8 +207,8 @@ def create_provider(body: ProviderConnectionCreate) -> ProviderConnectionOut:
     )
 
 
-@router.get("/providers", response_model=List[ProviderConnectionOut])
-def list_providers(sub_account_id: str = Query(...)) -> List[ProviderConnectionOut]:
+@router.get("/providers", response_model=list[ProviderConnectionOut])
+def list_providers(sub_account_id: str = Query(...)) -> list[ProviderConnectionOut]:
     """List provider connections for a specific sub-account."""
     return [
         ProviderConnectionOut(
@@ -200,8 +220,8 @@ def list_providers(sub_account_id: str = Query(...)) -> List[ProviderConnectionO
     ]
 
 
-@router.get("/providers/all", response_model=List[ProviderConnectionOut])
-def list_all_providers() -> List[ProviderConnectionOut]:
+@router.get("/providers/all", response_model=list[ProviderConnectionOut])
+def list_all_providers() -> list[ProviderConnectionOut]:
     """List all provider connections (used by the sidebar to group by sub-account)."""
     return [
         ProviderConnectionOut(
@@ -214,7 +234,7 @@ def list_all_providers() -> List[ProviderConnectionOut]:
 
 
 @router.delete("/providers/{provider_id}")
-def delete_provider(provider_id: str) -> Dict[str, str]:
+def delete_provider(provider_id: str) -> dict[str, str]:
     """Delete a provider connection by ID."""
     if not _store.delete_provider(provider_id):
         raise HTTPException(status_code=404, detail="Provider connection not found")
@@ -222,7 +242,7 @@ def delete_provider(provider_id: str) -> Dict[str, str]:
 
 
 @router.patch("/providers/{provider_id}")
-def update_provider_status(provider_id: str, body: Dict[str, Any]) -> ProviderConnectionOut:
+def update_provider_status(provider_id: str, body: dict[str, Any]) -> ProviderConnectionOut:
     """Update a provider connection status (e.g., mark as connected after OAuth)."""
     result = _store.update_provider_status(provider_id, body.get("status", "connected"))
     if not result:
@@ -242,7 +262,7 @@ class SyncTriggerRequest(BaseModel):
 
 
 @router.post("/sync/trigger")
-async def trigger_sync(body: SyncTriggerRequest) -> Dict[str, Any]:
+async def trigger_sync(body: SyncTriggerRequest) -> dict[str, Any]:
     """Trigger a sync for a sub-account's providers.
 
     Attempts to pull real events from connected providers via the sync engine.
@@ -254,7 +274,7 @@ async def trigger_sync(body: SyncTriggerRequest) -> Dict[str, Any]:
     learn patterns (busy times, meeting cadence, preferences). Extraction is
     fire-and-forget — failures don't affect the sync result.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime
 
     from a_cal.providers.factory import build_calendar_provider
     from a_cal.providers.base import CalendarEventDTO
@@ -262,11 +282,11 @@ async def trigger_sync(body: SyncTriggerRequest) -> Dict[str, Any]:
     from a_cal.self_model.settings import SelfModelSettings
 
     providers = _store.list_providers(body.sub_account_id)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     sync_end = now + timedelta(days=30)
 
     pulled_count = 0
-    errors: list[Dict[str, str]] = []
+    errors: list[dict[str, str]] = []
     all_events: list[CalendarEventDTO] = []
 
     for p in providers:
@@ -304,12 +324,16 @@ async def trigger_sync(body: SyncTriggerRequest) -> Dict[str, Any]:
                 sm_settings = SelfModelSettings.default_for_depth(
                     __import__("a_cal.self_model.types", fromlist=["SelfModelDepth"]).SelfModelDepth.PATTERN_MEMORY
                 )
-            sm = SelfModel(user_id=USER_ID, settings=sm_settings)
+            sm = SelfModel(user_id=_get_uid(), settings=sm_settings)
             provenance = f"sync:{body.sub_account_id}"
             facts = await sm.observe_events(all_events, provenance)
             facts_learned = len(facts)
         except Exception as exc:
             logger.warning("self-model extraction after sync failed: %s", exc)
+
+    # Fire on_sync_complete plugin hook (fire-and-forget).
+    sync_events_data = [ev.to_storage_dict() for ev in all_events]
+    _fire_plugin_hook("on_sync_complete", body.sub_account_id, sync_events_data)
 
     event_count = len(_store.get_unified_calendar(30))
     return {
@@ -325,21 +349,21 @@ async def trigger_sync(body: SyncTriggerRequest) -> Dict[str, Any]:
 
 # --- unified main-calendar view --------------------------------------------
 
-@router.get("/calendar/unified", response_model=List[UnifiedEvent])
-async def unified_calendar(days: int = Query(7, ge=1, le=90)) -> List[UnifiedEvent]:
+@router.get("/calendar/unified", response_model=list[UnifiedEvent])
+async def unified_calendar(days: int = Query(7, ge=1, le=90)) -> list[UnifiedEvent]:
     """Return the unified calendar timeline for the next N days.
 
     In standalone mode, this returns the seeded demo events. In production
     with atom, this pulls from real providers via the sync engine.
     """
     events = _store.get_unified_calendar(days)
-    result: List[UnifiedEvent] = []
+    result: list[UnifiedEvent] = []
     for evt in events:
         evt_start = evt["start"]
         if isinstance(evt_start, str):
             evt_start = datetime.fromisoformat(evt_start)
         if evt_start.tzinfo is None:
-            evt_start = evt_start.replace(tzinfo=timezone.utc)
+            evt_start = evt_start.replace(tzinfo=UTC)
         evt_end = evt["end"]
         if isinstance(evt_end, str):
             evt_end = datetime.fromisoformat(evt_end)
@@ -364,20 +388,20 @@ class EventCreate(BaseModel):
     title: str
     start: datetime
     end: datetime
-    description: Optional[str] = None
-    location: Optional[str] = None
-    source_sub_account_id: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    description: str | None = None
+    location: str | None = None
+    source_sub_account_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class EventUpdate(BaseModel):
     """Payload for updating a calendar event."""
-    title: Optional[str] = None
-    start: Optional[datetime] = None
-    end: Optional[datetime] = None
-    description: Optional[str] = None
-    location: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    title: str | None = None
+    start: datetime | None = None
+    end: datetime | None = None
+    description: str | None = None
+    location: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @router.post("/calendar/events", response_model=UnifiedEvent)
@@ -397,13 +421,14 @@ def create_event(body: EventCreate) -> UnifiedEvent:
         "source_sub_account_id": body.source_sub_account_id,
         "metadata": body.metadata,
     })
+    _fire_plugin_hook("on_event_created", evt)
     return _event_to_response(evt)
 
 
 @router.patch("/calendar/events/{event_id}", response_model=UnifiedEvent)
 def update_event(event_id: str, body: EventUpdate) -> UnifiedEvent:
     """Update an existing calendar event by provider_event_id."""
-    patch: Dict[str, Any] = {}
+    patch: dict[str, Any] = {}
     if body.title is not None:
         patch["title"] = body.title
     if body.start is not None:
@@ -420,31 +445,33 @@ def update_event(event_id: str, body: EventUpdate) -> UnifiedEvent:
     evt = _store.update_event(event_id, patch)
     if not evt:
         raise HTTPException(status_code=404, detail="Event not found")
+    _fire_plugin_hook("on_event_updated", evt)
     return _event_to_response(evt)
 
 
 @router.delete("/calendar/events/{event_id}")
-def delete_event(event_id: str) -> Dict[str, str]:
+def delete_event(event_id: str) -> dict[str, str]:
     """Delete a calendar event by provider_event_id."""
     if not _store.delete_event(event_id):
         raise HTTPException(status_code=404, detail="Event not found")
+    _fire_plugin_hook("on_event_deleted", event_id)
     return {"status": "deleted", "event_id": event_id}
 
 
-@router.get("/calendar/events", response_model=List[UnifiedEvent])
-def list_events(days: int = Query(30, ge=1, le=365)) -> List[UnifiedEvent]:
+@router.get("/calendar/events", response_model=list[UnifiedEvent])
+def list_events(days: int = Query(30, ge=1, le=365)) -> list[UnifiedEvent]:
     """List all events within the next N days (wider window for agents)."""
     events = _store.get_all_events(days)
     return [_event_to_response(evt) for evt in events]
 
 
-def _event_to_response(evt: Dict[str, Any]) -> UnifiedEvent:
+def _event_to_response(evt: dict[str, Any]) -> UnifiedEvent:
     """Convert a store event dict to a UnifiedEvent response."""
     evt_start = evt["start"]
     if isinstance(evt_start, str):
         evt_start = datetime.fromisoformat(evt_start)
     if evt_start.tzinfo is None:
-        evt_start = evt_start.replace(tzinfo=timezone.utc)
+        evt_start = evt_start.replace(tzinfo=UTC)
     evt_end = evt["end"]
     if isinstance(evt_end, str):
         evt_end = datetime.fromisoformat(evt_end)
@@ -464,7 +491,7 @@ def _event_to_response(evt: Dict[str, Any]) -> UnifiedEvent:
 # --- sync rule endpoints ---------------------------------------------------
 
 @router.post("/sync-rules")
-def create_sync_rule(body: SyncRuleCreate) -> Dict[str, str]:
+def create_sync_rule(body: SyncRuleCreate) -> dict[str, str]:
     """Create a sync rule for a sub-account."""
     data = _store.create_sync_rule({
         "sub_account_id": body.sub_account_id,
@@ -478,7 +505,7 @@ def create_sync_rule(body: SyncRuleCreate) -> Dict[str, str]:
 
 
 @router.get("/sync-rules")
-def list_sync_rules(sub_account_id: str = Query(...)) -> List[Dict[str, Any]]:
+def list_sync_rules(sub_account_id: str = Query(...)) -> list[dict[str, Any]]:
     """List sync rules for a sub-account."""
     return [
         {
@@ -495,13 +522,22 @@ def list_sync_rules(sub_account_id: str = Query(...)) -> List[Dict[str, Any]]:
     ]
 
 
+@router.delete("/sync-rules/{rule_id}")
+def delete_sync_rule(rule_id: str) -> dict[str, str]:
+    """Delete a sync rule."""
+    deleted = _store.delete_sync_rule(rule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Sync rule not found")
+    return {"status": "deleted", "id": rule_id}
+
+
 # --- email messages --------------------------------------------------------
 
-@router.get("/email/messages", response_model=List[EmailMessageOut])
+@router.get("/email/messages", response_model=list[EmailMessageOut])
 async def list_email_messages(
-    sub_account_id: Optional[str] = Query(None),
+    sub_account_id: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
-) -> List[EmailMessageOut]:
+) -> list[EmailMessageOut]:
     """List email messages from connected email providers.
 
     Pulls real messages from IMAP/Gmail providers when credentials are
@@ -520,7 +556,7 @@ async def list_email_messages(
     if sub_account_id:
         email_providers = [p for p in email_providers if p["sub_account_id"] == sub_account_id]
 
-    results: List[EmailMessageOut] = []
+    results: list[EmailMessageOut] = []
     for p in email_providers:
         try:
             provider = build_email_provider(p)
@@ -554,14 +590,14 @@ async def list_email_messages(
 
     # Sort by received_at descending (newest first)
     results.sort(
-        key=lambda m: m.received_at or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda m: m.received_at or datetime.min.replace(tzinfo=UTC),
         reverse=True,
     )
     return results[:limit]
 
 
 @router.post("/email/send")
-async def send_email(body: Dict[str, Any]) -> Dict[str, Any]:
+async def send_email(body: dict[str, Any]) -> dict[str, Any]:
     """Send an email through a connected email provider.
 
     Body fields: provider_connection_id, to (list), subject, body_text.

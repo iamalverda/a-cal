@@ -34,7 +34,9 @@ from a_cal.settings.model_routing import ModelProvider, ModelRoutingConfig
 logger = logging.getLogger(__name__)
 
 # HTTP timeout for LLM calls (models can be slow, especially local ones).
-_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
+# Shorter timeout for Ollama model listing (just a metadata fetch).
+_OLLAMA_LIST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
 @dataclass
@@ -45,9 +47,9 @@ class LLMResponse:
     provider: str
     model: str
     forced_local: bool = False
-    error: Optional[str] = None
+    error: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text,
             "provider": self.provider,
@@ -72,7 +74,7 @@ class StandaloneLLMService:
     _ollama_url: str = "http://localhost:11434"
 
     # Cloud provider base URLs.
-    _CLOUD_URLS: Dict[str, str] = {
+    _CLOUD_URLS: dict[str, str] = {
         ModelProvider.OPENAI.value: "https://api.openai.com/v1",
         ModelProvider.GROQ.value: "https://api.groq.com/openai/v1",
         ModelProvider.OPENROUTER.value: "https://openrouter.ai/api/v1",
@@ -93,9 +95,9 @@ class StandaloneLLMService:
 
     def __init__(
         self,
-        routing: Optional[ModelRoutingConfig] = None,
-        api_keys: Optional[Dict[str, str]] = None,
-        ollama_url: Optional[str] = None,
+        routing: ModelRoutingConfig | None = None,
+        api_keys: dict[str, str] | None = None,
+        ollama_url: str | None = None,
     ) -> None:
         """Initialize with routing config and API keys.
 
@@ -108,6 +110,29 @@ class StandaloneLLMService:
         self.api_keys = api_keys or {}
         if ollama_url:
             self._ollama_url = ollama_url
+
+    async def warmup(self) -> None:
+        """Preload the configured model into memory with a tiny prompt.
+
+        Local models (Ollama) need to be loaded into RAM before the first
+        real request, which can add 10-60 seconds of latency. Calling this
+        on startup or when the user enables the LLM makes the first chat
+        message feel instant. Safe to call multiple times — Ollama keeps
+        the model loaded based on its ``keep_alive`` setting.
+        """
+        resolved = self.routing.resolve_model("chat")
+        provider = resolved["provider"]
+        if provider != ModelProvider.OLLAMA.value:
+            return  # Only Ollama benefits from warmup
+        try:
+            await self._call_ollama(
+                prompt="Ready.",
+                system_prompt="You are a calendar assistant.",
+                model=resolved["model"],
+            )
+            logger.info("Ollama model warmed up successfully")
+        except Exception as exc:
+            logger.debug("Ollama warmup skipped: %r", exc)
 
     async def generate_response(
         self,
@@ -152,11 +177,25 @@ class StandaloneLLMService:
 
             return response.text
 
+        except httpx.TimeoutException as exc:
+            logger.error(
+                "LLM call timed out (provider=%s, model=%s): %r",
+                provider, model, exc,
+            )
+            return (
+                f"The {provider} model took too long to respond (timed out after "
+                f"the configured wait). Local models can be slow on first load — "
+                f"try again, or switch to a smaller model in Settings."
+            )
         except Exception as exc:
-            logger.error("LLM call failed (provider=%s, model=%s): %s", provider, model, exc)
+            logger.error(
+                "LLM call failed (provider=%s, model=%s): %r",
+                provider, model, exc,
+            )
+            err_msg = str(exc) or repr(exc)
             return (
                 f"I couldn't reach the {provider} service right now. "
-                f"Error: {exc}. You can check your model settings or try again."
+                f"Error: {err_msg}. You can check your model settings or try again."
             )
 
     async def _call_ollama(
@@ -173,6 +212,21 @@ class StandaloneLLMService:
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
+            # Keep the model loaded in memory for 5 minutes after the call
+            # so subsequent messages are fast (no model reload overhead).
+            "keep_alive": "5m",
+            # Limit context window and response length for speed. Ollama's
+            # default context is 128K tokens, which causes huge memory
+            # allocation and slow inference even for short prompts. 8K is
+            # plenty for calendar chat. num_predict caps the response at
+            # ~300 words so the model doesn't ramble.
+            "options": {
+                "num_ctx": 8192,
+                "num_predict": 256,
+                # Low temperature for factual calendar responses — prevents
+                # the model from inventing events or times that don't exist.
+                "temperature": 0.3,
+            },
         }
 
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -191,27 +245,44 @@ class StandaloneLLMService:
             )
 
     async def _resolve_ollama_model(self, requested: str) -> str:
-        """Return the requested model if available, else the first installed model.
+        """Return the requested model if available, else the best installed model.
 
-        This handles the case where the user's configured model name doesn't
-        match any installed Ollama model (e.g. default 'llama3.2' when only
-        'gemma3:4b' is installed). Falls back gracefully instead of erroring.
+        When the requested model isn't installed, prefers a local (non-cloud)
+        model over a cloud-proxied one. Among local models, prefers smaller
+        ones for faster inference. Falls back gracefully instead of erroring.
         """
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+            async with httpx.AsyncClient(timeout=_OLLAMA_LIST_TIMEOUT) as client:
                 resp = await client.get(f"{self._ollama_url}/api/tags")
                 if resp.status_code != 200:
                     return requested
-                models = [m["name"] for m in resp.json().get("models", [])]
-                if requested in models:
+                all_models = resp.json().get("models", [])
+                model_names = [m["name"] for m in all_models]
+                if requested in model_names:
                     return requested
-                if models:
-                    logger.info(
-                        "model %r not found in Ollama, falling back to %r",
-                        requested, models[0],
-                    )
-                    return models[0]
-                return requested
+                if not model_names:
+                    return requested
+
+                # Separate local from cloud-proxied models. Ollama marks
+                # cloud models with a "remote_host" field in their details.
+                local_models = [
+                    m["name"] for m in all_models
+                    if not m.get("remote_host")
+                ]
+                # Prefer local models; fall back to any available.
+                candidates = local_models if local_models else model_names
+
+                # Prefer smaller models (faster for chat). Heuristic: sort by
+                # size ascending so we pick the lightest available model.
+                size_map = {m["name"]: m.get("size", 0) for m in all_models}
+                candidates.sort(key=lambda n: size_map.get(n, 0))
+
+                chosen = candidates[0]
+                logger.info(
+                    "model %r not found in Ollama, falling back to %r",
+                    requested, chosen,
+                )
+                return chosen
         except Exception:
             return requested
 
@@ -355,7 +426,7 @@ async def check_ollama_available(ollama_url: str = "http://localhost:11434") -> 
     Returns True if the Ollama API responds, False otherwise.
     """
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+        async with httpx.AsyncClient(timeout=_OLLAMA_LIST_TIMEOUT) as client:
             resp = await client.get(f"{ollama_url}/api/tags")
             return resp.status_code == 200
     except Exception:
@@ -368,7 +439,7 @@ async def list_ollama_models(ollama_url: str = "http://localhost:11434") -> list
     Returns a list of model names. Empty list if Ollama is not running.
     """
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+        async with httpx.AsyncClient(timeout=_OLLAMA_LIST_TIMEOUT) as client:
             resp = await client.get(f"{ollama_url}/api/tags")
             if resp.status_code != 200:
                 return []

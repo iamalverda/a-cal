@@ -28,7 +28,7 @@ class SelfModelSettings:
     # Granular category toggles. If a category is not in this dict, it defaults
     # to off. The UI populates this with all categories at the chosen depth,
     # pre-checked for pattern-level categories and unchecked for deeper ones.
-    enabled_categories: Dict[str, bool] = field(default_factory=dict)
+    enabled_categories: dict[str, bool] = field(default_factory=dict)
 
     # Privacy controls.
     cloud_sync_enabled: bool = False       # encrypted sync of the model, off by default
@@ -61,11 +61,11 @@ class SelfModelSettings:
             return False
         return self.enabled_categories.get(category.value, False)
 
-    def available_categories(self) -> List[FactCategory]:
+    def available_categories(self) -> list[FactCategory]:
         """All categories available at the current depth (before user toggles)."""
         return FactCategory.for_depth(self.effective_depth())
 
-    def enabled_category_list(self) -> List[FactCategory]:
+    def enabled_category_list(self) -> list[FactCategory]:
         """Only the categories the user has actually turned on."""
         return [c for c in FactCategory if self.is_category_enabled(c)]
 
@@ -82,7 +82,7 @@ class SelfModelSettings:
             return PrivacyTier.TIER_PREFERENCE
         return PrivacyTier.TIER_PATTERN
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "depth": self.depth,
             "enabled_categories": dict(self.enabled_categories),
@@ -96,7 +96,7 @@ class SelfModelSettings:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SelfModelSettings":
+    def from_dict(cls, data: dict[str, Any]) -> SelfModelSettings:
         return cls(
             depth=data.get("depth", SelfModelDepth.PATTERN_MEMORY.value),
             enabled_categories=dict(data.get("enabled_categories", {})),
@@ -110,13 +110,13 @@ class SelfModelSettings:
         )
 
     @classmethod
-    def default_for_depth(cls, depth: SelfModelDepth) -> "SelfModelSettings":
+    def default_for_depth(cls, depth: SelfModelDepth) -> SelfModelSettings:
         """Create settings at a given depth with sensible category defaults.
 
         Pattern-level categories are on by default; deeper categories require
         explicit opt-in (off by default).
         """
-        cats: Dict[str, bool] = {}
+        cats: dict[str, bool] = {}
         for cat in FactCategory.for_depth(depth):
             # Only pattern-level categories are auto-enabled. Deeper ones are off.
             cats[cat.value] = cat.min_depth() == SelfModelDepth.PATTERN_MEMORY

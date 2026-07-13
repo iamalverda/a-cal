@@ -210,3 +210,70 @@ class TestRate:
             "stars": 3.0,
         })
         assert resp.status_code == 404
+
+
+class TestCommunityProfile:
+    """Tests for the /community/profile endpoint (charter §9)."""
+
+    def test_default_profile_has_zero_stats(self):
+        """Profile endpoint returns the expected structure."""
+        resp = client.get("/api/a-cal/marketplace/community/profile")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["user_id"] == "local-dev-user"
+        assert "stats" in data
+        assert "authored" in data
+        assert "remixes" in data
+        assert "originals" in data
+        assert "installed" in data
+        assert isinstance(data["stats"]["total_authored"], int)
+        assert isinstance(data["stats"]["total_remixes"], int)
+
+    def test_profile_shows_published_items(self):
+        """After publishing, the profile reflects authored items."""
+        item = _publish_item("My Profile Test Agent")
+        resp = client.get("/api/a-cal/marketplace/community/profile")
+        data = resp.json()
+        authored_names = [i["name"] for i in data["authored"]]
+        assert "My Profile Test Agent" in authored_names
+        assert data["stats"]["total_authored"] >= 1
+
+    def test_profile_shows_remixes(self):
+        """Remixed items appear in the remixes list."""
+        parent = _publish_item("Parent Agent")
+        # Remix the parent
+        resp = client.post(f"/api/a-cal/marketplace/items/{parent['id']}/remix", json={
+            "name": "My Remix Agent",
+            "description": "A remix",
+        })
+        assert resp.status_code == 200
+
+        profile = client.get("/api/a-cal/marketplace/community/profile").json()
+        # The remix should appear in the remixes list
+        remix_names = [r["name"] for r in profile["remixes"]]
+        assert "My Remix Agent" in remix_names
+        assert profile["stats"]["total_remixes"] >= 1
+        # Parent should appear in originals
+        original_names = [o["name"] for o in profile["originals"]]
+        assert "Parent Agent" in original_names
+
+    def test_profile_shows_installs(self):
+        """Installed items appear in the installed list."""
+        item = _publish_item("My Installable Agent")
+        client.post(f"/api/a-cal/marketplace/items/{item['id']}/install")
+
+        profile = client.get("/api/a-cal/marketplace/community/profile").json()
+        installed_ids = [i["item_id"] for i in profile["installed"]]
+        assert item["id"] in installed_ids
+        assert profile["stats"]["total_installed"] >= 1
+
+    def test_profile_stats_include_remixes_by_others(self):
+        """Stats count how many times the user's items have been remixed."""
+        item = _publish_item("Popular Agent")
+        # Remix the item (the remix is authored by the same user in standalone)
+        client.post(f"/api/a-cal/marketplace/items/{item['id']}/remix", json={
+            "name": "Someone Else's Remix",
+        })
+        profile = client.get("/api/a-cal/marketplace/community/profile").json()
+        # The original item has been remixed at least once
+        assert profile["stats"]["total_remixes_of_authored"] >= 1

@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, Optional
 
 
@@ -25,11 +25,11 @@ class SelfModelDepth(str, enum.Enum):
     LONGITUDINAL_IDENTITY = "longitudinal_identity"
 
     @classmethod
-    def levels(cls) -> list["SelfModelDepth"]:
+    def levels(cls) -> list[SelfModelDepth]:
         """Ordered from shallowest to deepest."""
         return [cls.PATTERN_MEMORY, cls.ATTENTION_INTENT, cls.LONGITUDINAL_IDENTITY]
 
-    def includes(self, other: "SelfModelDepth") -> bool:
+    def includes(self, other: SelfModelDepth) -> bool:
         """Whether this depth level encompasses another."""
         order = {d: i for i, d in enumerate(self.levels())}
         return order[self] >= order[other]
@@ -61,7 +61,7 @@ class FactCategory(str, enum.Enum):
     LIFE_CONTEXT = "life_context"             # personal commitments, constraints
 
     @classmethod
-    def for_depth(cls, depth: SelfModelDepth) -> list["FactCategory"]:
+    def for_depth(cls, depth: SelfModelDepth) -> list[FactCategory]:
         """Categories available at a given depth level."""
         result: list[FactCategory] = []
         for cat in cls:
@@ -125,16 +125,16 @@ class SelfModelFact:
     confidence: float = 0.0          # 0.0–1.0, EWMA-updated on re-observation
     provenance: str = ""             # "calendar:google:2026-07-10" etc.
     source_event_ids: list[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: Optional[str] = None
-    superseded_by: Optional[str] = None  # id of a newer fact that replaced this
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str | None = None
+    superseded_by: str | None = None  # id of a newer fact that replaced this
     status: str = "active"           # active | superseded | deleted
 
     def is_active(self) -> bool:
         return self.status == "active"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "category": self.category,
@@ -152,7 +152,7 @@ class SelfModelFact:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SelfModelFact":
+    def from_dict(cls, data: dict[str, Any]) -> SelfModelFact:
         return cls(
             id=data.get("id", str(uuid.uuid4())),
             category=data.get("category", ""),
@@ -163,7 +163,7 @@ class SelfModelFact:
             provenance=data.get("provenance", ""),
             source_event_ids=data.get("source_event_ids", []),
             metadata=data.get("metadata", {}),
-            created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
+            created_at=data.get("created_at", datetime.now(UTC).isoformat()),
             updated_at=data.get("updated_at"),
             superseded_by=data.get("superseded_by"),
             status=data.get("status", "active"),

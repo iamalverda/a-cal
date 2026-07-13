@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, Optional
 
 from sqlalchemy import (
@@ -112,8 +112,8 @@ class SubAccount(Base):
     # Free-form settings: color, visibility, display order, notification prefs.
     settings = Column(JSONColumn, default=dict)
 
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(UTC))
 
     provider_connections = relationship(
         "ProviderConnection", back_populates="sub_account", cascade="all, delete-orphan"
@@ -161,8 +161,8 @@ class ProviderConnection(Base):
     # Provider-specific config (CalDAV server URL, IMAP host/port, etc.).
     config = Column(JSONColumn, default=dict)
 
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(UTC))
 
     sub_account = relationship("SubAccount", back_populates="provider_connections")
 
@@ -193,7 +193,7 @@ class SubCalendarSyncRule(Base):
     priority = Column(Integer, nullable=False, default=0)  # lower runs first
 
     is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(UTC))
 
     sub_account = relationship("SubAccount", back_populates="sync_rules")

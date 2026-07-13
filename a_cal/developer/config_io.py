@@ -31,11 +31,11 @@ class ConfigExporter:
     def __init__(
         self,
         mode: str = "simple",
-        model_routing: Optional[ModelRoutingConfig] = None,
-        self_model_settings: Optional[SelfModelSettings] = None,
-        custom_agent_specs: Optional[list[Dict[str, Any]]] = None,
-        plugins: Optional[list[Dict[str, Any]]] = None,
-        sub_accounts: Optional[list[Dict[str, Any]]] = None,
+        model_routing: ModelRoutingConfig | None = None,
+        self_model_settings: SelfModelSettings | None = None,
+        custom_agent_specs: list[dict[str, Any]] | None = None,
+        plugins: list[dict[str, Any]] | None = None,
+        sub_accounts: list[dict[str, Any]] | None = None,
     ) -> None:
         self.mode = mode
         self.model_routing = model_routing or ModelRoutingConfig()
@@ -44,7 +44,7 @@ class ConfigExporter:
         self.plugins = plugins or []
         self.sub_accounts = sub_accounts or []
 
-    def export(self) -> Dict[str, Any]:
+    def export(self) -> dict[str, Any]:
         """Export the full configuration as a JSON-serializable dict."""
         return {
             "schema_version": CONFIG_SCHEMA_VERSION,
@@ -72,7 +72,7 @@ class ConfigImporter:
         self.errors: list[str] = []
         self.warnings: list[str] = []
 
-    def import_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def import_config(self, data: dict[str, Any]) -> dict[str, Any]:
         """Import a configuration dict.
 
         Returns a dict of typed config objects:
@@ -93,7 +93,7 @@ class ConfigImporter:
                 f"schema version mismatch: expected {CONFIG_SCHEMA_VERSION}, got {version}"
             )
 
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
 
         # Mode.
         mode_data = data.get("mode", {})
@@ -130,7 +130,7 @@ class ConfigImporter:
 
         return result
 
-    def import_json(self, json_str: str) -> Dict[str, Any]:
+    def import_json(self, json_str: str) -> dict[str, Any]:
         """Import from a JSON string."""
         data = json.loads(json_str)
         return self.import_config(data)

@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/a-cal/swarm", tags=["a-cal-swarm"])
 
 # --- per-user coordinator store (standalone mode) --------------------------
 
-_coordinators: Dict[str, SwarmCoordinator] = {}
+_coordinators: dict[str, SwarmCoordinator] = {}
 
 
 def _get_coordinator(user_id: str) -> SwarmCoordinator:
@@ -40,8 +40,9 @@ def _get_coordinator(user_id: str) -> SwarmCoordinator:
 
 
 def _current_user_id() -> str:
-    """Placeholder — wired to atom's auth in production."""
-    return "local-dev-user"
+    """Return the current user ID from the auth context."""
+    from a_cal.auth.session import get_current_user_id
+    return get_current_user_id()
 
 
 # --- request/response models -----------------------------------------------
@@ -79,7 +80,7 @@ class EventInput(BaseModel):
 class DetectConflictsRequest(BaseModel):
     """Detect overlapping events from different sub-accounts."""
 
-    events: List[EventInput]
+    events: list[EventInput]
 
 
 # --- helpers ----------------------------------------------------------------

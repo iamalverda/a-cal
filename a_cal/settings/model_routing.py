@@ -51,14 +51,14 @@ class ModelRoutingConfig:
 
     global_provider: str = ModelProvider.OLLAMA.value
     global_model: str = "llama3.2"  # sensible default local model
-    per_task_overrides: Dict[str, str] = field(default_factory=dict)
+    per_task_overrides: dict[str, str] = field(default_factory=dict)
     # API keys are stored as refs into atom's encrypted token storage.
-    api_key_refs: Dict[str, str] = field(default_factory=dict)
+    api_key_refs: dict[str, str] = field(default_factory=dict)
     # Whether to force local for privacy-sensitive tasks (always True; exposed
     # in settings as an informational toggle so users understand the constraint).
     privacy_force_local: bool = True
 
-    def resolve_model(self, task: str) -> Dict[str, str]:
+    def resolve_model(self, task: str) -> dict[str, str]:
         """Resolve which provider + model to use for a given task.
 
         Privacy-sensitive tasks (email, self_model, negotiate) are always
@@ -77,7 +77,7 @@ class ModelRoutingConfig:
 
         return {"provider": self.global_provider, "model": self.global_model, "forced_local": "false"}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "global_provider": self.global_provider,
             "global_model": self.global_model,
@@ -87,7 +87,7 @@ class ModelRoutingConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ModelRoutingConfig":
+    def from_dict(cls, data: dict[str, Any]) -> ModelRoutingConfig:
         return cls(
             global_provider=data.get("global_provider", ModelProvider.OLLAMA.value),
             global_model=data.get("global_model", "llama3.2"),

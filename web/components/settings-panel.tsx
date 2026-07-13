@@ -22,6 +22,9 @@ import {
   Download,
   Eye,
   AlertTriangle,
+  Bot,
+  Clock,
+  Mic,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -31,7 +34,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { api, oauthApi } from "@/lib/api";
 import { mockModeConfig } from "@/lib/mock-data";
-import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact } from "@/types";
+import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact, AtomStatus, BackendMode, AutonomyLevel, EmailDepth } from "@/types";
 
 interface SettingsPanelProps {
   mode: SkillMode;
@@ -67,13 +70,22 @@ const SELF_MODEL_DEPTHS = [
 ];
 
 const SECTIONS = [
+  { id: "general", label: "General", icon: Clock },
   { id: "mode", label: "Skill Mode", icon: SettingsIcon },
   { id: "connections", label: "Connections", icon: LinkIcon },
+  { id: "email", label: "Email Depth", icon: Mail },
   { id: "model", label: "Model Routing", icon: Cpu },
+  { id: "autonomy", label: "Agent Autonomy", icon: Bot },
   { id: "self_model", label: "Self-Model", icon: Brain },
   { id: "privacy", label: "Privacy", icon: Shield },
   { id: "developer", label: "Developer", icon: Code2 },
   { id: "marketplace", label: "Marketplace", icon: Store },
+];
+
+const EMAIL_DEPTHS = [
+  { value: "sync_notify", label: "Sync & Notify", description: "Read inbox for events and invites. Send notifications. No agent actions — you handle everything manually." },
+  { value: "agent_mediated", label: "Agent-Mediated Inbox", description: "Parse emails into events, contacts, and actions. Draft replies for your approval. Agents suggest but do not send." },
+  { value: "full_two_way", label: "Full Two-Way Agent", description: "Send, decline, and renegotiate within provider permissions. Email-side memory tied to events. Agents act autonomously (subject to autonomy settings)." },
 ];
 
 export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProps) {
@@ -107,6 +119,14 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
   const [connError, setConnError] = useState<string | null>(null);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [apiKeyDraft, setApiKeyDraft] = useState<Record<string, string>>({});
+  const [backendMode, setBackendMode] = useState<BackendMode>("standalone");
+  const [atomStatus, setAtomStatus] = useState<AtomStatus | null>(null);
+  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>("confirm");
+  const [emailDepth, setEmailDepth] = useState<EmailDepth>("sync_notify");
+  const [emailAutoScan, setEmailAutoScan] = useState(false);
+  const [timezone, setTimezone] = useState<string>("");
+  const [timezoneDraft, setTimezoneDraft] = useState<string>("");
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
 
   // Self-model facts viewer state
   const [showFacts, setShowFacts] = useState(false);
@@ -144,6 +164,12 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         setOllamaModels(ollamaStat.models);
         setApiKeys(keysData);
         setApiKeyDraft(keysData);
+        // Load backend mode and atom status (non-blocking — may fail if endpoint missing)
+        api.getBackendMode().then((r) => setBackendMode(r.mode as BackendMode)).catch(() => {});
+        api.getAtomStatus().then(setAtomStatus).catch(() => {});
+        api.getAutonomy().then((a) => setAutonomyLevel(a.default_level)).catch(() => {});
+        api.getEmailSettings().then((e) => { setEmailDepth(e.depth); setEmailAutoScan(e.auto_scan_enabled); }).catch(() => {});
+        api.getTimezone().then((tz) => { setTimezone(tz); setTimezoneDraft(tz); }).catch(() => {});
       } catch {
         // Backend not running — keep defaults (mock data already set)
       }
@@ -173,6 +199,51 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
       });
     } catch {
       // Backend not running — local state already updated
+    }
+  };
+
+  /** Save autonomy level to backend. */
+  const saveAutonomy = async (level: AutonomyLevel) => {
+    setAutonomyLevel(level);
+    try {
+      await api.setAutonomy({ default_level: level, per_sub_account: {} });
+    } catch {
+      // Backend not running — local state already updated
+    }
+  };
+
+  /** Save timezone to backend. */
+  const saveTimezone = async () => {
+    if (!timezoneDraft || timezoneDraft === timezone) return;
+    setTimezoneSaving(true);
+    try {
+      const saved = await api.setTimezone(timezoneDraft);
+      setTimezone(saved);
+    } catch {
+      // Backend not running or invalid timezone
+    } finally {
+      setTimezoneSaving(false);
+    }
+  };
+
+  /** Save email depth setting to backend. */
+  const saveEmailDepth = async (depth: EmailDepth) => {
+    setEmailDepth(depth);
+    try {
+      await api.setEmailSettings({ depth, auto_scan_enabled: emailAutoScan });
+    } catch (e) {
+      console.error("Failed to save email depth", e);
+    }
+  };
+
+  /** Toggle auto-scan and persist. */
+  const toggleEmailAutoScan = async () => {
+    const next = !emailAutoScan;
+    setEmailAutoScan(next);
+    try {
+      await api.setEmailSettings({ depth: emailDepth, auto_scan_enabled: next });
+    } catch (e) {
+      console.error("Failed to save auto-scan setting", e);
     }
   };
 
@@ -281,6 +352,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
     proactive_suggestions_enabled: boolean;
     feed_into_calendar_view: boolean;
     feed_into_agents: boolean;
+    feed_into_proactive?: boolean;
   }>) => {
     try {
       await api.setSelfModelSettings({
@@ -290,9 +362,21 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         proactive_suggestions_enabled: updates.proactive_suggestions_enabled ?? proactive,
         feed_into_calendar_view: updates.feed_into_calendar_view ?? feedCalendar,
         feed_into_agents: updates.feed_into_agents ?? feedAgents,
+        feed_into_proactive: updates.feed_into_proactive ?? proactive,
       });
     } catch {
       // Backend not running — local state already updated
+    }
+  };
+
+  /** Switch backend mode (standalone vs atom) and persist to backend. */
+  const handleBackendModeChange = async (newMode: BackendMode) => {
+    setBackendMode(newMode);
+    try {
+      await api.setBackendMode(newMode);
+    } catch {
+      // Revert on failure
+      setBackendMode(newMode === "atom" ? "standalone" : "atom");
     }
   };
 
@@ -435,6 +519,61 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
 
           {/* Section content */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
+            {activeSection === "general" && (
+              <Section title="General" description="Core preferences that apply across all modes and sub-accounts.">
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Timezone</label>
+                    <p className="text-xs text-[var(--muted-foreground)] mt-0.5 mb-2">
+                      Your timezone determines how the conductor interprets "today", "tomorrow",
+                      and relative time expressions. Uses IANA timezone names.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={timezoneDraft}
+                        onChange={(e) => setTimezoneDraft(e.target.value)}
+                        placeholder="America/Chicago"
+                        className="flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={saveTimezone}
+                        disabled={timezoneSaving || timezoneDraft === timezone}
+                      >
+                        {timezoneSaving ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                    {timezone && timezone !== timezoneDraft && (
+                      <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                        Current: {timezone}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Voice interaction (charter §6) */}
+                  <div>
+                    <label className="text-sm font-medium flex items-center gap-1.5">
+                      <Mic size={14} />
+                      Voice Interaction
+                    </label>
+                    <p className="text-xs text-[var(--muted-foreground)] mt-0.5 mb-2">
+                      Talk to the conductor instead of typing. Uses your browser's
+                      built-in speech recognition. Available in the conductor panel
+                      and command bar.
+                    </p>
+                    <div className="rounded-lg border border-[var(--border)] p-3 space-y-2 bg-[var(--card)]/50">
+                      <div className="text-xs text-[var(--muted-foreground)]">
+                        Voice input is always available when the browser supports it.
+                        Click the microphone icon in the conductor panel or command bar
+                        to start speaking. Your speech is transcribed locally by the browser
+                        — no audio is sent to any server.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Section>
+            )}
+
             {activeSection === "mode" && (
               <Section title="Skill Mode" description="Switch the UI complexity and feature set. You can change this anytime.">
                 <div className="space-y-2">
@@ -698,6 +837,52 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
               </Section>
             )}
 
+            {activeSection === "email" && (
+              <Section title="Email Integration Depth" description="Control how deeply A-Cal's agents integrate with your email. This is separate from connecting a provider — you can have Gmail connected for sync only, or fully agent-mediated.">
+                <div className="space-y-4">
+                  {EMAIL_DEPTHS.map((d) => (
+                    <button
+                      key={d.value}
+                      onClick={() => saveEmailDepth(d.value as EmailDepth)}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                        emailDepth === d.value
+                          ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                          : "border-[var(--border)] hover:bg-[var(--accent)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{d.label}</span>
+                        {emailDepth === d.value && (
+                          <span className="text-xs text-[var(--primary)] font-medium">Active</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-[var(--muted-foreground)] mt-1">
+                        {d.description}
+                      </div>
+                    </button>
+                  ))}
+
+                  <div className="flex items-start justify-between gap-3 py-2 border-t border-[var(--border)]">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">Auto-scan inbox for scheduling</div>
+                      <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                        Automatically detect meeting proposals, invites, and reschedules in incoming emails.
+                      </div>
+                    </div>
+                    <button
+                      onClick={toggleEmailAutoScan}
+                      className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${
+                        emailAutoScan ? "bg-[var(--primary)]" : "bg-[var(--muted)]"
+                      }`}
+                      aria-label="Toggle auto-scan"
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${emailAutoScan ? "translate-x-5" : ""}`} />
+                    </button>
+                  </div>
+                </div>
+              </Section>
+            )}
+
             {activeSection === "model" && (
               <Section title="Model Routing" description="Choose which AI model powers your agents. Local models keep data on your machine.">
                 <div className="space-y-4">
@@ -872,6 +1057,82 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
                         Email, self-model, and negotiation tasks always use a local model regardless of this setting.
                       </span>
                     </div>
+
+                    {/* Backend mode toggle — only visible in Pro/Developer mode */}
+                    {mode !== "simple" && (
+                      <div className="space-y-3 pt-2 border-t border-[var(--border)]">
+                        <div className="flex items-start justify-between gap-3 py-2">
+                          <div className="flex-1">
+                            <div className="text-sm font-medium flex items-center gap-2">
+                              <Cpu size={14} /> Backend Engine
+                            </div>
+                            <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                              Standalone uses A-Cal&apos;s built-in LLM service. Atom uses atom&apos;s BYOK handler with cognitive tier routing and encrypted credential storage.
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Atom availability indicator */}
+                        {atomStatus && (
+                          <div className={cn(
+                            "flex items-center gap-2 p-2 rounded-md text-xs border",
+                            atomStatus.available
+                              ? "bg-[var(--cal-work)]/10 border-[var(--cal-work)]/30"
+                              : "bg-[var(--muted)] border-[var(--border)] text-[var(--muted-foreground)]"
+                          )}>
+                            <span className={cn(
+                              "w-2 h-2 rounded-full",
+                              atomStatus.available ? "bg-[var(--cal-work)]" : "bg-[var(--muted-foreground)]"
+                            )} />
+                            {atomStatus.available ? (
+                              <span>atom detected — adapters: {[
+                                atomStatus.adapters.token_storage && "token storage",
+                                atomStatus.adapters.llm && "LLM service",
+                                atomStatus.adapters.intent && "intent classifier",
+                              ].filter(Boolean).join(", ") || "initializing"}</span>
+                            ) : (
+                              <span>atom not detected — running in standalone mode</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Mode toggle buttons */}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleBackendModeChange("standalone")}
+                            disabled={!atomStatus?.available && backendMode === "standalone"}
+                            className={cn(
+                              "flex-1 rounded-lg border p-3 text-left transition-colors",
+                              backendMode === "standalone"
+                                ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                                : "border-[var(--border)] hover:bg-[var(--accent)]",
+                              !atomStatus?.available && backendMode === "standalone" && "opacity-50 cursor-not-allowed"
+                            )}
+                          >
+                            <div className="text-sm font-medium">Standalone</div>
+                            <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                              Built-in LLM service with your model routing settings
+                            </div>
+                          </button>
+                          <button
+                            onClick={() => atomStatus?.available && handleBackendModeChange("atom")}
+                            disabled={!atomStatus?.available}
+                            className={cn(
+                              "flex-1 rounded-lg border p-3 text-left transition-colors",
+                              backendMode === "atom"
+                                ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                                : "border-[var(--border)] hover:bg-[var(--accent)]",
+                              !atomStatus?.available && "opacity-50 cursor-not-allowed"
+                            )}
+                          >
+                            <div className="text-sm font-medium">atom</div>
+                            <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                              {atomStatus?.available ? "BYOK, cognitive tier routing, encrypted tokens" : "Not available — install atom to enable"}
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </Section>

@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# A-Cal runtime data
+.a-cal/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Frontend build artifacts (not needed in backend image)
+web/.next/
+web/node_modules/
+web/out/
+
+# Docs
+*.md
+docs/
+LICENSE
+
+# Tests (not needed in production image, but included for completeness)
+# Uncomment to exclude:
+# tests/

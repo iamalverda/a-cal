@@ -14,7 +14,7 @@ from a_cal.providers.base import CalendarProvider, EmailProvider, get_calendar_p
 logger = logging.getLogger(__name__)
 
 
-def _resolve_credentials(credentials_ref: Optional[str], config: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+def _resolve_credentials(credentials_ref: str | None, config: dict[str, Any] | None = None) -> dict[str, str]:
     """Resolve an opaque credentials handle into concrete fields.
 
     Delegates to atom's encrypted token_storage when available; for local-only
@@ -24,7 +24,7 @@ def _resolve_credentials(credentials_ref: Optional[str], config: Optional[Dict[s
     if not credentials_ref:
         # Standalone mode: use config values directly (local-only, user's machine).
         if config:
-            creds: Dict[str, str] = {}
+            creds: dict[str, str] = {}
             for key in ("password", "username", "token", "refresh_token", "email"):
                 val = config.get(key)
                 if val:

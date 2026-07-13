@@ -64,7 +64,7 @@ class CASModule:
     cas_source: str             # original CAS agent name
     signal_type: str            # what kind of signal it processes
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "brain_region": self.brain_region,
             "nervous_system_layer": self.nervous_system_layer,
@@ -86,7 +86,7 @@ class CASAgentSpec(AgentSpec):
         signal_type="",
     ))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d["cas"] = self.cas.to_dict()
         d["is_bio_mimetic"] = True
@@ -618,7 +618,7 @@ VAGAL_TONE_SPEC = CASAgentSpec(
 # All CAS bio-mimetic agents, ordered by nervous system layer
 # ---------------------------------------------------------------------------
 
-CAS_AGENTS: List[CASAgentSpec] = [
+CAS_AGENTS: list[CASAgentSpec] = [
     # Brainstem / peripheral (autonomic regulation)
     RAS_SPEC,
     AUTONOMIC_SPEC,
@@ -635,7 +635,7 @@ CAS_AGENTS: List[CASAgentSpec] = [
     CEREBELLUM_SPEC,
 ]
 
-CAS_AGENTS_BY_NAME: Dict[str, CASAgentSpec] = {a.name: a for a in CAS_AGENTS}
+CAS_AGENTS_BY_NAME: dict[str, CASAgentSpec] = {a.name: a for a in CAS_AGENTS}
 
 
 # Nervous system layers, ordered from deepest to most superficial
@@ -649,7 +649,7 @@ NERVOUS_SYSTEM_LAYERS = [
 ]
 
 # Which A-Cal specialist each CAS module augments
-CAS_AUGMENTATION_MAP: Dict[str, List[str]] = {
+CAS_AUGMENTATION_MAP: dict[str, list[str]] = {
     "a_cal_conductor": ["cas_thalamus_gate", "cas_ras", "cas_basal_ganglia", "cas_claustrum"],
     "a_cal_sync_agent": ["cas_autonomic", "cas_cerebellum"],
     "a_cal_self_model_agent": ["cas_hippocampus", "cas_insula", "cas_vagal_tone"],
@@ -659,7 +659,7 @@ CAS_AUGMENTATION_MAP: Dict[str, List[str]] = {
 }
 
 
-def get_cas_agents_for_specialist(specialist_name: str) -> List[CASAgentSpec]:
+def get_cas_agents_for_specialist(specialist_name: str) -> list[CASAgentSpec]:
     """Get the CAS bio-mimetic modules that augment a given specialist."""
     cas_names = CAS_AUGMENTATION_MAP.get(specialist_name, [])
     return [CAS_AGENTS_BY_NAME[n] for n in cas_names if n in CAS_AGENTS_BY_NAME]

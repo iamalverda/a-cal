@@ -28,7 +28,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from a_cal.db.store import PersistentStore
-from a_cal.integrations.atom_bridge import get_atom_adapters
+from a_cal.integrations.atom_bridge import get_atom_token_storage
 from a_cal.providers.oauth import (
     build_auth_url,
     build_redirect_uri,
@@ -44,10 +44,21 @@ _store = PersistentStore()
 
 # When atom is available, OAuth tokens are encrypted via atom's
 # ConnectionService (Fernet at rest). Otherwise, stored in SQLite config.
-_atom_token_storage, _, _ = get_atom_adapters()
+# Initialized lazily so atom detection runs at first use, not at import.
+_atom_token_storage = None
+
+
+def _get_token_storage():
+    """Lazily initialize atom token storage on first use."""
+    global _atom_token_storage
+    if _atom_token_storage is None:
+        _atom_token_storage = get_atom_token_storage()
+    return _atom_token_storage
 
 # Configurable URLs so the flow works in dev, self-hosted, or cloud.
-USER_ID = "local-dev-user"
+from a_cal.auth.session import get_current_user_id
+
+USER_ID = "local-dev-user"  # Legacy fallback
 
 _BACKEND_URL = os.environ.get("A_CAL_BASE_URL", "http://localhost:8000")
 _FRONTEND_URL = os.environ.get("A_CAL_FRONTEND_URL", "http://localhost:3456")
@@ -180,16 +191,17 @@ async def oauth_callback(
     # Store tokens. When atom is available, use encrypted ConnectionService.
     # In standalone, store in the provider config column (SQLite, not exposed
     # in API responses).
-    token_data: Dict[str, Any] = {
+    token_data: dict[str, Any] = {
         "access_token": tokens.get("access_token", ""),
         "token_type": tokens.get("token_type", "Bearer"),
         "expires_in": tokens.get("expires_in"),
         "refresh_token": tokens.get("refresh_token", ""),
         "oauth_connected": True,
     }
-    if _atom_token_storage:
-        _atom_token_storage.save_oauth_tokens(
-            user_id=USER_ID,
+    token_storage = _get_token_storage()
+    if token_storage:
+        token_storage.save_oauth_tokens(
+            user_id=get_current_user_id(),
             provider_type=provider_type,
             tokens=token_data,
         )

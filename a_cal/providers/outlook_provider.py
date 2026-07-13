@@ -34,7 +34,7 @@ class OutlookCalendarProvider(CalendarProvider):
         | ProviderCapability.FREE_BUSY
     )
 
-    def __init__(self, config: Dict[str, Any], credentials: Dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], credentials: dict[str, Any]) -> None:
         try:
             from integrations.outlook_calendar_service import OutlookCalendarService  # type: ignore
             self._svc = OutlookCalendarService(config={**config, **credentials})
@@ -45,11 +45,11 @@ class OutlookCalendarProvider(CalendarProvider):
                 "any calendar server that supports CalDAV."
             )
 
-    async def list_events(self, start: datetime, end: datetime, calendar_id: Optional[str] = None) -> List[CalendarEventDTO]:
+    async def list_events(self, start: datetime, end: datetime, calendar_id: str | None = None) -> list[CalendarEventDTO]:
         raw = await self._svc.list_events(start, end) if hasattr(self._svc, "list_events") else []
         return [self._to_dto(e) for e in raw]
 
-    async def list_changes(self, since_cursor: Optional[str], start: datetime, end: datetime) -> SyncPage:
+    async def list_changes(self, since_cursor: str | None, start: datetime, end: datetime) -> SyncPage:
         events = await self.list_events(start, end)
         return SyncPage(events=events, next_cursor=since_cursor, has_more=False)
 
@@ -59,11 +59,11 @@ class OutlookCalendarProvider(CalendarProvider):
     async def update_event(self, event: CalendarEventDTO) -> CalendarEventDTO:
         return event
 
-    async def cancel_event(self, provider_event_id: str, calendar_id: Optional[str] = None) -> None:
+    async def cancel_event(self, provider_event_id: str, calendar_id: str | None = None) -> None:
         pass
 
     @staticmethod
-    def _to_dto(raw: Dict[str, Any]) -> CalendarEventDTO:
+    def _to_dto(raw: dict[str, Any]) -> CalendarEventDTO:
         return CalendarEventDTO(
             provider_event_id=raw.get("id", ""),
             provider_type="outlook_calendar",

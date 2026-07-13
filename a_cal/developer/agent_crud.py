@@ -18,28 +18,59 @@ from a_cal.agents.specs import AgentSpec, CognitiveTier, A_CAL_AGENTS
 
 
 class AgentSpecStore:
-    """In-memory store for custom agent specs.
+    """Store for custom agent specs with optional DB persistence.
 
     Built-in specs are always available. Custom specs are stored per-user
-    and can be created, updated, deleted, and shared.
+    and can be created, updated, deleted, and shared. When a ``db``
+    (PersistentStore) is provided, custom specs persist to the settings
+    table and survive server restarts. Without ``db``, specs are kept
+    in-memory (useful for tests and ephemeral sessions).
+
+    Args:
+        db: Optional PersistentStore instance for persistence. When
+            provided, custom specs are stored under the
+            ``custom_agent_specs`` settings key as JSON.
     """
 
-    def __init__(self) -> None:
-        self._custom_specs: Dict[str, AgentSpec] = {}
+    def __init__(self, db: Any = None) -> None:
+        self._db = db
+        self._custom_specs: dict[str, AgentSpec] = {}
+        if db is not None:
+            self._load_from_db()
 
-    def list_all(self, include_builtins: bool = True) -> List[AgentSpec]:
+    def _load_from_db(self) -> None:
+        """Load custom specs from the database settings table."""
+        if self._db is None:
+            return
+        data = self._db.get_setting("custom_agent_specs", {})
+        if not isinstance(data, dict):
+            return
+        for name, spec_dict in data.items():
+            try:
+                self._custom_specs[name] = AgentSpec.from_dict(spec_dict)
+            except (KeyError, ValueError):
+                continue
+
+    def _persist(self) -> None:
+        """Save custom specs to the database settings table."""
+        if self._db is None:
+            return
+        data = {name: spec.to_dict() for name, spec in self._custom_specs.items()}
+        self._db.set_setting("custom_agent_specs", data)
+
+    def list_all(self, include_builtins: bool = True) -> list[AgentSpec]:
         """List all agent specs (built-in + custom)."""
-        specs: List[AgentSpec] = []
+        specs: list[AgentSpec] = []
         if include_builtins:
             specs.extend(A_CAL_AGENTS)
         specs.extend(self._custom_specs.values())
         return specs
 
-    def list_custom(self) -> List[AgentSpec]:
+    def list_custom(self) -> list[AgentSpec]:
         """List only custom agent specs."""
         return list(self._custom_specs.values())
 
-    def get(self, name: str) -> Optional[AgentSpec]:
+    def get(self, name: str) -> AgentSpec | None:
         """Get a spec by name. Checks custom first, then built-in."""
         if name in self._custom_specs:
             return self._custom_specs[name]
@@ -65,9 +96,10 @@ class AgentSpecStore:
             )
 
         self._custom_specs[spec.name] = spec
+        self._persist()
         return spec
 
-    def update(self, name: str, updates: Dict[str, Any]) -> AgentSpec:
+    def update(self, name: str, updates: dict[str, Any]) -> AgentSpec:
         """Update a custom agent spec. Cannot update built-in specs.
 
         Raises KeyError if the spec doesn't exist.
@@ -101,6 +133,7 @@ class AgentSpecStore:
         if "capabilities" in updates:
             spec.capabilities = list(updates["capabilities"])
 
+        self._persist()
         return spec
 
     def delete(self, name: str) -> bool:
@@ -112,8 +145,11 @@ class AgentSpecStore:
         if any(s.name == name for s in A_CAL_AGENTS):
             raise ValueError(f"cannot delete built-in spec '{name}'")
 
-        return self._custom_specs.pop(name, None) is not None
+        deleted = self._custom_specs.pop(name, None) is not None
+        if deleted:
+            self._persist()
+        return deleted
 
-    def to_dict_list(self, include_builtins: bool = True) -> List[Dict[str, Any]]:
+    def to_dict_list(self, include_builtins: bool = True) -> list[dict[str, Any]]:
         """Serialize all specs for API response."""
         return [s.to_dict() for s in self.list_all(include_builtins)]

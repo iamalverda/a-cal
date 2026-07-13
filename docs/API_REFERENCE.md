@@ -5,6 +5,8 @@ Base URL: `http://localhost:8000/api/a-cal`
 All endpoints accept and return JSON. Authentication is via Bearer token
 (if running with atom's auth layer) or unauthenticated (standalone mode).
 
+---
+
 ## Sub-Accounts
 
 ### Create Sub-Account
@@ -40,6 +42,8 @@ Body: partial `SubAccount` fields
 DELETE /sub-accounts/{sub_id}
 ```
 
+---
+
 ## Provider Connections
 
 ### Create Provider Connection
@@ -57,7 +61,7 @@ Body:
 ```
 Response: `ProviderConnection`
 
-### List Providers
+### List Providers (by sub-account)
 ```
 GET /providers?sub_account_id={id}
 ```
@@ -69,6 +73,49 @@ GET /providers/all
 ```
 Response: `ProviderConnection[]`
 
+### Update Provider Status
+```
+PATCH /providers/{provider_id}
+```
+Body:
+```json
+{ "status": "connected" }
+```
+Response: `ProviderConnection`
+
+### Delete Provider
+```
+DELETE /providers/{provider_id}
+```
+
+---
+
+## OAuth
+
+### Start OAuth Flow
+```
+GET /providers/{provider_id}/oauth/start
+```
+Response:
+```json
+{
+  "authorization_url": "https://accounts.google.com/o/oauth2/auth?...",
+  "provider_id": "uuid",
+  "provider_type": "google_calendar",
+  "redirect_uri": "http://localhost:8000/api/a-cal/providers/{id}/oauth/callback"
+}
+```
+
+### OAuth Callback
+```
+GET /providers/{provider_id}/oauth/callback?code={auth_code}&state={state}
+```
+Exchanges the authorization code for tokens, stores them, and redirects to
+the frontend. Requires `A_CAL_GOOGLE_CLIENT_ID` / `A_CAL_MS_CLIENT_ID` and
+matching secrets in environment variables.
+
+---
+
 ## Unified Calendar
 
 ### Get Unified Calendar
@@ -78,9 +125,72 @@ GET /calendar/unified?days=7
 Returns events from all sub-accounts, merged per sync rules.
 Response: `UnifiedEvent[]`
 
-## Sync Rules
+### List Events
+```
+GET /calendar/events?days=30
+```
+Returns all events within the given time window (1–365 days).
+Response: `UnifiedEvent[]`
 
-### Create Sync Rule
+### Create Event
+```
+POST /calendar/events
+```
+Body:
+```json
+{
+  "title": "Team Standup",
+  "start": "2026-07-13T09:00:00Z",
+  "end": "2026-07-13T09:30:00Z",
+  "description": "Weekly sync",
+  "location": "Zoom",
+  "source_sub_account_id": "uuid",
+  "metadata": {}
+}
+```
+Response: `UnifiedEvent`
+
+### Update Event
+```
+PATCH /calendar/events/{event_id}
+```
+Body: partial event fields (`title`, `start`, `end`, `description`,
+`location`, `metadata`)
+
+Response: `UnifiedEvent`
+
+### Delete Event
+```
+DELETE /calendar/events/{event_id}
+```
+
+---
+
+## Sync
+
+### Trigger Sync
+```
+POST /sync/trigger
+```
+Body:
+```json
+{ "sub_account_id": "uuid" }
+```
+Pulls events from connected providers via the sync engine. Fires
+`on_sync_complete` plugin hook after completion.
+
+Response:
+```json
+{
+  "status": "ok",
+  "synced": 12,
+  "sub_account_id": "uuid"
+}
+```
+
+### Sync Rules
+
+#### Create Sync Rule
 ```
 POST /sync-rules
 ```
@@ -94,10 +204,106 @@ Body:
 }
 ```
 
-### List Sync Rules
+#### List Sync Rules
 ```
 GET /sync-rules?sub_account_id={id}
 ```
+
+---
+
+## Email
+
+### List Email Messages
+```
+GET /email/messages?sub_account_id={id}&limit=50
+```
+Fetches messages from connected email providers (IMAP/SMTP or Gmail).
+Detects calendar invites automatically.
+
+Response: `EmailMessage[]`
+```json
+[
+  {
+    "provider_message_id": "abc123",
+    "provider_type": "imap_smtp",
+    "provider_connection_id": "uuid",
+    "subject": "Meeting tomorrow?",
+    "from_address": "sarah@example.com",
+    "to_addresses": ["me@example.com"],
+    "received_at": "2026-07-12T10:00:00Z",
+    "snippet": "Can we push to 3pm instead...",
+    "has_calendar_invite": false,
+    "labels": ["INBOX"]
+  }
+]
+```
+
+### Send Email
+```
+POST /email/send
+```
+Body:
+```json
+{
+  "provider_connection_id": "uuid",
+  "to": ["sarah@example.com"],
+  "subject": "Re: Meeting tomorrow?",
+  "body": "3pm works for me."
+}
+```
+
+### Scan Emails for Schedule
+```
+POST /email/scan-schedule
+```
+Runs the email-to-schedule pipeline: reads recent emails, detects meeting
+proposals and invites, extracts proposed times, cross-references with the
+user's calendar to find conflicts, and returns actionable suggestions.
+
+Privacy: email content is processed locally. LLM analysis (if enabled) uses
+privacy-tiered routing to force email processing to local models.
+
+The depth of agent integration depends on the user's email integration depth
+setting (`POST /settings/email`):
+
+- `sync_notify` — read-only detect + suggest (no draft replies, no auto-actions)
+- `agent_mediated` — suggestions include `draft_reply` text for user approval
+- `full_two_way` — suggestions are marked `auto_action: true` (autonomous)
+
+Response:
+```json
+{
+  "detections": [...],
+  "suggestions": [
+    {
+      "type": "create_event",
+      "email_subject": "Let's meet",
+      "email_from": "colleague@work.com",
+      "proposed_time": { "date_text": "Friday", "time_text": "2pm", ... },
+      "conflict_with": null,
+      "confidence": 0.7,
+      "message": "Ready to create...",
+      "draft_reply": "Hi colleague,\n\nThat works for me...",
+      "auto_action": false
+    }
+  ],
+  "summary": "Found 2 scheduling-related emails...",
+  "stats": {
+    "total_scanned": 50,
+    "scheduling_related": 2,
+    "meeting_proposals": 1,
+    "conflicts": 0,
+    "create_ready": 1,
+    "draft_replies": 1,
+    "auto_actions": 0
+  },
+  "depth": "agent_mediated",
+  "agent_actions_enabled": true,
+  "autonomous_enabled": false
+}
+```
+
+---
 
 ## Conductor (Agent Chat)
 
@@ -124,6 +330,8 @@ Response:
 GET /agents
 ```
 Response: `AgentSpec[]`
+
+---
 
 ## Settings
 
@@ -196,6 +404,187 @@ Body (POST):
 }
 ```
 
+### Email Integration Depth
+```
+GET /settings/email
+POST /settings/email
+```
+Body (POST):
+```json
+{
+  "depth": "sync_notify" | "agent_mediated" | "full_two_way",
+  "per_provider": { "gmail": "full_two_way", "outlook": "sync_notify" },
+  "auto_scan_enabled": false
+}
+```
+
+Controls how deeply agents integrate with email (charter §5):
+- `sync_notify` — read inbox, send notifications, no agent actions
+- `agent_mediated` — parse emails, draft replies for approval
+- `full_two_way` — send/decline/renegotiate autonomously
+
+Per-provider overrides let the user set different depths for different providers.
+
+### Agent Autonomy
+```
+GET /settings/autonomy
+POST /settings/autonomy
+```
+Body (POST):
+```json
+{
+  "default_level": "suggest_only" | "confirm" | "full_auto",
+  "per_sub_account": { "sub-123": "confirm" }
+}
+```
+
+Controls whether the conductor executes actions automatically (`full_auto`),
+asks for confirmation (`confirm`), or only suggests (`suggest_only`).
+Per-sub-account overrides are supported.
+
+### Timezone
+```
+GET /settings/timezone
+POST /settings/timezone
+```
+Body (POST): `{ "timezone": "America/Chicago" }`
+
+Accepts any IANA timezone name. The conductor uses this to interpret relative
+time expressions like "today" and "tomorrow".
+
+### Preload Model
+```
+POST /settings/preload-model
+```
+
+Triggers a background warmup of the configured LLM model (Ollama only).
+Call this on page load so the first chat message is fast. Returns immediately.
+
+### Community Profile
+```
+GET /community/profile
+```
+Response:
+```json
+{
+  "author_id": "local-dev-user",
+  "total_items": 5,
+  "originals": 3,
+  "remixes": 2,
+  "total_installs": 42,
+  "items": [...]
+}
+```
+
+Aggregates the user's authored marketplace items, originals vs remixes,
+install counts, and summary stats. Used by the "My Profile" panel in the
+community section.
+
+---
+
+## Self-Model Facts
+
+### List Facts
+```
+GET /self-model/facts?category={category}
+```
+Returns all active facts, sorted by confidence (highest first). Optional
+category filter.
+
+### Search Facts
+```
+GET /self-model/facts/search?q={query}&limit=10
+```
+Full-text search across fact content.
+
+### Edit Fact
+```
+PATCH /self-model/facts/{fact_id}
+```
+Body: `{ "content": "Corrected fact text" }`
+
+User corrections update the fact content and reset confidence tracking.
+
+### Delete Fact
+```
+DELETE /self-model/facts/{fact_id}
+```
+
+### Clear All Facts
+```
+DELETE /self-model/facts
+```
+
+### Export Facts
+```
+GET /self-model/export
+```
+Returns all facts as a downloadable JSON document.
+
+---
+
+## Nervous System (CAS)
+
+### Overview
+```
+GET /nervous-system/overview
+```
+Complete snapshot: activation states, gate states, autonomic mode, CAS
+agent list, and recent episodic memories.
+
+### State
+```
+GET /nervous-system/state
+```
+Current nervous system activation and gate states.
+
+### Agents
+```
+GET /nervous-system/agents
+```
+List of A-Cal specialist agents with their CAS augmentation mappings.
+
+### CAS Agents
+```
+GET /nervous-system/cas-agents
+```
+List of 10 bio-mimetic CAS agent specs (thalamus gate, prefrontal cortex,
+hippocampus, RAS, autonomic system, insula, cerebellum, basal ganglia,
+claustrum, limbic bridge, vagal tone).
+
+### Memories
+```
+GET /nervous-system/memories?limit=10
+```
+Recent episodic memories encoded by the nervous system.
+
+### Route Signal
+```
+POST /nervous-system/route
+```
+Body: `{ "signal": "schedule_request" }`
+
+Routes a signal through: thalamus gate → RAS → basal ganglia → conductor →
+CAS modules → hippocampus.
+
+### Assess User State
+```
+POST /nervous-system/assess-user-state
+```
+Body: `{ "events": [...] }`
+
+Assesses the user's cognitive state from their calendar events.
+
+### Verify Binding
+```
+POST /nervous-system/verify-binding
+```
+Body: `{ "events": [...], "sub_accounts": [...] }`
+
+Verifies calendar binding between sub-accounts and events.
+
+---
+
 ## Swarm Negotiation
 
 ### Negotiate
@@ -217,7 +606,7 @@ GET /swarm/negotiations
 
 ### Get Negotiation
 ```
-GET /swarm/negotiations/{id}
+GET /swarm/negotiations/{negotiation_id}
 ```
 
 ### Detect Conflicts
@@ -233,6 +622,8 @@ Body:
 }
 ```
 
+---
+
 ## Marketplace
 
 ### List Items
@@ -242,7 +633,7 @@ GET /marketplace/items?item_type=agent_spec&tag=productivity
 
 ### Get Item
 ```
-GET /marketplace/items/{id}
+GET /marketplace/items/{item_id}
 ```
 
 ### Search
@@ -258,7 +649,7 @@ Body: `MarketplaceItem` with `provenance` metadata
 
 ### Install Item
 ```
-POST /marketplace/items/{id}/install
+POST /marketplace/items/{item_id}/install
 ```
 
 ### List Installs
@@ -268,35 +659,74 @@ GET /marketplace/installs
 
 ### Remix Item
 ```
-POST /marketplace/items/{id}/remix
+POST /marketplace/items/{item_id}/remix
 ```
 
 ### Get Remixes
 ```
-GET /marketplace/items/{id}/remixes
+GET /marketplace/items/{item_id}/remixes
 ```
 
 ### Get Remix Chain
 ```
-GET /marketplace/items/{id}/remix-chain
+GET /marketplace/items/{item_id}/remix-chain
 ```
 
 ### Rate Item
 ```
-POST /marketplace/items/{id}/rate
+POST /marketplace/items/{item_id}/rate
 ```
 Body: `{ "stars": 1-5 }`
 
+---
+
 ## Developer
 
-### Plugins
+### Plugin Registry
+
 ```
-GET /developer/plugins?plugin_type=agent
+GET /developer/plugins?plugin_type=agent&enabled_only=false
 POST /developer/plugins
-DELETE /developer/plugins/{id}
-POST /developer/plugins/{id}/enable
-POST /developer/plugins/{id}/disable
-PATCH /developer/plugins/{id}/config
+DELETE /developer/plugins/{plugin_id}
+POST /developer/plugins/{plugin_id}/enable
+POST /developer/plugins/{plugin_id}/disable
+PATCH /developer/plugins/{plugin_id}/config
+```
+
+### Plugin Runtime
+
+Manages Python plugins loaded from disk (`~/.a-cal/plugins/` or
+`A_CAL_PLUGIN_DIR`). Runtime plugins fire hooks on events, conductor
+responses, and sync operations.
+
+#### List Runtime Plugins
+```
+GET /developer/plugins/runtime/list
+```
+Returns loaded plugins with hook badges, load errors, and enable/disable
+status.
+
+#### List Supported Hooks
+```
+GET /developer/plugins/runtime/hooks
+```
+
+#### Scan for Plugins
+```
+POST /developer/plugins/runtime/scan
+```
+Scans the plugin directory and loads any new `.py` files.
+
+#### Reload Plugin
+```
+POST /developer/plugins/runtime/{plugin_id}/reload
+```
+Reloads a plugin from disk (bypasses stale bytecode cache).
+
+#### Enable/Disable Runtime Plugin
+```
+POST /developer/plugins/runtime/{plugin_id}/enable
+POST /developer/plugins/runtime/{plugin_id}/disable
 ```
 
 ### Agent Specs
@@ -313,15 +743,31 @@ POST /developer/config/export
 POST /developer/config/import
 ```
 
+---
+
 ## Health
 ```
 GET /health
 ```
-Response: `{ "status": "ok", "version": "0.5.0" }`
+Response:
+```json
+{
+  "status": "ok",
+  "mode": "standalone",
+  "version": "0.7.0",
+  "database": "sqlite"
+}
+```
+
+The `database` field reports the active backend: `sqlite` (default) or
+`postgresql` (when `DATABASE_URL` is set). Use this to verify your
+PostgreSQL configuration is active.
+
+---
 
 ## TypeScript SDK
 
-The frontend's `web/lib/api.ts` serves as the TypeScript SDK. Import and use:
+The SDK (`sdk/index.ts`) covers all 60+ REST endpoints. Import and use:
 
 ```typescript
 import { api, swarmApi, marketplaceApi, developerApi } from "@a-cal/sdk";
@@ -330,13 +776,38 @@ import { api, swarmApi, marketplaceApi, developerApi } from "@a-cal/sdk";
 const subs = await api.listSubAccounts();
 await api.createSubAccount({ name: "Work", kind: "calendar" });
 
+// Calendar events
+await api.createEvent({ title: "Standup", start: "...", end: "..." });
+await api.updateEvent(eventId, { title: "Renamed" });
+await api.deleteEvent(eventId);
+
+// Sync
+await api.triggerSync(subAccountId);
+
+// Email
+const messages = await api.listEmailMessages(subAccountId);
+await api.sendEmail({ providerConnectionId, to, subject, body });
+const suggestions = await api.scanEmailsForSchedule();
+
 // Conductor chat
 const result = await api.sendToConductor("Schedule a meeting tomorrow");
 
 // Settings
 await api.setLLMEnabled(true);
-await api.setModelRouting({ global_provider: "ollama", global_model: "llama3.2", ... });
+await api.setModelRouting({ global_provider: "ollama", global_model: "llama3.2" });
 await api.setApiKeys({ openai: "sk-..." });
+
+// Self-model facts
+const facts = await api.listSelfModelFacts();
+await api.editSelfModelFact(factId, { content: "Corrected" });
+await api.exportSelfModel();
+
+// Nervous system
+const overview = await api.getNervousSystemOverview();
+await api.routeNervousSystemSignal({ signal: "schedule_request" });
+
+// OAuth
+const oauth = await api.startOAuth(providerId);
 
 // Marketplace
 const items = await marketplaceApi.listItems("agent_spec");
@@ -345,7 +816,11 @@ await marketplaceApi.install(itemId);
 // Developer
 await developerApi.exportConfig();
 await developerApi.createAgentSpec({ ... });
+await developerApi.listRuntimePlugins();
+await developerApi.reloadRuntimePlugin(pluginId);
 ```
+
+---
 
 ## Error Handling
 

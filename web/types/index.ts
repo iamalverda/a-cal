@@ -90,6 +90,42 @@ export interface ModelRoutingConfig {
   privacy_force_local: boolean;
 }
 
+/** Agent autonomy level — controls how much freedom agents have to act. */
+export type AutonomyLevel = "suggest_only" | "confirm" | "full_auto";
+
+/** Agent autonomy configuration — global default + per-sub-account overrides. */
+export interface AutonomyConfig {
+  default_level: AutonomyLevel;
+  per_sub_account: Record<string, AutonomyLevel>;
+}
+
+/** Email integration depth — how deeply agents integrate with email (charter §5). */
+export type EmailDepth = "sync_notify" | "agent_mediated" | "full_two_way";
+
+/** Community profile / showcase — the user's authored items, remixes, and stats. */
+export interface CommunityProfile {
+  user_id: string;
+  stats: {
+    total_authored: number;
+    total_originals: number;
+    total_remixes: number;
+    total_installed: number;
+    total_installs_of_authored: number;
+    total_remixes_of_authored: number;
+    avg_rating: number;
+  };
+  authored: MarketplaceItem[];
+  originals: MarketplaceItem[];
+  remixes: MarketplaceItem[];
+  installed: { item_id: string; installed_at: string }[];
+}
+
+export interface EmailIntegrationConfig {
+  depth: EmailDepth;
+  per_provider: Record<string, EmailDepth>;
+  auto_scan_enabled: boolean;
+}
+
 export interface SelfModelDepth {
   depth: string;
   enabled_categories: Record<string, boolean>;
@@ -97,6 +133,7 @@ export interface SelfModelDepth {
   proactive_suggestions_enabled: boolean;
   feed_into_calendar_view: boolean;
   feed_into_agents: boolean;
+  feed_into_proactive: boolean;
 }
 
 /** A single fact the self-model has learned about the user. */
@@ -388,4 +425,188 @@ export interface NervousSystemOverview {
   habit_count: number;
   recent_memories: Array<Record<string, unknown>>;
   active_habits: Array<Record<string, unknown>>;
+}
+
+export interface RuntimePlugin {
+  id: string;
+  name: string;
+  plugin_type: string;
+  file_path: string;
+  hooks: string[];
+  enabled: boolean;
+  load_error: string | null;
+  loaded_at: string;
+}
+
+// --- Workflows --------------------------------------------------------------
+
+export interface WorkflowNodeDef {
+  id: string;
+  agent: string;
+  label: string;
+  config: Record<string, unknown>;
+  conditional?: string | null;
+}
+
+export interface WorkflowDef {
+  id: string;
+  name: string;
+  description: string;
+  nodes: WorkflowNodeDef[];
+  trigger: "manual" | "schedule_change" | "email_received" | "conflict_detected";
+  version: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowStepResult {
+  node_id: string;
+  node_index: number;
+  agent: string;
+  label: string;
+  skipped: boolean;
+  output?: string;
+  actions?: Array<Record<string, unknown>>;
+  routing?: Record<string, unknown> | null;
+  error?: string;
+}
+
+export interface WorkflowRunResult {
+  workflow_id: string;
+  success: boolean;
+  steps: WorkflowStepResult[];
+  final_output: string;
+  error: string | null;
+  started_at: string;
+  finished_at: string;
+}
+
+// --- Atom integration types -------------------------------------------------
+
+export interface AtomStatus {
+  available: boolean;
+  backend_path: string | null;
+  adapters: {
+    token_storage: boolean;
+    llm: boolean;
+    intent: boolean;
+  };
+}
+
+export type BackendMode = "standalone" | "atom";
+
+// --- Sync Rules ------------------------------------------------------------
+
+export type RuleType = "include" | "exclude" | "transform" | "agent";
+export type RuleField = "title" | "calendar_id" | "category" | "attendee" | "keyword";
+
+export interface SyncRule {
+  id: string;
+  sub_account_id: string;
+  rule_type: RuleType;
+  field: RuleField;
+  pattern: string;
+  action: Record<string, unknown>;
+  priority: number;
+  is_active: boolean;
+}
+
+// --- Analytics (zero-calendar integration) ---------------------------------
+
+export interface BusyTimesAnalysis {
+  total_events: number;
+  busy_by_day_of_week: number[];
+  events_by_day_of_week: number[];
+  busy_by_hour: number[];
+  busiest_day: string;
+  busiest_day_hours: number;
+  busiest_hour: number;
+  busiest_hour_count: number;
+}
+
+export interface MeetingStats {
+  total_meeting_minutes: number;
+  total_meeting_hours: number;
+  meeting_count: number;
+  average_meeting_length: number;
+  average_daily_meeting_minutes: number;
+  average_daily_meeting_hours: number;
+  category_counts: Record<string, number>;
+  busiest_day: string;
+  busiest_day_minutes: number;
+  busiest_day_hours: number;
+  daily_meeting_minutes: Record<string, number>;
+}
+
+export interface AnalyticsSummary {
+  busy_times: BusyTimesAnalysis;
+  meeting_stats: MeetingStats;
+  period_days: number;
+}
+
+export interface FreeSlot {
+  start: string;
+  end: string;
+  duration: number;
+}
+
+// --- Event Types (cal.com integration) -------------------------------------
+
+export type SchedulingType = "round_robin" | "collective" | "managed";
+
+export interface AvailabilitySchedule {
+  days: Record<string, string>[][];
+  timezone: string;
+}
+
+export interface EventType {
+  id: string;
+  title: string;
+  slug: string;
+  duration_minutes: number;
+  description: string;
+  scheduling_type: SchedulingType;
+  availability: AvailabilitySchedule;
+  status: string;
+  color: string;
+  metadata: Record<string, unknown>;
+}
+
+// --- Calendar Tools (zero-calendar integration) ----------------------------
+
+export interface CalendarTool {
+  name: string;
+  description: string;
+  parameters: Record<string, Record<string, unknown>>;
+}
+
+// --- API Explorer (Developer Studio) ---------------------------------------
+
+/** A single API route for the API Explorer. */
+export interface ApiRouteInfo {
+  method: string;
+  path: string;
+  summary: string;
+  description: string;
+  tag: string;
+  path_params: Array<{ name: string; in: string; required: boolean }>;
+  query_params: Array<{ name: string; in: string; required: boolean; default: string | null }>;
+  body_schema: {
+    name: string;
+    fields: Record<string, {
+      type: string;
+      default: string | null;
+      required: boolean;
+    }>;
+  } | null;
+}
+
+// --- Auth ------------------------------------------------------------------
+
+/** Authenticated user info from GET /api/a-cal/auth/me */
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string | null;
+  is_active: boolean;
 }

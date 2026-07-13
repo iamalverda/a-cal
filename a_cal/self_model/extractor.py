@@ -26,6 +26,7 @@ from a_cal.providers.base import CalendarEventDTO, EmailMessageDTO
 from a_cal.self_model.settings import SelfModelSettings
 from a_cal.self_model.store import SelfModelStore
 from a_cal.self_model.types import FactCategory, PrivacyTier, SelfModelDepth, SelfModelFact
+from a_cal.analytics.calendar_analytics import analyze_busy_times, get_calendar_analytics
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +50,15 @@ class SelfModelExtractor:
         self.llm_service = llm_service
 
     async def extract_from_events(
-        self, events: List[CalendarEventDTO], provenance_prefix: str = "calendar"
-    ) -> List[SelfModelFact]:
+        self, events: list[CalendarEventDTO], provenance_prefix: str = "calendar"
+    ) -> list[SelfModelFact]:
         """Extract facts from a batch of calendar events.
 
         Returns the facts that were upserted (new or confidence-bumped).
         Never raises — extraction failures are logged and swallowed.
         """
         try:
-            facts: List[SelfModelFact] = []
+            facts: list[SelfModelFact] = []
             facts.extend(self._extract_busy_times(events, provenance_prefix))
             facts.extend(self._extract_meeting_patterns(events, provenance_prefix))
             if self.settings.effective_depth().includes(SelfModelDepth.ATTENTION_INTENT):
@@ -73,11 +74,11 @@ class SelfModelExtractor:
             return []
 
     async def extract_from_emails(
-        self, messages: List[EmailMessageDTO], provenance_prefix: str = "email"
-    ) -> List[SelfModelFact]:
+        self, messages: list[EmailMessageDTO], provenance_prefix: str = "email"
+    ) -> list[SelfModelFact]:
         """Extract facts from email messages (response cadence, contacts)."""
         try:
-            facts: List[SelfModelFact] = []
+            facts: list[SelfModelFact] = []
             facts.extend(self._extract_response_cadence(messages, provenance_prefix))
             if self.settings.effective_depth().includes(SelfModelDepth.LONGITUDINAL_IDENTITY):
                 facts.extend(self._extract_email_relationships(messages, provenance_prefix))
@@ -91,14 +92,14 @@ class SelfModelExtractor:
     # --- rule-based extractors (no LLM needed) -------------------------------
 
     def _extract_busy_times(
-        self, events: List[CalendarEventDTO], provenance: str
-    ) -> List[SelfModelFact]:
+        self, events: list[CalendarEventDTO], provenance: str
+    ) -> list[SelfModelFact]:
         """Detect recurring busy time slots (e.g. "busy every Mon 9-10")."""
         if not self.settings.is_category_enabled(FactCategory.BUSY_TIMES):
             return []
 
         slot_counter: Counter[str] = Counter()
-        event_ids_by_slot: Dict[str, List[str]] = {}
+        event_ids_by_slot: dict[str, list[str]] = {}
 
         for ev in events:
             day = ev.start.strftime("%A")
@@ -107,7 +108,7 @@ class SelfModelExtractor:
             slot_counter[slot] += 1
             event_ids_by_slot.setdefault(slot, []).append(ev.provider_event_id)
 
-        facts: List[SelfModelFact] = []
+        facts: list[SelfModelFact] = []
         for slot, count in slot_counter.items():
             if count >= 3:  # recurring pattern threshold
                 privacy = self.settings.privacy_tier_for(FactCategory.BUSY_TIMES)
@@ -120,17 +121,51 @@ class SelfModelExtractor:
                     provenance=f"{provenance}:busy_times",
                     source_event_ids=event_ids_by_slot[slot],
                 ))
+
+        # Enrich with analytics: busiest day-of-week and hour
+        if events:
+            event_dicts = [ev.to_storage_dict() for ev in events]
+            now = datetime.utcnow()
+            start = now - timedelta(days=90)
+            try:
+                busy_analysis = analyze_busy_times(event_dicts, start, now)
+                if busy_analysis["busiest_day_hours"] > 0:
+                    facts.append(SelfModelFact(
+                        category=FactCategory.BUSY_TIMES.value,
+                        content=(
+                            f"Busiest day of week is {busy_analysis['busiest_day']} "
+                            f"({busy_analysis['busiest_day_hours']}h of meetings)"
+                        ),
+                        depth=SelfModelDepth.PATTERN_MEMORY.value,
+                        privacy_tier=privacy.value,
+                        confidence=0.7,
+                        provenance=f"{provenance}:busy_times:analytics",
+                    ))
+                if busy_analysis["busiest_hour_count"] > 0:
+                    facts.append(SelfModelFact(
+                        category=FactCategory.BUSY_TIMES.value,
+                        content=(
+                            f"Peak meeting hour is {busy_analysis['busiest_hour']:02d}:00 "
+                            f"({busy_analysis['busiest_hour_count']} events)"
+                        ),
+                        depth=SelfModelDepth.PATTERN_MEMORY.value,
+                        privacy_tier=privacy.value,
+                        confidence=0.7,
+                        provenance=f"{provenance}:busy_times:analytics",
+                    ))
+            except Exception:
+                pass  # analytics enrichment is best-effort
         return facts
 
     def _extract_meeting_patterns(
-        self, events: List[CalendarEventDTO], provenance: str
-    ) -> List[SelfModelFact]:
+        self, events: list[CalendarEventDTO], provenance: str
+    ) -> list[SelfModelFact]:
         """Detect frequent meeting types and typical durations."""
         if not self.settings.is_category_enabled(FactCategory.MEETING_PATTERNS):
             return []
 
         title_counter: Counter[str] = Counter()
-        durations: List[float] = []
+        durations: list[float] = []
 
         for ev in events:
             # Normalize title: lowercase, strip numbers/special chars
@@ -140,7 +175,7 @@ class SelfModelExtractor:
             if ev.end and ev.start:
                 durations.append((ev.end - ev.start).total_seconds() / 60)
 
-        facts: List[SelfModelFact] = []
+        facts: list[SelfModelFact] = []
         privacy = self.settings.privacy_tier_for(FactCategory.MEETING_PATTERNS)
 
         for title, count in title_counter.items():
@@ -165,16 +200,50 @@ class SelfModelExtractor:
                     confidence=0.6,
                     provenance=f"{provenance}:meeting_patterns",
                 ))
+
+        # Enrich with analytics: total meeting load and category breakdown
+        if events:
+            event_dicts = [ev.to_storage_dict() for ev in events]
+            now = datetime.utcnow()
+            start = now - timedelta(days=90)
+            try:
+                stats = get_calendar_analytics(event_dicts, start, now)
+                if stats["meeting_count"] > 0:
+                    facts.append(SelfModelFact(
+                        category=FactCategory.MEETING_PATTERNS.value,
+                        content=(
+                            f"Total meeting load: {stats['total_meeting_hours']}h across "
+                            f"{stats['meeting_count']} meetings (avg "
+                            f"{stats['average_meeting_length']}min each)"
+                        ),
+                        depth=SelfModelDepth.PATTERN_MEMORY.value,
+                        privacy_tier=privacy.value,
+                        confidence=0.8,
+                        provenance=f"{provenance}:meeting_patterns:analytics",
+                    ))
+                # Add top categories as facts
+                for cat, count in stats.get("category_counts", {}).items():
+                    if count >= 3 and cat != "Uncategorized":
+                        facts.append(SelfModelFact(
+                            category=FactCategory.MEETING_PATTERNS.value,
+                            content=f"Frequently attends '{cat}' meetings ({count} times)",
+                            depth=SelfModelDepth.PATTERN_MEMORY.value,
+                            privacy_tier=privacy.value,
+                            confidence=min(0.4 + count * 0.1, 0.9),
+                            provenance=f"{provenance}:meeting_patterns:analytics",
+                        ))
+            except Exception:
+                pass  # analytics enrichment is best-effort
         return facts
 
     def _extract_meeting_prefs(
-        self, events: List[CalendarEventDTO], provenance: str
-    ) -> List[SelfModelFact]:
+        self, events: list[CalendarEventDTO], provenance: str
+    ) -> list[SelfModelFact]:
         """Infer meeting preferences from scheduling patterns."""
         if not self.settings.is_category_enabled(FactCategory.MEETING_PREFS):
             return []
 
-        facts: List[SelfModelFact] = []
+        facts: list[SelfModelFact] = []
         privacy = self.settings.privacy_tier_for(FactCategory.MEETING_PREFS)
 
         # Detect preferred meeting times (morning vs afternoon)
@@ -215,8 +284,8 @@ class SelfModelExtractor:
         return facts
 
     def _extract_relationships(
-        self, events: List[CalendarEventDTO], provenance: str
-    ) -> List[SelfModelFact]:
+        self, events: list[CalendarEventDTO], provenance: str
+    ) -> list[SelfModelFact]:
         """Identify recurring contacts and their meeting context."""
         if not self.settings.is_category_enabled(FactCategory.RELATIONSHIPS):
             return []
@@ -228,7 +297,7 @@ class SelfModelExtractor:
                 if email:
                     contact_counter[email] += 1
 
-        facts: List[SelfModelFact] = []
+        facts: list[SelfModelFact] = []
         privacy = self.settings.privacy_tier_for(FactCategory.RELATIONSHIPS)
 
         for email, count in contact_counter.items():
@@ -244,13 +313,13 @@ class SelfModelExtractor:
         return facts
 
     def _extract_response_cadence(
-        self, messages: List[EmailMessageDTO], provenance: str
-    ) -> List[SelfModelFact]:
+        self, messages: list[EmailMessageDTO], provenance: str
+    ) -> list[SelfModelFact]:
         """Detect email response patterns (speed, time of day)."""
         if not self.settings.is_category_enabled(FactCategory.RESPONSE_CADENCE):
             return []
 
-        facts: List[SelfModelFact] = []
+        facts: list[SelfModelFact] = []
         privacy = self.settings.privacy_tier_for(FactCategory.RESPONSE_CADENCE)
 
         # Detect active email hours
@@ -272,8 +341,8 @@ class SelfModelExtractor:
         return facts
 
     def _extract_email_relationships(
-        self, messages: List[EmailMessageDTO], provenance: str
-    ) -> List[SelfModelFact]:
+        self, messages: list[EmailMessageDTO], provenance: str
+    ) -> list[SelfModelFact]:
         """Identify frequent correspondents from email."""
         if not self.settings.is_category_enabled(FactCategory.RELATIONSHIPS):
             return []
@@ -283,7 +352,7 @@ class SelfModelExtractor:
             if msg.from_address:
                 contact_counter[msg.from_address] += 1
 
-        facts: List[SelfModelFact] = []
+        facts: list[SelfModelFact] = []
         privacy = self.settings.privacy_tier_for(FactCategory.RELATIONSHIPS)
 
         for addr, count in contact_counter.items():

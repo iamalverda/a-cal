@@ -48,14 +48,14 @@ class AgentSpec:
     display_name: str
     description: str
     system_prompt: str
-    tools: List[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
     default_tier: CognitiveTier = CognitiveTier.STANDARD
     can_negotiate: bool = False        # participates in federated swarm P2P
     privacy_force_local: bool = False  # always runs on local model
-    capabilities: List[str] = field(default_factory=list)
-    marketplace_metadata: Dict[str, Any] = field(default_factory=dict)
+    capabilities: list[str] = field(default_factory=list)
+    marketplace_metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "display_name": self.display_name,
@@ -70,7 +70,7 @@ class AgentSpec:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AgentSpec":
+    def from_dict(cls, data: dict[str, Any]) -> AgentSpec:
         tier_str = data.get("default_tier", "standard")
         try:
             tier = CognitiveTier(tier_str)
@@ -96,7 +96,7 @@ class AgentSpec:
 # what it actually does before installing.
 # ---------------------------------------------------------------------------
 
-def _provenance(summary: str, what_it_does: str, gaps: str, integration: str) -> Dict[str, Any]:
+def _provenance(summary: str, what_it_does: str, gaps: str, integration: str) -> dict[str, Any]:
     """Structured provenance for marketplace sharing (meta-cognition §methodology)."""
     return {
         "summary": summary,
@@ -331,7 +331,7 @@ SELF_MODEL_AGENT_SPEC = AgentSpec(
 
 
 # All agents, ordered conductor-first.
-A_CAL_AGENTS: List[AgentSpec] = [
+A_CAL_AGENTS: list[AgentSpec] = [
     CONDUCTOR_SPEC,
     SYNC_AGENT_SPEC,
     SCHEDULE_AGENT_SPEC,
@@ -341,4 +341,4 @@ A_CAL_AGENTS: List[AgentSpec] = [
 ]
 
 # Quick lookup by name.
-A_CAL_AGENTS_BY_NAME: Dict[str, AgentSpec] = {a.name: a for a in A_CAL_AGENTS}
+A_CAL_AGENTS_BY_NAME: dict[str, AgentSpec] = {a.name: a for a in A_CAL_AGENTS}

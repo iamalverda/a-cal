@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -35,8 +35,23 @@ from a_cal.agents.specs import (
 )
 from a_cal.agents.standalone_responses import generate_standalone_response
 from a_cal.integrations.atom_bridge import get_atom_adapters
+from a_cal.settings.autonomy import AutonomyConfig, AutonomyLevel
+from a_cal.integrations.zero_calendar_bridge import get_enhanced_schedule_prompt
 
 logger = logging.getLogger(__name__)
+
+
+def _get_plugin_runtime():
+    """Lazy-load the plugin runtime singleton.
+
+    Imported lazily so the conductor works even if the plugin directory
+    doesn't exist yet, and so tests don't need to set up plugins.
+    """
+    try:
+        from a_cal.developer.plugin_runtime import get_runtime
+        return get_runtime()
+    except Exception:
+        return None
 
 
 class IntentType(str, Enum):
@@ -56,13 +71,13 @@ class RoutingDecision:
     """The conductor's decision about how to handle a user request."""
 
     intent: IntentType
-    specialist: Optional[AgentSpec]
+    specialist: AgentSpec | None
     tier: CognitiveTier
     force_local: bool
     self_model_context: str = ""
     reasoning: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "intent": self.intent.value,
             "specialist": self.specialist.name if self.specialist else None,
@@ -93,7 +108,7 @@ class ACalConductor:
             ``list_sub_accounts()`` methods (optional).
     """
 
-    _INTENT_KEYWORDS: Dict[IntentType, List[str]] = {
+    _INTENT_KEYWORDS: dict[IntentType, list[str]] = {
         # Self-model checked first so "what patterns do you see in my schedule?"
         # routes to self_model, not schedule (the word "schedule" would match
         # SCHEDULE keywords before SELF_MODEL gets checked).
@@ -136,6 +151,7 @@ class ACalConductor:
         nervous_system: Any = None,
         event_store: Any = None,
         provider_store: Any = None,
+        autonomy_config: AutonomyConfig | None = None,
     ) -> None:
         self.self_model = self_model
         self.llm_service = llm_service
@@ -146,7 +162,37 @@ class ACalConductor:
         self.nervous_system = nervous_system
         self.event_store = event_store
         self.provider_store = provider_store
+        self.autonomy_config = autonomy_config or AutonomyConfig()
         self.spec = CONDUCTOR_SPEC
+
+    def _get_user_timezone(self):
+        """Return the user's configured timezone, falling back to system local.
+
+        Reads the ``timezone`` setting from the provider store (an IANA
+        timezone name like ``America/Chicago``). If unset or invalid, falls
+        back to the system's local timezone, then to UTC.
+        """
+        tz_name = None
+        if self.provider_store:
+            try:
+                tz_name = self.provider_store.get_setting("timezone")
+            except Exception:
+                pass
+        if tz_name:
+            try:
+                from zoneinfo import ZoneInfo
+                return ZoneInfo(tz_name)
+            except Exception:
+                logger.debug("unknown timezone %r, falling back to system", tz_name)
+        # Fall back to system local timezone
+        try:
+            return datetime.now().astimezone().tzinfo
+        except Exception:
+            return UTC
+
+    def _get_user_now(self):
+        """Current datetime in the user's timezone (for date grouping)."""
+        return datetime.now(self._get_user_timezone())
 
     def classify_intent(self, message: str) -> IntentType:
         """Classify user intent using atom's LLM classifier if available,
@@ -179,6 +225,20 @@ class ACalConductor:
             except Exception:
                 pass
 
+        # Allow loaded plugins to override the intent classification.
+        # First plugin returning a non-None string wins.
+        runtime = _get_plugin_runtime()
+        if runtime is not None:
+            try:
+                override = runtime.on_intent_classified(message, keyword_result.value)
+                if override is not None:
+                    try:
+                        return IntentType(override)
+                    except ValueError:
+                        logger.warning("Plugin returned unknown intent: %s", override)
+            except Exception as exc:
+                logger.debug("plugin on_intent_classified failed: %s", exc)
+
         return keyword_result
 
     @staticmethod
@@ -194,7 +254,7 @@ class ACalConductor:
     def route(self, message: str) -> RoutingDecision:
         """Decide which specialist handles this message and at what tier."""
         intent = self.classify_intent(message)
-        specialist: Optional[AgentSpec] = None
+        specialist: AgentSpec | None = None
 
         specialist_map = {
             IntentType.SYNC: SYNC_AGENT_SPEC,
@@ -229,11 +289,11 @@ class ACalConductor:
             reasoning=f"Keyword classification -> {intent.value}",
         )
 
-    def _get_calendar_data(self) -> Dict[str, Any]:
+    def _get_calendar_data(self) -> dict[str, Any]:
         """Fetch calendar events, providers, and sub-accounts from the store."""
-        events: List[Dict[str, Any]] = []
-        providers: List[Dict[str, Any]] = []
-        sub_accounts: List[Dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
+        providers: list[dict[str, Any]] = []
+        sub_accounts: list[dict[str, Any]] = []
 
         if self.event_store:
             try:
@@ -251,7 +311,7 @@ class ACalConductor:
 
         return {"events": events, "providers": providers, "sub_accounts": sub_accounts}
 
-    async def handle(self, message: str) -> Dict[str, Any]:
+    async def handle(self, message: str) -> dict[str, Any]:
         """Handle a user message end-to-end.
 
         In standalone mode (no LLM), generates real, useful rule-based
@@ -265,8 +325,8 @@ class ACalConductor:
         decision = self.route(message)
 
         # Route through the nervous system if available
-        routing_trace: Optional[Dict[str, Any]] = None
-        cas_modules_engaged: List[str] = []
+        routing_trace: dict[str, Any] | None = None
+        cas_modules_engaged: list[str] = []
         if self.nervous_system:
             try:
                 trace = self.nervous_system.route_through_nervous_system(message)
@@ -275,30 +335,57 @@ class ACalConductor:
             except Exception as exc:
                 logger.debug("nervous system routing failed: %s", exc)
 
+        # Resolve the effective autonomy level for this request.
+        # Per-sub-account overrides apply when the conductor knows which
+        # sub-account is involved; for now, the global default is used.
+        autonomy_level = self.autonomy_config.resolve(None)
+        suggest_only = autonomy_level == AutonomyLevel.SUGGEST_ONLY
+        confirmation_required = autonomy_level == AutonomyLevel.CONFIRM
+        # In SUGGEST_ONLY mode, pass event_store=None so the standalone
+        # generators propose actions without executing mutations.
+        effective_event_store = None if suggest_only else self.event_store
+
         if self.llm_service is None:
             # Standalone: generate real rule-based responses
             cal_data = self._get_calendar_data()
             result = generate_standalone_response(
                 message=message,
                 decision=decision,
+                now=self._get_user_now(),
                 events=cal_data["events"],
                 providers=cal_data["providers"],
                 sub_accounts=cal_data["sub_accounts"],
                 self_model=self.self_model,
                 agents=self.list_specialists(),
-                event_store=self.event_store,
+                event_store=effective_event_store,
             )
+
+            # Allow plugins to transform the response before returning.
+            final_response = result["response"]
+            runtime = _get_plugin_runtime()
+            if runtime is not None:
+                try:
+                    transformed = runtime.on_conductor_response(
+                        final_response,
+                        {"intent": decision.intent.value, "standalone": True},
+                    )
+                    if transformed is not None:
+                        final_response = transformed
+                except Exception as exc:
+                    logger.debug("plugin on_conductor_response failed: %s", exc)
 
             return {
                 "user_id": self.user_id,
                 "message": message,
                 "routing": decision.to_dict(),
-                "response": result["response"],
+                "response": final_response,
                 "actions": result["actions"],
                 "routing_trace": routing_trace,
                 "cas_modules_engaged": cas_modules_engaged,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "standalone": True,
+                "autonomy_level": autonomy_level.value,
+                "confirmation_required": confirmation_required,
             }
 
         # Hybrid mode: run the standalone response generator to perform
@@ -311,17 +398,40 @@ class ACalConductor:
         standalone_result = generate_standalone_response(
             message=message,
             decision=decision,
+            now=self._get_user_now(),
             events=cal_data["events"],
             providers=cal_data["providers"],
             sub_accounts=cal_data["sub_accounts"],
             self_model=self.self_model,
             agents=self.list_specialists(),
-            event_store=self.event_store,
+            event_store=effective_event_store,
         )
 
         # Build the LLM prompt with standalone context so the model knows
         # what operations were already performed and can reference them.
-        system_prompt = decision.specialist.system_prompt if decision.specialist else self.spec.system_prompt
+        specialist_prompt = decision.specialist.system_prompt if decision.specialist else self.spec.system_prompt
+        # Prepend the zero-calendar enhanced schedule prompt for schedule
+        # intent — adds timezone awareness and anti-hallucination rules.
+        if decision.intent == IntentType.SCHEDULE:
+            specialist_prompt = get_enhanced_schedule_prompt() + specialist_prompt
+        # Augment the specialist's system prompt with anti-hallucination
+        # directives. The standalone agent already performed real actions
+        # (created events, found slots, listed providers) — the LLM's job
+        # is to communicate those results naturally, not invent new ones.
+        system_prompt = (
+            f"{specialist_prompt}\n\n"
+            f"IMPORTANT GROUND RULES:\n"
+            f"- The [System context] below contains the REAL results of actions "
+            f"already taken. Treat it as ground truth.\n"
+            f"- Do NOT invent events, times, or dates that are not in the system "
+            f"context. If the system found 0 events, say the schedule is clear.\n"
+            f"- If an action was already performed (e.g. event created, slot found), "
+            f"reference it directly. Do not repeat or contradict it.\n"
+            f"- Keep responses concise (2-4 sentences). The user wants answers, "
+            f"not essays.\n"
+            f"- If you are unsure about something not in the system context, say so "
+            f"rather than guessing."
+        )
         action_summary = ""
         if standalone_result.get("actions"):
             action_lines = []
@@ -355,9 +465,22 @@ class ACalConductor:
                 tenant_id=self.user_id,
             )
         except Exception as exc:
-            logger.error("conductor LLM dispatch failed: %s", exc)
+            logger.error("conductor LLM dispatch failed: %r", exc)
             # Fall back to the standalone response if the LLM fails
             llm_response = standalone_result["response"]
+
+        # Allow plugins to transform the LLM response before returning.
+        runtime = _get_plugin_runtime()
+        if runtime is not None:
+            try:
+                transformed = runtime.on_conductor_response(
+                    llm_response,
+                    {"intent": decision.intent.value, "standalone": False},
+                )
+                if transformed is not None:
+                    llm_response = transformed
+            except Exception as exc:
+                logger.debug("plugin on_conductor_response failed: %s", exc)
 
         return {
             "user_id": self.user_id,
@@ -367,11 +490,13 @@ class ACalConductor:
             "actions": standalone_result["actions"],
             "routing_trace": routing_trace,
             "cas_modules_engaged": cas_modules_engaged,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "standalone": False,
             "actions_source": "hybrid",
+            "autonomy_level": autonomy_level.value,
+            "confirmation_required": confirmation_required,
         }
 
-    def list_specialists(self) -> List[Dict[str, Any]]:
+    def list_specialists(self) -> list[dict[str, Any]]:
         """Return all specialist specs (for the UI's agent overview)."""
         return [a.to_dict() for a in A_CAL_AGENTS_BY_NAME.values()]

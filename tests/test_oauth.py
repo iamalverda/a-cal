@@ -27,6 +27,14 @@ from a_cal.api.oauth_routes import router as oauth_router
 from a_cal.db.store import PersistentStore
 
 
+@pytest.fixture
+def atom_disabled(monkeypatch):
+    """Force atom detection off for tests that need standalone mode."""
+    monkeypatch.setenv("A_CAL_DISABLE_ATOM", "1")
+    yield
+    monkeypatch.delenv("A_CAL_DISABLE_ATOM", raising=False)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -219,8 +227,12 @@ def test_oauth_start_no_client_id(client):
 # OAuth callback endpoint tests
 # ---------------------------------------------------------------------------
 
-def test_oauth_callback_success(client):
-    """OAuth callback with valid state + mocked token exchange stores tokens."""
+def test_oauth_callback_success(client, atom_disabled):
+    """OAuth callback with valid state + mocked token exchange stores tokens.
+
+    Uses atom_disabled fixture to ensure standalone SQLite storage path
+    (avoids needing atom's database tables in test env).
+    """
     sub_id = _create_sub(client)
     prov_id = _create_google_provider(client, sub_id)
 

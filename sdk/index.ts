@@ -17,6 +17,24 @@
  * // Configure LLM
  * await client.settings.setLLMEnabled(true);
  * await client.settings.setApiKeys({ openai: "sk-..." });
+ *
+ * // Manage calendar events
+ * const events = await client.calendar.listEvents(30);
+ * await client.calendar.createEvent({ title: "Team sync", start: "2026-07-13T10:00:00Z" });
+ *
+ * // Scan emails for scheduling suggestions
+ * const scan = await client.email.scanForSchedule();
+ *
+ * // Trigger a sync
+ * await client.sync.trigger("sub-account-id");
+ *
+ * // Manage self-model facts
+ * const facts = await client.selfModel.listFacts();
+ * await client.selfModel.editFact("fact-id", { content: "Updated" });
+ *
+ * // Plugin runtime (Developer mode)
+ * const plugins = await client.developer.listRuntimePlugins();
+ * await client.developer.scanRuntimePlugins();
  * ```
  */
 
@@ -99,11 +117,24 @@ export class ACalClient {
     list: (subAccountId?: string) => Promise<Json[]>;
     listAll: () => Promise<Json[]>;
     create: (params: CreateProviderParams) => Promise<Json>;
+    update: (id: string, patch: Json) => Promise<Json>;
+    delete: (id: string) => Promise<void>;
   };
 
   /** Calendar API. */
   readonly calendar: {
     unified: (days?: number) => Promise<Json[]>;
+    listEvents: (days?: number) => Promise<Json[]>;
+    createEvent: (event: Json) => Promise<Json>;
+    updateEvent: (id: string, patch: Json) => Promise<Json>;
+    deleteEvent: (id: string) => Promise<{ status: string }>;
+  };
+
+  /** Sync engine API. */
+  readonly sync: {
+    trigger: (subAccountId: string) => Promise<Json>;
+    listRules: () => Promise<Json[]>;
+    createRule: (rule: Json) => Promise<Json>;
   };
 
   /** Conductor (agent chat) API. */
@@ -114,6 +145,13 @@ export class ACalClient {
   /** Agent API. */
   readonly agents: {
     list: () => Promise<Json[]>;
+  };
+
+  /** Email API. */
+  readonly email: {
+    listMessages: (limit?: number) => Promise<Json[]>;
+    send: (params: Json) => Promise<Json>;
+    scanForSchedule: () => Promise<Json>;
   };
 
   /** Settings API. */
@@ -129,6 +167,21 @@ export class ACalClient {
     setApiKeys: (keys: Record<string, string>) => Promise<Record<string, string>>;
     getSelfModel: () => Promise<Json>;
     setSelfModel: (settings: Json) => Promise<Json>;
+    getTimezone: () => Promise<{ timezone: string }>;
+    getTimezone: (timezone: string) => Promise<{ timezone: string }>;
+    getEmailSettings: () => Promise<Json>;
+    setEmailSettings: (config: Json) => Promise<Json>;
+  };
+
+  /** Self-model facts API. */
+  readonly selfModel: {
+    listFacts: (category?: string, depth?: string) => Promise<Json[]>;
+    searchFacts: (q: string) => Promise<Json[]>;
+    deleteFact: (factId: string) => Promise<{ deleted: boolean }>;
+    clearAllFacts: () => Promise<{ cleared: boolean }>;
+    editFact: (factId: string, patch: Json) => Promise<Json>;
+    export: () => Promise<Json>;
+    suggestions: (limit?: number) => Promise<Json[]>;
   };
 
   /** Swarm negotiation API. */
@@ -137,6 +190,17 @@ export class ACalClient {
     list: () => Promise<Json[]>;
     get: (id: string) => Promise<Json>;
     detectConflicts: (events: Json[]) => Promise<Json>;
+  };
+
+  /** Nervous system (CAS bio-mimetic architecture) API. */
+  readonly nervousSystem: {
+    overview: () => Promise<Json>;
+    agents: () => Promise<Json[]>;
+    state: () => Promise<Json>;
+    route: (message: string) => Promise<Json>;
+    memories: () => Promise<Json[]>;
+    assessUserState: (message: string) => Promise<Json>;
+    casAgents: () => Promise<Json[]>;
   };
 
   /** Marketplace API. */
@@ -151,6 +215,12 @@ export class ACalClient {
     getRemixes: (id: string) => Promise<Json[]>;
     getRemixChain: (id: string) => Promise<Json[]>;
     rate: (id: string, stars: number) => Promise<Json>;
+    // Registry: portable export/import + remote browsing
+    getRegistryManifest: () => Promise<Json>;
+    exportBundle: (itemIds?: string[]) => Promise<Json>;
+    importBundle: (bundleJson: string) => Promise<Json>;
+    browseRemoteRegistry: (registryUrl: string) => Promise<Json>;
+    pullFromRemoteRegistry: (registryUrl: string, itemId: string) => Promise<Json>;
   };
 
   /** Developer API. */
@@ -167,6 +237,18 @@ export class ACalClient {
     deleteAgentSpec: (name: string) => Promise<void>;
     exportConfig: () => Promise<Json>;
     importConfig: (config: Json) => Promise<Json>;
+    // Plugin runtime (loaded code from ~/.a-cal/plugins/)
+    listRuntimePlugins: () => Promise<Json[]>;
+    scanRuntimePlugins: () => Promise<Json>;
+    reloadRuntimePlugin: (pluginId: string) => Promise<Json>;
+    enableRuntimePlugin: (pluginId: string) => Promise<Json>;
+    disableRuntimePlugin: (pluginId: string) => Promise<Json>;
+    listRuntimeHooks: () => Promise<{ hooks: string[] }>;
+  };
+
+  /** OAuth flow API. */
+  readonly oauth: {
+    start: (providerId: string) => Promise<Json>;
   };
 
   /**
@@ -209,10 +291,22 @@ export class ACalClient {
       list: (subId) => get<Json[]>(`/providers${subId ? `?sub_account_id=${subId}` : ""}`),
       listAll: () => get<Json[]>("/providers/all"),
       create: (p) => post<Json>("/providers", p),
+      update: (id, patchData) => patch<Json>(`/providers/${id}`, patchData),
+      delete: (id) => del<void>(`/providers/${id}`),
     };
 
     this.calendar = {
       unified: (days = 7) => get<Json[]>(`/calendar/unified?days=${days}`),
+      listEvents: (days = 30) => get<Json[]>(`/calendar/events?days=${days}`),
+      createEvent: (event) => post<Json>("/calendar/events", event),
+      updateEvent: (id, patchData) => patch<Json>(`/calendar/events/${id}`, patchData),
+      deleteEvent: (id) => del<{ status: string }>(`/calendar/events/${id}`),
+    };
+
+    this.sync = {
+      trigger: (subAccountId) => post<Json>("/sync/trigger", { sub_account_id: subAccountId }),
+      listRules: () => get<Json[]>("/sync-rules"),
+      createRule: (rule) => post<Json>("/sync-rules", rule),
     };
 
     this.conductor = {
@@ -221,6 +315,12 @@ export class ACalClient {
 
     this.agents = {
       list: () => get<Json[]>("/agents"),
+    };
+
+    this.email = {
+      listMessages: (limit = 50) => get<Json[]>(`/email/messages?limit=${limit}`),
+      send: (params) => post<Json>("/email/send", params),
+      scanForSchedule: () => post<Json>("/email/scan-schedule"),
     };
 
     this.settings = {
@@ -235,6 +335,24 @@ export class ACalClient {
       setApiKeys: (keys) => post<Record<string, string>>("/settings/api-keys", { keys }),
       getSelfModel: () => get<Json>("/settings/self-model"),
       setSelfModel: (s) => post<Json>("/settings/self-model", s),
+      getTimezone: () => get<{ timezone: string }>("/settings/timezone"),
+      setTimezone: (tz) => post<{ timezone: string }>("/settings/timezone", { timezone: tz }),
+    };
+
+    this.selfModel = {
+      listFacts: (category, depth) => {
+        const params = new URLSearchParams();
+        if (category) params.set("category", category);
+        if (depth) params.set("depth", depth);
+        const qs = params.toString();
+        return get<Json[]>(`/self-model/facts${qs ? `?${qs}` : ""}`);
+      },
+      searchFacts: (q) => get<Json[]>(`/self-model/facts/search?q=${encodeURIComponent(q)}`),
+      deleteFact: (factId) => del<{ deleted: boolean }>(`/self-model/facts/${factId}`),
+      clearAllFacts: () => del<{ cleared: boolean }>("/self-model/facts"),
+      editFact: (factId, patchData) => patch<Json>(`/self-model/facts/${factId}`, patchData),
+      export: () => get<Json>("/self-model/export"),
+      suggestions: (limit) => get<Json[]>(`/self-model/suggestions${limit ? `?limit=${limit}` : ""}`),
     };
 
     this.swarm = {
@@ -242,6 +360,16 @@ export class ACalClient {
       list: () => get<Json[]>("/swarm/negotiations"),
       get: (id) => get<Json>(`/swarm/negotiations/${id}`),
       detectConflicts: (events) => post<Json>("/swarm/detect-conflicts", { events }),
+    };
+
+    this.nervousSystem = {
+      overview: () => get<Json>("/nervous-system/overview"),
+      agents: () => get<Json[]>("/nervous-system/agents"),
+      state: () => get<Json>("/nervous-system/state"),
+      route: (message) => post<Json>("/nervous-system/route", { message }),
+      memories: () => get<Json[]>("/nervous-system/memories"),
+      assessUserState: (message) => post<Json>("/nervous-system/assess-user-state", { message }),
+      casAgents: () => get<Json[]>("/nervous-system/cas-agents"),
     };
 
     this.marketplace = {
@@ -261,6 +389,11 @@ export class ACalClient {
       getRemixes: (id) => get<Json[]>(`/marketplace/items/${id}/remixes`),
       getRemixChain: (id) => get<Json[]>(`/marketplace/items/${id}/remix-chain`),
       rate: (id, stars) => post<Json>(`/marketplace/items/${id}/rate`, { stars }),
+      getRegistryManifest: () => get<Json>("/marketplace/registry/manifest"),
+      exportBundle: (itemIds = []) => post<Json>("/marketplace/export", { item_ids: itemIds }),
+      importBundle: (bundleJson) => post<Json>("/marketplace/import", { bundle_json: bundleJson }),
+      browseRemoteRegistry: (registryUrl) => post<Json>("/marketplace/registry/browse", { registry_url: registryUrl }),
+      pullFromRemoteRegistry: (registryUrl, itemId) => post<Json>("/marketplace/registry/pull", { registry_url: registryUrl, item_id: itemId }),
     };
 
     this.developer = {
@@ -280,12 +413,22 @@ export class ACalClient {
         include_custom_agents: true,
       }),
       importConfig: (config) => post<Json>("/developer/config/import", { config }),
+      listRuntimePlugins: () => get<Json[]>("/developer/plugins/runtime/list"),
+      scanRuntimePlugins: () => post<Json>("/developer/plugins/runtime/scan"),
+      reloadRuntimePlugin: (pluginId) => post<Json>(`/developer/plugins/runtime/${pluginId}/reload`),
+      enableRuntimePlugin: (pluginId) => post<Json>(`/developer/plugins/runtime/${pluginId}/enable`),
+      disableRuntimePlugin: (pluginId) => post<Json>(`/developer/plugins/runtime/${pluginId}/disable`),
+      listRuntimeHooks: () => get<{ hooks: string[] }>("/developer/plugins/runtime/hooks"),
+    };
+
+    this.oauth = {
+      start: (providerId) => get<Json>(`/providers/${providerId}/oauth/start`),
     };
   }
 
-  /** Check server health. */
-  async health(): Promise<{ status: string; version: string }> {
+  /** Check server health, including database backend type. */
+  async health(): Promise<{ status: string; mode: string; version: string; database: string }> {
     const res = await this.fetchFn(`${this.baseUrl.replace("/api/a-cal", "")}/health`);
-    return res.json() as Promise<{ status: string; version: string }>;
+    return res.json() as Promise<{ status: string; mode: string; version: string; database: string }>;
   }
 }

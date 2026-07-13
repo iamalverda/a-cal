@@ -9,10 +9,12 @@ specs (beyond the 6 built-ins), and config export/import controls.
 import { useState, useEffect, useCallback, useRef } from "react";
 import { developerApi } from "@/lib/api";
 import type { Plugin, AgentSpec } from "@/types";
+import type { RuntimePlugin } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Upload, Download } from "lucide-react";
+import { Upload, Download, ScanLine, RefreshCw, Loader2, AlertCircle, Code2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { ApiExplorer } from "@/components/api-explorer";
 
 const PLUGIN_TYPE_LABELS: Record<string, string> = {
   agent: "Agent",
@@ -26,6 +28,9 @@ export function DeveloperPanel() {
   const [agents, setAgents] = useState<AgentSpec[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportData, setExportData] = useState<string | null>(null);
+  const [runtimePlugins, setRuntimePlugins] = useState<RuntimePlugin[]>([]);
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [supportedHooks, setSupportedHooks] = useState<string[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -44,9 +49,60 @@ export function DeveloperPanel() {
     }
   }, []);
 
+  const loadRuntimePlugins = useCallback(async () => {
+    setRuntimeLoading(true);
+    try {
+      const [pluginList, hooksResp] = await Promise.all([
+        developerApi.listRuntimePlugins(),
+        developerApi.listRuntimeHooks(),
+      ]);
+      setRuntimePlugins(pluginList);
+      setSupportedHooks(hooksResp.hooks);
+    } catch {
+      setRuntimePlugins([]);
+    } finally {
+      setRuntimeLoading(false);
+    }
+  }, []);
+
+  const handleScanRuntime = async () => {
+    setRuntimeLoading(true);
+    try {
+      const result = await developerApi.scanRuntimePlugins();
+      setRuntimePlugins(result.plugins);
+    } catch {
+      setRuntimePlugins([]);
+    } finally {
+      setRuntimeLoading(false);
+    }
+  };
+
+  const handleToggleRuntimePlugin = async (plugin: RuntimePlugin, enable: boolean) => {
+    try {
+      if (enable) {
+        await developerApi.enableRuntimePlugin(plugin.id);
+      } else {
+        await developerApi.disableRuntimePlugin(plugin.id);
+      }
+      loadRuntimePlugins();
+    } catch (e) {
+      console.error("runtime toggle failed", e);
+    }
+  };
+
+  const handleReloadRuntimePlugin = async (pluginId: string) => {
+    try {
+      await developerApi.reloadRuntimePlugin(pluginId);
+      loadRuntimePlugins();
+    } catch (e) {
+      console.error("runtime reload failed", e);
+    }
+  };
+
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    loadRuntimePlugins();
+  }, [loadData, loadRuntimePlugins]);
 
   const handleTogglePlugin = async (plugin: Plugin, enable: boolean) => {
     try {
@@ -148,6 +204,91 @@ export function DeveloperPanel() {
         </div>
       </section>
 
+      {/* Runtime plugins section (loaded code from ~/.a-cal/plugins/) */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium">Runtime Plugins</h2>
+          <Button variant="outline" size="sm" onClick={handleScanRuntime} disabled={runtimeLoading}>
+            {runtimeLoading ? <Loader2 size={14} className="animate-spin" /> : <ScanLine size={14} />}
+            Scan Directory
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Plugins loaded from <code className="text-xs">~/.a-cal/plugins/</code>. Each file must define a <code className="text-xs">Plugin</code> class with at least one supported hook.
+        </p>
+        {supportedHooks.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {supportedHooks.map((hook) => (
+              <Badge key={hook} variant="outline" className="text-[10px] font-mono py-0">
+                {hook}
+              </Badge>
+            ))}
+          </div>
+        )}
+        {runtimeLoading && runtimePlugins.length === 0 && (
+          <p className="text-sm text-muted-foreground">Scanning...</p>
+        )}
+        {!runtimeLoading && runtimePlugins.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No plugins loaded. Drop a .py file in ~/.a-cal/plugins/ and click Scan.
+          </p>
+        )}
+        <div className="grid gap-2">
+          {runtimePlugins.map((plugin) => (
+            <div
+              key={plugin.id}
+              className="rounded-lg border border-border p-3 flex items-center justify-between gap-3"
+            >
+              <div className="flex flex-col gap-1 min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <Code2 size={14} className="shrink-0 text-muted-foreground" />
+                  <span className="text-sm font-medium truncate">{plugin.name}</span>
+                  <Badge variant="secondary" className="text-xs shrink-0">
+                    {plugin.plugin_type}
+                  </Badge>
+                  {plugin.load_error && (
+                    <Badge variant="destructive" className="text-xs shrink-0">
+                      <AlertCircle size={10} className="mr-1" />
+                      Error
+                    </Badge>
+                  )}
+                </div>
+                {plugin.load_error ? (
+                  <span className="text-xs text-red-500 font-mono truncate">{plugin.load_error}</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {plugin.hooks.map((hook) => (
+                      <Badge key={hook} variant="outline" className="text-[10px] font-mono py-0">
+                        {hook}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <span className="text-[10px] text-muted-foreground truncate">{plugin.file_path}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {!plugin.load_error && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleReloadRuntimePlugin(plugin.id)}
+                      title="Reload from disk"
+                    >
+                      <RefreshCw size={12} />
+                    </Button>
+                    <Switch
+                      checked={plugin.enabled}
+                      onCheckedChange={(checked) => handleToggleRuntimePlugin(plugin, checked)}
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Agent specs section */}
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium">Agent Specs</h2>
@@ -226,6 +367,21 @@ export function DeveloperPanel() {
             </Button>
           </>
         )}
+      </section>
+
+      {/* API Explorer section */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium">API Explorer</h2>
+          <Badge className="bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs">
+            REST
+          </Badge>
+        </div>
+        <p className="text-xs text-[var(--muted-foreground)]">
+          Browse and test all A-Cal API endpoints. Click an endpoint to view
+          its parameters and send a live request.
+        </p>
+        <ApiExplorer />
       </section>
     </div>
   );

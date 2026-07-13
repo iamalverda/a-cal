@@ -9,7 +9,7 @@ Verifies that when an LLM service is connected, the conductor:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -130,8 +130,13 @@ class TestHybridMode:
 
         # LLM response should be returned
         assert "AI-powered reasoning" in result["response"]
-        # And the event should be updated
+        # And the event should be updated — "3pm tomorrow" is interpreted in
+        # the user's local timezone and stored as UTC, so convert back to
+        # local time to verify the hour is 3 PM (15).
         events = event_store.get_all_events()
         standup = next(e for e in events if e["title"] == "Standup")
         start = datetime.fromisoformat(standup["start"])
-        assert start.hour == 15  # 3 PM
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        local_start = start.astimezone()
+        assert local_start.hour == 15  # 3 PM local

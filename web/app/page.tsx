@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
-import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail } from "lucide-react";
+import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, User, Menu, X, LogOut, Loader2 } from "lucide-react";
 import { Network, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,12 +12,19 @@ import { SubAccountSidebar } from "@/components/sub-account-sidebar";
 import { ConductorPanel } from "@/components/conductor-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { MarketplacePanel } from "@/components/marketplace-panel";
+import { CommunityProfilePanel } from "@/components/community-profile-panel";
 import { SwarmPanel } from "@/components/swarm-panel";
 import { DeveloperPanel } from "@/components/developer-panel";
 import { WorkflowBuilder } from "@/components/workflow-builder";
 import { NervousSystemPanel } from "@/components/nervous-system-panel";
 import { EmailPanel } from "@/components/email-panel";
+import { AnalyticsPanel } from "@/components/analytics-panel";
+import { AddAccountWizard } from "@/components/add-account-wizard";
+import { ProactiveSuggestions } from "@/components/proactive-suggestions";
+import { CommandBar } from "@/components/command-bar";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { LoginPanel } from "@/components/login-panel";
 import {
   mockSubAccounts,
   mockProviders,
@@ -27,9 +34,17 @@ import {
 import type { SkillMode, SubAccount, ProviderConnection, UnifiedEvent, AgentSpec } from "@/types";
 
 export default function Page() {
+  const { user, loading: authLoading, backendDown, logout } = useAuth();
   const [mode, setMode] = useState<SkillMode>("pro");
   const [showSettings, setShowSettings] = useState(false);
   const [dark, setDark] = useState(true);
+
+  /** Sync the dark class on <html> with the dark state. */
+  useEffect(() => {
+    const root = document.documentElement;
+    if (dark) root.classList.add("dark");
+    else root.classList.remove("dark");
+  }, [dark]);
   const [subAccounts, setSubAccounts] = useState<SubAccount[]>(mockSubAccounts);
   const [providers, setProviders] = useState<Record<string, ProviderConnection[]>>(mockProviders);
   const [events, setEvents] = useState<UnifiedEvent[]>(mockEvents);
@@ -41,12 +56,18 @@ export default function Page() {
   const [showConductor, setShowConductor] = useState(true);
   const [showAgents, setShowAgents] = useState(false);
   const [showMarketplace, setShowMarketplace] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [showSwarm, setShowSwarm] = useState(false);
   const [showDeveloper, setShowDeveloper] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [showNervousSystem, setShowNervousSystem] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const [oauthResult, setOauthResult] = useState<string | null>(null);
+  const [proactiveEnabled, setProactiveEnabled] = useState(false);
+  const [showCommandBar, setShowCommandBar] = useState(false);
+  const [showAddWizard, setShowAddWizard] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   /** Load real data from the backend on mount, falling back to mock data. */
   useEffect(() => {
@@ -70,6 +91,22 @@ export default function Page() {
         }
         if (agentsData && agentsData.length > 0) {
           setAgents(agentsData);
+        }
+
+        // Warm up the local LLM model in the background so the first
+        // chat message is fast. Fire-and-forget — if it fails, the first
+        // real request will cold-start the model (just slower).
+        fetch("/api/a-cal/settings/preload-model", { method: "POST" }).catch(() => {});
+
+        // Check if proactive suggestions are enabled
+        try {
+          const smResp = await fetch("/api/a-cal/settings/self-model");
+          if (smResp.ok) {
+            const sm = await smResp.json();
+            setProactiveEnabled(sm.proactive_suggestions_enabled && sm.feed_into_proactive);
+          }
+        } catch {
+          // keep default (false)
         }
       } catch {
         // Backend not running — use mock data (already set)
@@ -96,6 +133,40 @@ export default function Page() {
     }
   }, []);
 
+  /** Listen for cmd+k / ctrl+k to open the command bar. */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setShowCommandBar((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  /** Trigger sync for all sub-accounts. */
+  const handleSyncAll = useCallback(async () => {
+    for (const sub of subAccounts) {
+      if (sub.is_main) continue;
+      try {
+        await api.triggerSync(sub.id);
+      } catch {
+        // continue to next sub-account
+      }
+    }
+    // Refresh events after sync
+    try {
+      const res = await fetch("/api/a-cal/calendar/unified?days=7");
+      if (res.ok) {
+        const evs = await res.json();
+        if (evs.length > 0) setEvents(evs);
+      }
+    } catch {
+      // keep current events
+    }
+  }, [subAccounts]);
+
   /** Switch skill mode and persist to backend. */
   const handleModeChange = async (newMode: SkillMode) => {
     setMode(newMode);
@@ -115,18 +186,59 @@ export default function Page() {
     });
   };
 
+  /** Update a sub-account in local state after a backend PATCH. */
+  const handleSubAccountUpdated = (updated: SubAccount) => {
+    setSubAccounts((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+  };
+
+  /** Remove a sub-account from local state after deletion. */
+  const handleSubAccountDeleted = (id: string) => {
+    setSubAccounts((prev) => prev.filter((s) => s.id !== id));
+    setVisibleSubAccounts((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    if (selectedSubAccountId === id) setSelectedSubAccountId(null);
+  };
+
+  /** Handle new sub-account created by the wizard — add to state and select it. */
+  const handleSubAccountCreated = (sub: SubAccount) => {
+    setSubAccounts((prev) => [...prev, sub]);
+    setVisibleSubAccounts((prev) => new Set(prev).add(sub.id));
+    setSelectedSubAccountId(sub.id);
+  };
+
   const agentCount = agents.length;
   const connectedProviders = useMemo(
     () => Object.values(providers).flat().filter((p) => p.status === "connected").length,
     [providers]
   );
 
+  // Auth gate: show login panel if not authenticated.
+  // When the backend is unreachable, fall through to demo mode (backward compat).
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[var(--background)]">
+        <Loader2 size={32} className="animate-spin text-[var(--muted-foreground)]" />
+      </div>
+    );
+  }
+  if (!user && !backendDown) {
+    return <LoginPanel />;
+  }
+
   return (
-    <div className={`flex h-screen overflow-hidden ${dark ? "dark" : ""}`}>
+    <div className="flex h-screen overflow-hidden">
       {/* Left sidebar — branding + sub-accounts */}
-      <aside className="w-64 shrink-0 border-r border-[var(--border)] flex flex-col bg-[var(--card)]">
+      <aside className={cn(
+        "w-64 shrink-0 border-r border-[var(--border)] flex-col bg-[var(--card)] z-50",
+        "fixed inset-y-0 left-0 transition-transform md:static md:translate-x-0 md:flex",
+        mobileSidebarOpen ? "translate-x-0 flex" : "-translate-x-0 md:translate-x-0",
+        !mobileSidebarOpen && "hidden md:flex",
+      )}>
         {/* Logo */}
-        <div className="px-4 py-4 border-b border-[var(--border)]">
+        <div className="px-4 py-4 border-b border-[var(--border)] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-[var(--primary)] flex items-center justify-center">
               <Sparkles size={18} className="text-[var(--primary-foreground)]" />
@@ -136,6 +248,13 @@ export default function Page() {
               <div className="text-xs text-[var(--muted-foreground)]">Agentic Calendar</div>
             </div>
           </div>
+          <button
+            onClick={() => setMobileSidebarOpen(false)}
+            className="md:hidden p-1.5 rounded-md hover:bg-[var(--accent)]"
+            title="Close menu"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Sub-account sidebar */}
@@ -147,6 +266,9 @@ export default function Page() {
             onToggleVisible={toggleVisible}
             onSelectSubAccount={setSelectedSubAccountId}
             selectedSubAccountId={selectedSubAccountId}
+            onAddAccount={() => setShowAddWizard(true)}
+            onSubAccountUpdated={handleSubAccountUpdated}
+            onSubAccountDeleted={handleSubAccountDeleted}
           />
         </div>
 
@@ -171,13 +293,27 @@ export default function Page() {
               <span>Email</span>
             </button>
           )}
+          <button
+            onClick={() => setShowAnalytics(true)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <BarChart3 size={15} className="text-[var(--muted-foreground)]" />
+            <span>Analytics</span>
+          </button>
+          <button
+            onClick={() => setShowMarketplace(true)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <Store size={15} className="text-[var(--muted-foreground)]" />
+            <span>Marketplace</span>
+          </button>
           {mode !== "simple" && (
             <button
-              onClick={() => setShowMarketplace(true)}
+              onClick={() => setShowProfile(true)}
               className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
             >
-              <Store size={15} className="text-[var(--muted-foreground)]" />
-              <span>Marketplace</span>
+              <User size={15} className="text-[var(--muted-foreground)]" />
+              <span>My Profile</span>
             </button>
           )}
           {mode !== "simple" && (
@@ -223,14 +359,42 @@ export default function Page() {
             {dark ? <Moon size={15} /> : <Sun size={15} />}
             <span>{dark ? "Dark" : "Light"}</span>
           </button>
+          <div className="border-t border-[var(--border)] pt-2 mt-1">
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--muted-foreground)] truncate">
+              <User size={13} className="shrink-0" />
+              <span className="truncate">{user?.email ?? "demo mode"}</span>
+            </div>
+            <button
+              onClick={() => logout()}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors text-[var(--muted-foreground)]"
+            >
+              <LogOut size={15} />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </div>
       </aside>
+
+      {/* Mobile sidebar backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
 
       {/* Center — calendar */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden p-1.5 rounded-md hover:bg-[var(--accent)]"
+              title="Open menu"
+            >
+              <Menu size={18} />
+            </button>
             <div className="flex rounded-md border border-[var(--border)] overflow-hidden">
               {(["simple", "pro", "developer"] as SkillMode[]).map((m) => (
                 <button
@@ -323,7 +487,10 @@ export default function Page() {
             />
           </div>
           {showConductor && (
-            <div className="w-[380px] shrink-0 border-l border-[var(--border)] bg-[var(--card)]">
+            <div className={cn(
+              "shrink-0 border-l border-[var(--border)] bg-[var(--card)]",
+              "w-[380px] max-w-[85vw]",
+            )}>
               <ConductorPanel />
             </div>
           )}
@@ -351,10 +518,24 @@ export default function Page() {
         </SlideInOverlay>
       )}
 
+      {/* Analytics overlay */}
+      {showAnalytics && (
+        <SlideInOverlay title="Analytics" icon={<BarChart3 size={18} className="text-[var(--primary)]" />} onClose={() => setShowAnalytics(false)}>
+          <AnalyticsPanel />
+        </SlideInOverlay>
+      )}
+
       {/* Marketplace overlay */}
       {showMarketplace && (
         <SlideInOverlay title="Marketplace" icon={<Store size={18} className="text-[var(--primary)]" />} onClose={() => setShowMarketplace(false)}>
-          <MarketplacePanel />
+          <MarketplacePanel mode={mode} />
+        </SlideInOverlay>
+      )}
+
+      {/* Community profile overlay */}
+      {showProfile && (
+        <SlideInOverlay title="My Profile" icon={<User size={18} className="text-[var(--primary)]" />} onClose={() => setShowProfile(false)}>
+          <CommunityProfilePanel />
         </SlideInOverlay>
       )}
 
@@ -384,6 +565,30 @@ export default function Page() {
         <SlideInOverlay title="Developer Studio" icon={<Code2 size={18} className="text-[var(--primary)]" />} onClose={() => setShowDeveloper(false)}>
           <DeveloperPanel />
         </SlideInOverlay>
+      )}
+
+      {/* Contextual command bar — cmd+k palette */}
+      <CommandBar
+        open={showCommandBar}
+        onClose={() => setShowCommandBar(false)}
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenMarketplace={() => setShowMarketplace(true)}
+        onOpenEmail={() => setShowEmail(true)}
+        onOpenAnalytics={() => setShowAnalytics(true)}
+        onOpenConductor={() => setShowConductor(true)}
+        onSyncCalendars={handleSyncAll}
+        mode={mode}
+      />
+
+      {/* Proactive suggestions — floating notifications */}
+      <ProactiveSuggestions enabled={proactiveEnabled} />
+
+      {/* Add Sub-Calendar wizard */}
+      {showAddWizard && (
+        <AddAccountWizard
+          onClose={() => setShowAddWizard(false)}
+          onCreated={handleSubAccountCreated}
+        />
       )}
     </div>
   );

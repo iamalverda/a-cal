@@ -8,7 +8,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 from fastapi import FastAPI
@@ -61,7 +61,7 @@ class TestEventCrudApi:
 
     def test_create_event(self, client):
         """POST /calendar/events should create and return the event."""
-        start = datetime.now(timezone.utc) + timedelta(days=2, hours=10)
+        start = datetime.now(UTC) + timedelta(days=2, hours=10)
         end = start + timedelta(minutes=45)
         resp = client.post("/api/a-cal/calendar/events", json={
             "title": "Strategy Sync",
@@ -84,7 +84,7 @@ class TestEventCrudApi:
 
     def test_create_then_list_shows_new_event(self, client):
         """A created event should appear in the list."""
-        start = datetime.now(timezone.utc) + timedelta(days=5, hours=14)
+        start = datetime.now(UTC) + timedelta(days=5, hours=14)
         end = start + timedelta(minutes=60)
         create_resp = client.post("/api/a-cal/calendar/events", json={
             "title": "Quarterly Review",
@@ -99,7 +99,7 @@ class TestEventCrudApi:
 
     def test_update_event(self, client):
         """PATCH should update event fields."""
-        start = datetime.now(timezone.utc) + timedelta(days=3, hours=9)
+        start = datetime.now(UTC) + timedelta(days=3, hours=9)
         end = start + timedelta(minutes=30)
         create_resp = client.post("/api/a-cal/calendar/events", json={
             "title": "Original Title",
@@ -123,7 +123,7 @@ class TestEventCrudApi:
 
     def test_delete_event(self, client):
         """DELETE should remove the event."""
-        start = datetime.now(timezone.utc) + timedelta(days=4, hours=11)
+        start = datetime.now(UTC) + timedelta(days=4, hours=11)
         end = start + timedelta(minutes=30)
         create_resp = client.post("/api/a-cal/calendar/events", json={
             "title": "To Be Deleted",
@@ -177,7 +177,7 @@ class TestConductorEventActions:
     async def test_conductor_deletes_event_by_name(self, fresh_store):
         """Saying 'cancel Team Standup' should delete the matching event."""
         # Seed an event to delete
-        start = datetime.now(timezone.utc) + timedelta(days=1, hours=9)
+        start = datetime.now(UTC) + timedelta(days=1, hours=9)
         fresh_store.create_event({
             "title": "Team Standup",
             "start": _iso(start),
@@ -194,7 +194,7 @@ class TestConductorEventActions:
     @pytest.mark.asyncio
     async def test_conductor_reschedules_event_by_name(self, fresh_store):
         """Saying 'move Project Review to 3pm tomorrow' should reschedule the event."""
-        start = datetime.now(timezone.utc) + timedelta(days=2, hours=10)
+        start = datetime.now(UTC) + timedelta(days=2, hours=10)
         fresh_store.create_event({
             "title": "Project Review",
             "start": _iso(start),
@@ -211,7 +211,10 @@ class TestConductorEventActions:
     @pytest.mark.asyncio
     async def test_conductor_create_conflict_detected(self, fresh_store):
         """Creating an event that overlaps an existing one should report a conflict."""
-        tomorrow = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        # Use the user's local timezone to match how the conductor interprets
+        # "2pm tomorrow" (the conductor uses local timezone for date parsing).
+        local_now = datetime.now().astimezone()
+        tomorrow = local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         start = tomorrow.replace(hour=14)
         fresh_store.create_event({
             "title": "Busy Block",
@@ -287,7 +290,7 @@ class TestListEventsResponse:
 
     def test_list_events_today(self):
         """'what do I have today?' should return events for today."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         events = [
             {
                 "title": "Standup",
@@ -314,7 +317,7 @@ class TestListEventsResponse:
 
     def test_list_events_empty_day(self):
         """An empty day should return a clear 'no events' message."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Events on a different day
         tomorrow = now + timedelta(days=1)
         events = [
@@ -332,7 +335,7 @@ class TestListEventsResponse:
 
     def test_list_events_this_week(self):
         """'this week' should show events across the full week."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         monday = now - timedelta(days=now.weekday())
         events = [
             {
@@ -359,9 +362,11 @@ class TestListEventsResponse:
         and return a list of events, not a generic chat response."""
         store = PersistentStore(in_memory=True)
 
-        # Create an event in the future (get_unified_calendar returns from now onward)
-        now = datetime.now(timezone.utc)
-        future_start = now + timedelta(hours=2)
+        # Create an event later today (get_unified_calendar returns from now onward).
+        # Use +30 minutes instead of +2 hours so the event stays on the same
+        # UTC day even when the test runs late in the day.
+        now = datetime.now(UTC)
+        future_start = now + timedelta(minutes=30)
         future_end = future_start + timedelta(minutes=30)
         store.create_event({
             "title": "Test Planning Session",
@@ -399,7 +404,7 @@ class TestStandaloneEventActions:
             force_local=False,
             self_model_context=None,
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = generate_standalone_response(
             message="schedule a meeting called Test Meeting at 2pm tomorrow",
             decision=decision,
@@ -421,7 +426,7 @@ class TestStandaloneEventActions:
             force_local=False,
             self_model_context=None,
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = generate_standalone_response(
             message="schedule a meeting called No Store Planning at 2pm tomorrow",
             decision=decision,

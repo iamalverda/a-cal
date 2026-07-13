@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -77,17 +77,17 @@ class SystemState:
     activation: ActivationState = ActivationState.AWAKE
     autonomic_mode: AutonomicMode = AutonomicMode.BALANCED
     sympathetic_score: int = 5  # 0-10, 5 = balanced
-    spotlight_target: Optional[str] = None  # what the attention is on
+    spotlight_target: str | None = None  # what the attention is on
     spotlight_priority: int = 0  # 0-10
     meeting_load_hours: float = 0.0
     break_adequacy: float = 1.0  # 0-1, 1 = good breaks
     focus_block_hours: float = 0.0
-    last_user_interaction: Optional[str] = None
+    last_user_interaction: str | None = None
     binding_quality: float = 1.0  # 0-1, 1 = perfect binding
     overload_risk: bool = False
     burnout_risk: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "activation": self.activation.value,
             "autonomic_mode": self.autonomic_mode.value,
@@ -111,10 +111,10 @@ class SignalEvaluation:
     gate_state: GateState
     urgency: int  # 0-10
     relevance: int  # 0-10
-    recommended_specialist: Optional[str]
+    recommended_specialist: str | None
     reasoning: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "gate_state": self.gate_state.value,
             "urgency": self.urgency,
@@ -137,14 +137,14 @@ class RoutingTrace:
     thalamus_gate: SignalEvaluation
     activation_state: ActivationState
     autonomic_mode: AutonomicMode
-    basal_ganglia_ranking: List[Dict[str, Any]]
-    conductor_decision: Dict[str, Any]
-    cas_modules_engaged: List[str]
-    hippocampus_encoding: Optional[Dict[str, Any]]
-    binding_check: Optional[Dict[str, Any]]
+    basal_ganglia_ranking: list[dict[str, Any]]
+    conductor_decision: dict[str, Any]
+    cas_modules_engaged: list[str]
+    hippocampus_encoding: dict[str, Any] | None
+    binding_check: dict[str, Any] | None
     total_latency_ms: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "signal": self.signal,
             "timestamp": self.timestamp,
@@ -170,13 +170,13 @@ class NervousSystemCoordinator:
 
     def __init__(
         self,
-        system_state: Optional[SystemState] = None,
+        system_state: SystemState | None = None,
         llm_service: Any = None,
     ) -> None:
         self.state = system_state or SystemState()
         self.llm_service = llm_service
-        self._memory_store: List[Dict[str, Any]] = []
-        self._habit_store: Dict[str, Dict[str, Any]] = {}
+        self._memory_store: list[dict[str, Any]] = []
+        self._habit_store: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Thalamus Gate — filter and prioritize incoming signals
@@ -202,7 +202,7 @@ class NervousSystemCoordinator:
             urgency = 10
 
         # Determine specialist from content
-        specialist: Optional[str] = None
+        specialist: str | None = None
         if any(kw in lower for kw in ["sync", "pull", "refresh", "connect", "provider"]):
             specialist = "a_cal_sync_agent"
         elif any(kw in lower for kw in ["schedule", "slot", "free", "busy", "conflict", "reschedule", "move", "find time"]):
@@ -249,7 +249,7 @@ class NervousSystemCoordinator:
         """Update the system's activation state based on presence and time."""
         if user_present:
             self.state.activation = ActivationState.AWAKE
-            self.state.last_user_interaction = datetime.now(timezone.utc).isoformat()
+            self.state.last_user_interaction = datetime.now(UTC).isoformat()
             return
 
         # User not present — check time of day
@@ -302,16 +302,16 @@ class NervousSystemCoordinator:
     # Basal Ganglia — action selection
     # ------------------------------------------------------------------
 
-    def rank_specialists(self, signal: str, gate_eval: SignalEvaluation) -> List[Dict[str, Any]]:
+    def rank_specialists(self, signal: str, gate_eval: SignalEvaluation) -> list[dict[str, Any]]:
         """Rank which specialists could handle this signal.
 
         Returns a list of {name, confidence, reason} sorted by confidence.
         """
-        rankings: List[Dict[str, Any]] = []
+        rankings: list[dict[str, Any]] = []
         lower = signal.lower()
 
         # Score each specialist
-        specialist_scores: Dict[str, tuple[int, str]] = {}
+        specialist_scores: dict[str, tuple[int, str]] = {}
 
         sync_kws = ["sync", "pull", "refresh", "connect", "provider", "health"]
         sched_kws = ["schedule", "slot", "free", "busy", "conflict", "reschedule", "move", "find time", "when"]
@@ -319,7 +319,7 @@ class NervousSystemCoordinator:
         neg_kws = ["negotiate", "ask them", "coordinate", "propose to", "reschedule with"]
         sm_kws = ["what do you know", "self model", "my patterns", "preferences", "goals", "settings", "privacy"]
 
-        def score_keywords(kws: List[str]) -> tuple[int, str]:
+        def score_keywords(kws: list[str]) -> tuple[int, str]:
             matches = sum(1 for kw in kws if kw in lower)
             if matches == 0:
                 return 0, "no keyword match"
@@ -351,11 +351,11 @@ class NervousSystemCoordinator:
     # ------------------------------------------------------------------
 
     def encode_experience(self, signal: str, specialist: str,
-                          outcome: str, decisions: List[str]) -> Dict[str, Any]:
+                          outcome: str, decisions: list[str]) -> dict[str, Any]:
         """Encode a calendar interaction as an episodic memory."""
         memory = {
             "id": f"mem-{len(self._memory_store) + 1}",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "signal": signal,
             "specialist": specialist,
             "outcome": outcome,
@@ -370,10 +370,10 @@ class NervousSystemCoordinator:
             self._memory_store = self._memory_store[-500:]
         return memory
 
-    def retrieve_memories(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def retrieve_memories(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         """Retrieve memories relevant to a query (simple keyword match)."""
         lower = query.lower()
-        scored: List[tuple[float, Dict[str, Any]]] = []
+        scored: list[tuple[float, dict[str, Any]]] = []
         for mem in self._memory_store:
             mem_text = (mem["signal"] + " " + " ".join(mem.get("tags", []))).lower()
             overlap = sum(1 for word in lower.split() if word in mem_text)
@@ -382,10 +382,10 @@ class NervousSystemCoordinator:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [m for _, m in scored[:limit]]
 
-    def _extract_tags(self, signal: str) -> List[str]:
+    def _extract_tags(self, signal: str) -> list[str]:
         """Extract simple tags from a signal for memory indexing."""
         lower = signal.lower()
-        tags: List[str] = []
+        tags: list[str] = []
         if "meeting" in lower or "schedule" in lower:
             tags.append("scheduling")
         if "email" in lower or "invite" in lower:
@@ -402,7 +402,7 @@ class NervousSystemCoordinator:
     # Insula — user state assessment
     # ------------------------------------------------------------------
 
-    def assess_user_state(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def assess_user_state(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         """Assess the user's state from their calendar events."""
         if not events:
             return {
@@ -414,7 +414,7 @@ class NervousSystemCoordinator:
             }
 
         # Count today's meetings
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         today_events = [e for e in events if today.isoformat() in e.get("start", "")]
 
         total_minutes = 0
@@ -473,15 +473,15 @@ class NervousSystemCoordinator:
     # Claustrum — binding verification
     # ------------------------------------------------------------------
 
-    def verify_binding(self, events: List[Dict[str, Any]],
-                       sub_accounts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def verify_binding(self, events: list[dict[str, Any]],
+                       sub_accounts: list[dict[str, Any]]) -> dict[str, Any]:
         """Verify the unified calendar view is coherent across sub-accounts."""
         sub_ids = {sa["id"] for sa in sub_accounts}
         orphaned = [e for e in events if e.get("source_sub_account_id") and
                     e["source_sub_account_id"] not in sub_ids]
 
         # Detect conflicts (overlapping events from different sub-accounts)
-        conflicts: List[Dict[str, Any]] = []
+        conflicts: list[dict[str, Any]] = []
         sorted_events = sorted(events, key=lambda e: e.get("start", ""))
         for i in range(len(sorted_events)):
             for j in range(i + 1, min(i + 5, len(sorted_events))):
@@ -515,22 +515,22 @@ class NervousSystemCoordinator:
     # Cerebellum — habit learning
     # ------------------------------------------------------------------
 
-    def learn_habit(self, pattern_name: str, pattern_data: Dict[str, Any]) -> None:
+    def learn_habit(self, pattern_name: str, pattern_data: dict[str, Any]) -> None:
         """Learn a recurring pattern for anticipatory action."""
         if pattern_name not in self._habit_store:
             self._habit_store[pattern_name] = {
                 "data": pattern_data,
                 "confidence": 0.3,
                 "occurrences": 1,
-                "last_seen": datetime.now(timezone.utc).isoformat(),
+                "last_seen": datetime.now(UTC).isoformat(),
             }
         else:
             habit = self._habit_store[pattern_name]
             habit["occurrences"] += 1
             habit["confidence"] = min(1.0, habit["confidence"] + 0.15)
-            habit["last_seen"] = datetime.now(timezone.utc).isoformat()
+            habit["last_seen"] = datetime.now(UTC).isoformat()
 
-    def get_habits(self) -> List[Dict[str, Any]]:
+    def get_habits(self) -> list[dict[str, Any]]:
         """Get all learned habits above a confidence threshold."""
         return [
             {"name": name, **data}
@@ -553,7 +553,7 @@ class NervousSystemCoordinator:
         5. Identifies which CAS modules to engage
         6. Returns a full trace for developer-mode visualization
         """
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
 
         # 1. Thalamus gate
         gate_eval = self.evaluate_signal(signal)
@@ -599,7 +599,7 @@ class NervousSystemCoordinator:
             "verified": self.state.binding_quality >= 0.8,
         }
 
-        elapsed = (datetime.now(timezone.utc) - start).total_seconds() * 1000
+        elapsed = (datetime.now(UTC) - start).total_seconds() * 1000
 
         return RoutingTrace(
             signal=signal,
@@ -619,7 +619,7 @@ class NervousSystemCoordinator:
     # System overview for the frontend
     # ------------------------------------------------------------------
 
-    def get_system_overview(self) -> Dict[str, Any]:
+    def get_system_overview(self) -> dict[str, Any]:
         """Get a complete overview of the nervous system state for the frontend."""
         return {
             "state": self.state.to_dict(),
@@ -631,10 +631,10 @@ class NervousSystemCoordinator:
             "active_habits": self.get_habits(),
         }
 
-    def get_all_agents_combined(self) -> List[Dict[str, Any]]:
+    def get_all_agents_combined(self) -> list[dict[str, Any]]:
         """Get all agents (original + CAS) as a combined list for the frontend."""
         from a_cal.agents.specs import A_CAL_AGENTS
-        all_agents: List[Dict[str, Any]] = []
+        all_agents: list[dict[str, Any]] = []
         for spec in A_CAL_AGENTS:
             d = spec.to_dict()
             d["is_bio_mimetic"] = False

@@ -43,7 +43,7 @@ def _require_caldav() -> None:
         )
 
 
-def _parse_vtodo_event(component: Any, provider_type: str) -> Optional[CalendarEventDTO]:
+def _parse_vtodo_event(component: Any, provider_type: str) -> CalendarEventDTO | None:
     """Convert an icalendar VEVENT component to a CalendarEventDTO."""
     from icalendar import vRecur  # type: ignore  # comes with the caldav package
 
@@ -51,7 +51,7 @@ def _parse_vtodo_event(component: Any, provider_type: str) -> Optional[CalendarE
     if not uid:
         return None
 
-    def _dt(key: str) -> Optional[datetime]:
+    def _dt(key: str) -> datetime | None:
         val = component.get(key)
         if val is None:
             return None
@@ -105,7 +105,7 @@ class CalDAVProvider(CalendarProvider):
         | ProviderCapability.FREE_BUSY
     )
 
-    def __init__(self, server_url: str, username: str, password: str, calendar_url: Optional[str] = None) -> None:
+    def __init__(self, server_url: str, username: str, password: str, calendar_url: str | None = None) -> None:
         _require_caldav()
         self._client = caldav.DAVClient(  # type: ignore
             url=server_url, username=username, password=password
@@ -121,9 +121,9 @@ class CalDAVProvider(CalendarProvider):
             else:
                 self._calendar = calendars[0]
 
-    async def list_events(self, start: datetime, end: datetime, calendar_id: Optional[str] = None) -> List[CalendarEventDTO]:
+    async def list_events(self, start: datetime, end: datetime, calendar_id: str | None = None) -> list[CalendarEventDTO]:
         events = self._calendar.search(start=start, end=end, event=True, expand=True)
-        results: List[CalendarEventDTO] = []
+        results: list[CalendarEventDTO] = []
         for ev in events:
             for comp in ev.icalendar_component.walk("VEVENT"):
                 dto = _parse_vtodo_event(comp, "caldav")
@@ -131,12 +131,12 @@ class CalDAVProvider(CalendarProvider):
                     results.append(dto)
         return results
 
-    async def list_changes(self, since_cursor: Optional[str], start: datetime, end: datetime) -> SyncPage:
+    async def list_changes(self, since_cursor: str | None, start: datetime, end: datetime) -> SyncPage:
         # CalDAV sync via sync-token; fall back to date search if unsupported.
         try:
             sync_token = since_cursor if since_cursor else None
             updated, new_token = self._calendar.objects_by_sync_token(sync_token)  # type: ignore
-            events: List[CalendarEventDTO] = []
+            events: list[CalendarEventDTO] = []
             for ev in updated:
                 for comp in ev.icalendar_component.walk("VEVENT"):
                     dto = _parse_vtodo_event(comp, "caldav")
@@ -172,5 +172,5 @@ class CalDAVProvider(CalendarProvider):
         # CalDAV update = re-save with the same UID.
         return await self.create_event(event)
 
-    async def cancel_event(self, provider_event_id: str, calendar_id: Optional[str] = None) -> None:
+    async def cancel_event(self, provider_event_id: str, calendar_id: str | None = None) -> None:
         self._calendar.event_by_uid(provider_event_id).delete()

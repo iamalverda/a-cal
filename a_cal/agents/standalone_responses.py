@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any, Dict, List, Optional, Tuple
 
 from typing import TYPE_CHECKING
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _parse_datetime(text: str, now: datetime) -> Optional[datetime]:
+def _parse_datetime(text: str, now: datetime) -> datetime | None:
     """Extract a target date from natural language.
 
     Handles: today, tomorrow, monday-sunday, next week, this week,
@@ -84,7 +84,7 @@ def _parse_duration(text: str) -> int:
     return 30
 
 
-def _parse_time_preference(text: str) -> Tuple[Optional[int], Optional[int]]:
+def _parse_time_preference(text: str) -> tuple[int | None, int | None]:
     """Extract time-of-day preference as hour range (start, end).
 
     Returns (start_hour, end_hour) or (None, None) if no preference.
@@ -101,7 +101,7 @@ def _parse_time_preference(text: str) -> Tuple[Optional[int], Optional[int]]:
     return (None, None)
 
 
-def _parse_specific_time(text: str) -> Optional[Tuple[int, int]]:
+def _parse_specific_time(text: str) -> tuple[int, int] | None:
     """Extract a specific clock time from text.
 
     Handles: "2pm", "10:30 am", "14:00", "3 pm", "noon", "9am".
@@ -146,7 +146,7 @@ def _parse_specific_time(text: str) -> Optional[Tuple[int, int]]:
     return None
 
 
-def _parse_event_title(text: str) -> Optional[str]:
+def _parse_event_title(text: str) -> str | None:
     """Extract an event title from a creation request.
 
     Handles:
@@ -232,7 +232,7 @@ def _detect_event_action(text: str) -> str:
     return "find"
 
 
-def _extract_self_model_prefs(self_model: Any) -> Dict[str, Any]:
+def _extract_self_model_prefs(self_model: Any) -> dict[str, Any]:
     """Extract scheduling-relevant preferences from the self-model.
 
     Looks for energy_patterns, meeting_prefs, and busy_times facts and
@@ -242,7 +242,7 @@ def _extract_self_model_prefs(self_model: Any) -> Dict[str, Any]:
     Returns:
         Dict with optional keys: pref_hours, energy_note, meeting_note.
     """
-    prefs: Dict[str, Any] = {}
+    prefs: dict[str, Any] = {}
     if not self_model:
         return prefs
 
@@ -251,10 +251,10 @@ def _extract_self_model_prefs(self_model: Any) -> Dict[str, Any]:
     except Exception:
         return prefs
 
-    energy_notes: List[str] = []
-    meeting_notes: List[str] = []
-    pref_start: Optional[int] = None
-    pref_end: Optional[int] = None
+    energy_notes: list[str] = []
+    meeting_notes: list[str] = []
+    pref_start: int | None = None
+    pref_end: int | None = None
 
     for fact in facts:
         cat = fact.category if hasattr(fact, "category") else str(fact.get("category", ""))
@@ -303,9 +303,9 @@ def _extract_self_model_prefs(self_model: Any) -> Dict[str, Any]:
 
 
 def _rank_slots_by_prefs(
-    slots: List[Dict[str, Any]],
-    prefs: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    slots: list[dict[str, Any]],
+    prefs: dict[str, Any],
+) -> list[dict[str, Any]]:
     """Rank free slots by alignment with user preferences.
 
     Slots closer to the preferred hours get higher priority.
@@ -316,7 +316,7 @@ def _rank_slots_by_prefs(
     pref_start = prefs["pref_start"]
     pref_end = prefs.get("pref_end", pref_start + 4)
 
-    def slot_score(slot: Dict[str, Any]) -> float:
+    def slot_score(slot: dict[str, Any]) -> float:
         try:
             start_dt = datetime.fromisoformat(slot["start"])
             hour = start_dt.hour + start_dt.minute / 60.0
@@ -330,14 +330,14 @@ def _rank_slots_by_prefs(
 
 
 def _find_free_slots(
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     target_date: datetime,
     duration_min: int,
-    pref_start: Optional[int],
-    pref_end: Optional[int],
+    pref_start: int | None,
+    pref_end: int | None,
     work_start: int = 8,
     work_end: int = 18,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Find free time slots on a given date.
 
     Args:
@@ -363,7 +363,7 @@ def _find_free_slots(
     day_end = target_date.replace(hour=day_end_hour, minute=0, second=0, microsecond=0)
 
     # Collect busy intervals on the target date
-    busy: List[Tuple[datetime, datetime]] = []
+    busy: list[tuple[datetime, datetime]] = []
     for evt in events:
         evt_start_str = evt.get("start", "")
         evt_end_str = evt.get("end", "")
@@ -391,7 +391,7 @@ def _find_free_slots(
     busy.sort(key=lambda x: x[0])
 
     # Find gaps
-    slots: List[Dict[str, Any]] = []
+    slots: list[dict[str, Any]] = []
     cursor = day_start
     duration_delta = timedelta(minutes=duration_min)
 
@@ -417,11 +417,11 @@ def _find_free_slots(
 
 def _handle_create_event(
     message: str,
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     now: datetime,
     event_store: Any = None,
-    self_model_prefs: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    self_model_prefs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Handle event creation requests by parsing the message and creating the event.
 
     Uses self-model preferences to pick an optimal time when the user doesn't
@@ -463,9 +463,9 @@ def _handle_create_event(
             evt_start = datetime.fromisoformat(evt["start"].replace("Z", "+00:00"))
             evt_end = datetime.fromisoformat(evt["end"].replace("Z", "+00:00"))
             if evt_start.tzinfo is None:
-                evt_start = evt_start.replace(tzinfo=timezone.utc)
+                evt_start = evt_start.replace(tzinfo=UTC)
             if evt_end.tzinfo is None:
-                evt_end = evt_end.replace(tzinfo=timezone.utc)
+                evt_end = evt_end.replace(tzinfo=UTC)
             if start_dt < evt_end and end_dt > evt_start:
                 conflict = evt
                 break
@@ -533,11 +533,11 @@ def _handle_create_event(
 
 def _handle_reschedule_event(
     message: str,
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     now: datetime,
     event_store: Any = None,
-    self_model_prefs: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    self_model_prefs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Handle event rescheduling by finding the event and updating its time.
 
     Uses self-model preferences to suggest a better time when the user
@@ -638,10 +638,10 @@ def _handle_reschedule_event(
 
 def _handle_delete_event(
     message: str,
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     now: datetime,
     event_store: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Handle event deletion by finding the event and removing it.
 
     Args:
@@ -708,10 +708,10 @@ def _handle_delete_event(
 
 def _handle_list_events(
     message: str,
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     now: datetime,
     self_model: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """List the user's events for the requested time period.
 
     Parses the date from the message (today/tomorrow/this week/etc.),
@@ -740,14 +740,14 @@ def _handle_list_events(
         period_label = week_start.strftime("%A, %B %d")
 
     # Filter events to the range
-    def _in_range(ev: Dict[str, Any]) -> bool:
+    def _in_range(ev: dict[str, Any]) -> bool:
         ev_start_str = ev.get("start")
         if not ev_start_str:
             return False
         try:
             ev_start = datetime.fromisoformat(ev_start_str)
             if ev_start.tzinfo is None:
-                ev_start = ev_start.replace(tzinfo=timezone.utc)
+                ev_start = ev_start.replace(tzinfo=UTC)
             return week_start <= ev_start < week_end
         except (ValueError, TypeError):
             return False
@@ -772,12 +772,12 @@ def _handle_list_events(
             try:
                 ev_start = datetime.fromisoformat(ev_start_str)
                 if ev_start.tzinfo is None:
-                    ev_start = ev_start.replace(tzinfo=timezone.utc)
+                    ev_start = ev_start.replace(tzinfo=UTC)
                 time_str = ev_start.strftime("%I:%M %p")
                 if ev_end_str:
                     ev_end = datetime.fromisoformat(ev_end_str)
                     if ev_end.tzinfo is None:
-                        ev_end = ev_end.replace(tzinfo=timezone.utc)
+                        ev_end = ev_end.replace(tzinfo=UTC)
                     time_str += f" – {ev_end.strftime('%I:%M %p')}"
             except (ValueError, TypeError):
                 time_str = "All day"
@@ -800,11 +800,11 @@ def _handle_list_events(
 
 def generate_schedule_response(
     message: str,
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     now: datetime,
     event_store: Any = None,
     self_model: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate a response for schedule-related requests.
 
     Detects the specific action (create, reschedule, delete, find) and
@@ -872,7 +872,7 @@ def generate_schedule_response(
             response += f"\n  ...and {len(slots) - 3} more"
 
         # Add self-model context note if preferences informed the ranking
-        sm_notes: List[str] = []
+        sm_notes: list[str] = []
         if sm_prefs.get("energy_note"):
             sm_notes.append(sm_prefs["energy_note"])
         if sm_prefs.get("meeting_note"):
@@ -897,7 +897,7 @@ def generate_schedule_response(
 
 
 # Provider type aliases for natural language parsing.
-_PROVIDER_ALIASES: Dict[str, str] = {
+_PROVIDER_ALIASES: dict[str, str] = {
     "google": "google_calendar",
     "google calendar": "google_calendar",
     "google cal": "google_calendar",
@@ -913,7 +913,7 @@ _PROVIDER_ALIASES: Dict[str, str] = {
 }
 
 
-def _parse_connect_request(message: str) -> List[Dict[str, str]]:
+def _parse_connect_request(message: str) -> list[dict[str, str]]:
     """Parse a natural-language connect request into sub-account + provider specs.
 
     Handles patterns like:
@@ -930,7 +930,7 @@ def _parse_connect_request(message: str) -> List[Dict[str, str]]:
 
     # Match "connect/link/add my [name] [provider]" patterns.
     # The name is the word(s) before the provider alias.
-    results: List[Dict[str, str]] = []
+    results: list[dict[str, str]] = []
 
     # Split on "and" to handle multiple connections in one message.
     parts = re.split(r"\band\b", msg_lower)
@@ -973,10 +973,10 @@ def _parse_connect_request(message: str) -> List[Dict[str, str]]:
 
 def generate_sync_response(
     message: str,
-    providers: List[Dict[str, Any]],
-    sub_accounts: List[Dict[str, Any]],
+    providers: list[dict[str, Any]],
+    sub_accounts: list[dict[str, Any]],
     event_store: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate a response for sync-related requests.
 
     When the user asks to connect a provider (e.g. "connect my work Google"),
@@ -1004,7 +1004,7 @@ def generate_sync_response(
         connect_specs = _parse_connect_request(message)
 
         if connect_specs and event_store:
-            created: List[Dict[str, Any]] = []
+            created: list[dict[str, Any]] = []
             for spec in connect_specs:
                 sub_name = spec["sub_account_name"]
                 ptype = spec["provider_type"]
@@ -1101,10 +1101,10 @@ def generate_sync_response(
 
 def generate_email_response(
     message: str,
-    events: List[Dict[str, Any]],
-    providers: Optional[List[Dict[str, Any]]] = None,
+    events: list[dict[str, Any]],
+    providers: list[dict[str, Any]] | None = None,
     event_store: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate a response for email-related requests.
 
     Checks connected email providers and calendar invites. Can create
@@ -1159,16 +1159,22 @@ def generate_email_response(
             "context-aware drafts."
         )
         actions = [{"type": "draft_reply", "status": "awaiting_input"}]
-    elif "triage" in lower or "inbox" in lower:
-        response = (
-            "Inbox triage complete. No LLM connected, so I'm working in "
-            "rule-based mode. I can:\n"
-            "  • Detect calendar invites\n"
-            "  • Flag emails with scheduling keywords\n"
-            "  • Group threads by sender\n\n"
-            "Connect a model for full AI-powered triage."
-        )
-        actions = [{"type": "triage", "mode": "rule_based"}]
+    elif "triage" in lower or "inbox" in lower or "check my email" in lower or "scan my email" in lower or "any meeting" in lower:
+        # Run the email-to-schedule pipeline
+        from a_cal.agents.email_scheduler import scan_emails_for_scheduling
+
+        # Scan using any available email data (from events with invite metadata)
+        # plus detected scheduling content
+        result = scan_emails_for_scheduling([], events)
+        response = result["summary"]
+        if result["suggestions"]:
+            response += "\n\n" + "\n".join(
+                f"  \u2022 {s['message']}" for s in result["suggestions"][:5]
+            )
+        actions = [
+            {"type": "email_scan", "mode": "rule_based", "stats": result["stats"]},
+            {"type": "suggestions", "count": len(result["suggestions"])},
+        ]
     else:
         response = (
             "I can help with your email — checking for invites, drafting replies, "
@@ -1181,8 +1187,8 @@ def generate_email_response(
 
 def generate_negotiate_response(
     message: str,
-    sub_accounts: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    sub_accounts: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Generate a response for negotiation-related requests."""
     agent_subs = [s for s in sub_accounts if s.get("agent_enabled")]
 
@@ -1205,7 +1211,7 @@ def generate_negotiate_response(
 def generate_self_model_response(
     message: str,
     self_model: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate a response for self-model-related requests."""
     lower = message.lower()
 
@@ -1228,7 +1234,7 @@ def generate_self_model_response(
     elif self_model:
         facts = self_model.store.list_all()
         if facts:
-            categories: Dict[str, int] = {}
+            categories: dict[str, int] = {}
             for f in facts:
                 cat = f.category if hasattr(f, "category") else f.get("category", "unknown")
                 categories[cat] = categories.get(cat, 0) + 1
@@ -1261,8 +1267,8 @@ def generate_self_model_response(
 
 def generate_chat_response(
     message: str,
-    agents: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    agents: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Generate a response for general chat (no specific intent)."""
     lower = message.lower()
 
@@ -1304,14 +1310,14 @@ def generate_chat_response(
 def generate_standalone_response(
     message: str,
     decision: RoutingDecision,
-    now: Optional[datetime] = None,
-    events: Optional[List[Dict[str, Any]]] = None,
-    providers: Optional[List[Dict[str, Any]]] = None,
-    sub_accounts: Optional[List[Dict[str, Any]]] = None,
+    now: datetime | None = None,
+    events: list[dict[str, Any]] | None = None,
+    providers: list[dict[str, Any]] | None = None,
+    sub_accounts: list[dict[str, Any]] | None = None,
     self_model: Any = None,
-    agents: Optional[List[Dict[str, Any]]] = None,
+    agents: list[dict[str, Any]] | None = None,
     event_store: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate a real, useful response without an LLM.
 
     This is the main entry point called by the conductor when no LLM service
@@ -1331,7 +1337,7 @@ def generate_standalone_response(
     Returns:
         Dict with 'response' (str) and 'actions' (list).
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     events = events or []
     providers = providers or []
     sub_accounts = sub_accounts or []

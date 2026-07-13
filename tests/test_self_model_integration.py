@@ -9,7 +9,7 @@ and busy times are used to:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
@@ -46,7 +46,7 @@ def _make_fact(
     )
 
 
-def _make_mock_self_model(facts: List[SelfModelFact]) -> Any:
+def _make_mock_self_model(facts: list[SelfModelFact]) -> Any:
     """Create a mock self-model with the given facts."""
     sm = MagicMock()
     sm.store.all_active.return_value = facts
@@ -58,7 +58,7 @@ def _make_event(
     title: str,
     start: datetime,
     duration_min: int = 60,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create an event dict matching the store format."""
     return {
         "title": title,
@@ -173,7 +173,7 @@ class TestScheduleWithSelfModel:
 
     def test_find_slots_uses_self_model_prefs(self):
         """Slot finding uses self-model preferred hours when no time specified."""
-        now = datetime(2025, 7, 10, 10, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 7, 10, 10, 0, tzinfo=UTC)
         # Create events that fill the afternoon but leave morning open
         events = [
             _make_event("Afternoon meeting", datetime(2025, 7, 11, 13, 0), 120),
@@ -197,7 +197,7 @@ class TestScheduleWithSelfModel:
 
     def test_find_slots_without_self_model(self):
         """Slot finding works normally without self-model."""
-        now = datetime(2025, 7, 10, 10, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 7, 10, 10, 0, tzinfo=UTC)
         events = []
 
         result = generate_schedule_response(
@@ -211,8 +211,8 @@ class TestScheduleWithSelfModel:
 
     def test_create_event_uses_self_model_time(self):
         """Event creation uses self-model preferred time when no time specified."""
-        now = datetime(2025, 7, 10, 10, 0, tzinfo=timezone.utc)
-        events: List[Dict[str, Any]] = []
+        now = datetime(2025, 7, 10, 10, 0, tzinfo=UTC)
+        events: list[dict[str, Any]] = []
         sm = _make_mock_self_model([
             _make_fact(FactCategory.ENERGY_PATTERNS, "Morning person, peaks at 8am"),
         ])
@@ -233,8 +233,8 @@ class TestScheduleWithSelfModel:
 
     def test_create_event_with_specific_time_overrides_self_model(self):
         """Explicit time in message overrides self-model preferences."""
-        now = datetime(2025, 7, 10, 10, 0, tzinfo=timezone.utc)
-        events: List[Dict[str, Any]] = []
+        now = datetime(2025, 7, 10, 10, 0, tzinfo=UTC)
+        events: list[dict[str, Any]] = []
         sm_prefs = {"pref_start": 8, "energy_note": "you\'re a morning person"}
 
         result = _handle_create_event(

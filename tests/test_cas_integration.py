@@ -28,6 +28,7 @@ from a_cal.agents.nervous_system import (
     GateState,
     AutonomicMode,
 )
+from datetime import UTC
 
 
 class TestCASSpecs:
@@ -242,7 +243,7 @@ class TestNervousSystemCoordinator:
         ns = NervousSystemCoordinator()
         events = []
         from datetime import datetime, timedelta, timezone
-        base = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
+        base = datetime.now(UTC).replace(hour=9, minute=0, second=0, microsecond=0)
         for i in range(8):
             start = base + timedelta(hours=i)
             end = start + timedelta(minutes=50)

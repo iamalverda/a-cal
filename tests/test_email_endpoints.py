@@ -11,7 +11,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import List, Optional, Tuple
 from unittest.mock import AsyncMock, patch
 
@@ -103,7 +103,7 @@ _MOCK_MESSAGES = [
         subject="Team sync tomorrow",
         from_address="boss@company.com",
         to_addresses=["test@example.com"],
-        received_at=datetime(2025, 7, 10, 14, 30, tzinfo=timezone.utc),
+        received_at=datetime(2025, 7, 10, 14, 30, tzinfo=UTC),
         snippet="Hi, let's sync tomorrow at 10am...",
         labels=["INBOX"],
     ),
@@ -113,7 +113,7 @@ _MOCK_MESSAGES = [
         subject="Calendar invite: Quarterly review",
         from_address="calendar@company.com",
         to_addresses=["test@example.com"],
-        received_at=datetime(2025, 7, 10, 9, 0, tzinfo=timezone.utc),
+        received_at=datetime(2025, 7, 10, 9, 0, tzinfo=UTC),
         snippet="You are invited to Quarterly review...",
         labels=["INBOX", "calendar"],
     ),
@@ -198,7 +198,7 @@ def test_list_email_limit_param(client):
             provider_type="imap_smtp",
             subject=f"Subject {i}",
             from_address=f"sender{i}@example.com",
-            received_at=datetime(2025, 7, 10, 12 - i, tzinfo=timezone.utc) if i < 12 else datetime(2025, 7, 9, tzinfo=timezone.utc),
+            received_at=datetime(2025, 7, 10, 12 - i, tzinfo=UTC) if i < 12 else datetime(2025, 7, 9, tzinfo=UTC),
         )
         for i in range(20)
     ]

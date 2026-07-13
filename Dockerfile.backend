@@ -1,0 +1,39 @@
+# A-Cal Backend — Python FastAPI server
+# Standalone mode (no atom required). Supports SQLite (default) and PostgreSQL.
+
+FROM python:3.11-slim AS backend
+
+WORKDIR /app
+
+# Install build deps for Python packages that need compilation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project metadata first for better layer caching
+COPY pyproject.toml ./
+
+# Install the package with postgres and migrations extras for production use
+RUN pip install --no-cache-dir ".[postgres,migrations]"
+
+# Copy the application source
+COPY a_cal/ ./a_cal/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
+COPY sdk/ ./sdk/
+COPY tests/ ./tests/
+
+# Re-install to pick up the local package (ensures entry points are registered)
+RUN pip install --no-cache-dir -e ".[postgres,migrations]"
+
+# Create the A-Cal data directory for SQLite + plugins
+RUN mkdir -p /root/.a-cal/plugins
+
+EXPOSE 8000
+
+ENV A_CAL_HOST=0.0.0.0
+ENV A_CAL_PORT=8000
+ENV A_CAL_PLUGIN_DIR=/root/.a-cal/plugins
+
+CMD ["python", "-m", "a_cal.api.standalone"]

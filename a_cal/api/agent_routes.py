@@ -20,12 +20,15 @@ from pydantic import BaseModel, Field
 from a_cal.agents.conductor import ACalConductor
 from a_cal.agents.registry import AgentRegistry
 from a_cal.agents.llm_service import StandaloneLLMService
-from a_cal.integrations.atom_bridge import get_atom_adapters
+from a_cal.integrations.atom_bridge import get_atom_adapters, get_atom_status
 from a_cal.db.store import PersistentStore as _DBStore
 from a_cal.agents.llm_service import check_ollama_available, list_ollama_models
 from a_cal.settings.modes import get_mode_config, SkillMode
 from a_cal.settings.model_routing import ModelRoutingConfig
+from a_cal.settings.autonomy import AutonomyConfig, AutonomyLevel
+from a_cal.settings.email import EmailIntegrationConfig, EmailDepth
 from a_cal.self_model.settings import SelfModelSettings
+from a_cal.self_model.model import SelfModel
 from a_cal.self_model.store import SelfModelStore
 
 logger = logging.getLogger(__name__)
@@ -45,8 +48,8 @@ class _SettingsStore:
 
     def __init__(self) -> None:
         self._db = _DBStore()
-        self._conductors: Dict[str, ACalConductor] = {}
-        self._registries: Dict[str, AgentRegistry] = {}
+        self._conductors: dict[str, ACalConductor] = {}
+        self._registries: dict[str, AgentRegistry] = {}
 
     def get_mode(self, user_id: str) -> str:
         return self._db.get_setting("skill_mode", SkillMode.PRO.value)
@@ -77,25 +80,54 @@ class _SettingsStore:
         self._db.set_setting("self_model_settings", settings.to_dict())
         return settings
 
+    def get_email_settings(self, user_id: str) -> EmailIntegrationConfig:
+        data = self._db.get_setting("email_settings")
+        if data:
+            return EmailIntegrationConfig.from_dict(data)
+        return EmailIntegrationConfig()
+
+    def set_email_settings(self, user_id: str, config: EmailIntegrationConfig) -> EmailIntegrationConfig:
+        self._db.set_setting("email_settings", config.to_dict())
+        return config
+
     def get_conductor(self, user_id: str) -> ACalConductor:
         if user_id not in self._conductors:
             llm_service = None
             if self.get_llm_enabled(user_id):
-                # Prefer atom's LLM service when available (handles BYOK,
-                # cognitive tier routing, governance). Fall back to standalone.
-                _, atom_llm, _ = get_atom_adapters(workspace_id=user_id)
-                if atom_llm:
-                    llm_service = atom_llm
+                backend_mode = self.get_backend_mode(user_id)
+                if backend_mode == "atom":
+                    # Atom mode: use atom's LLM service (BYOK, cognitive
+                    # tier routing, governance). Falls back to standalone
+                    # if atom adapters fail to initialize.
+                    _, atom_llm, _ = get_atom_adapters(workspace_id=user_id)
+                    if atom_llm:
+                        llm_service = atom_llm
+                    else:
+                        logger.warning(
+                            "backend_mode=atom but atom adapters unavailable, "
+                            "falling back to standalone"
+                        )
+                        routing = self.get_routing(user_id)
+                        api_keys = self._db.get_raw_api_keys()
+                        llm_service = StandaloneLLMService(
+                            routing=routing, api_keys=api_keys,
+                        )
                 else:
+                    # Standalone mode (default): use StandaloneLLMService
+                    # with user-configured model routing and API keys.
                     routing = self.get_routing(user_id)
                     api_keys = self._db.get_raw_api_keys()
-                    llm_service = StandaloneLLMService(routing=routing, api_keys=api_keys)
+                    llm_service = StandaloneLLMService(
+                        routing=routing, api_keys=api_keys,
+                    )
+            autonomy = self.get_autonomy(user_id)
             self._conductors[user_id] = ACalConductor(
                 user_id=user_id,
                 llm_service=llm_service,
                 nervous_system=_get_nervous_system(),
                 event_store=self._db,
                 provider_store=self._db,
+                autonomy_config=autonomy,
             )
         return self._conductors[user_id]
 
@@ -113,26 +145,72 @@ class _SettingsStore:
            self._registries[user_id] = AgentRegistry()
         return self._registries[user_id]
 
-    def get_api_keys(self, user_id: str) -> Dict[str, str]:
+    def get_api_keys(self, user_id: str) -> dict[str, str]:
         return self._db.get_api_keys()
 
-    def set_api_keys(self, user_id: str, keys: Dict[str, str]) -> Dict[str, str]:
+    def set_api_keys(self, user_id: str, keys: dict[str, str]) -> dict[str, str]:
         result = self._db.set_api_keys(keys)
         # Invalidate cached conductor so it picks up new keys.
         self._conductors.pop(user_id, None)
         return result
+
+    def get_backend_mode(self, user_id: str) -> str:
+        """Get the backend mode: 'standalone' or 'atom'."""
+        return self._db.get_setting("backend_mode", "standalone")
+
+    def set_backend_mode(self, user_id: str, mode: str) -> str:
+        """Set the backend mode and invalidate cached conductor."""
+        self._db.set_setting("backend_mode", mode)
+        self._conductors.pop(user_id, None)
+        return mode
+
+    def get_autonomy(self, user_id: str) -> AutonomyConfig:
+        """Get the user's agent autonomy configuration."""
+        data = self._db.get_setting("autonomy_config")
+        if data:
+            return AutonomyConfig.from_dict(data)
+        return AutonomyConfig()
+
+    def set_autonomy(self, user_id: str, config: AutonomyConfig) -> AutonomyConfig:
+        """Set autonomy config and invalidate cached conductor."""
+        self._db.set_setting("autonomy_config", config.to_dict())
+        self._conductors.pop(user_id, None)
+        return config
+
+    def get_timezone(self, user_id: str) -> str:
+        """Get the user's IANA timezone (e.g. America/Chicago).
+
+        Defaults to the system local timezone if not explicitly set.
+        """
+        tz = self._db.get_setting("timezone")
+        if tz:
+            return tz
+        # Fall back to system local timezone
+        try:
+            import zoneinfo
+            local = datetime.now().astimezone()
+            return str(local.tzinfo)
+        except Exception:
+            return "UTC"
+
+    def set_timezone(self, user_id: str, tz: str) -> str:
+        """Set the user's timezone and invalidate cached conductor."""
+        self._db.set_setting("timezone", tz)
+        self._conductors.pop(user_id, None)
+        return tz
 
 
 _store = _SettingsStore()
 
 
 def _current_user_id() -> str:
-    """Placeholder — wired to atom's auth in production."""
-    return "local-dev-user"
+    """Return the current user ID from the auth context."""
+    from a_cal.auth.session import get_current_user_id
+    return get_current_user_id()
 
 
 # Module-level override for self-model store data dir (used by tests).
-_sm_data_dir: Optional[str] = None
+_sm_data_dir: str | None = None
 
 
 def _get_sm_store() -> SelfModelStore:
@@ -157,17 +235,24 @@ class ModeRequest(BaseModel):
 class ModelRoutingRequest(BaseModel):
     global_provider: str = "ollama"
     global_model: str = "llama3.2"
-    per_task_overrides: Dict[str, str] = Field(default_factory=dict)
+    per_task_overrides: dict[str, str] = Field(default_factory=dict)
     privacy_force_local: bool = True
 
 
 class SelfModelSettingsRequest(BaseModel):
     depth: str = "pattern_memory"
-    enabled_categories: Dict[str, bool] = Field(default_factory=dict)
+    enabled_categories: dict[str, bool] = Field(default_factory=dict)
     cloud_sync_enabled: bool = False
     proactive_suggestions_enabled: bool = False
     feed_into_calendar_view: bool = True
     feed_into_agents: bool = True
+    feed_into_proactive: bool = False
+
+
+class AutonomyRequest(BaseModel):
+    """Payload for updating agent autonomy settings."""
+    default_level: str = "confirm"
+    per_sub_account: dict[str, str] = Field(default_factory=dict)
 
 
 # --- conductor chat --------------------------------------------------------
@@ -192,6 +277,67 @@ async def conductor_chat(body: ConductorChatRequest):
     user_id = _current_user_id()
     conductor = _store.get_conductor(user_id)
     result = await conductor.handle(body.message)
+    return result
+
+
+# --- email-to-schedule ----------------------------------------------------
+
+@router.post("/email/scan-schedule")
+async def scan_emails_for_schedule():
+    """Scan connected email providers for scheduling-related content.
+
+    Runs the email-to-schedule pipeline: reads recent emails, detects meeting
+    proposals, extracts proposed times, and cross-references with the user's
+    calendar to find conflicts. Returns actionable suggestions.
+
+    Privacy: email content is processed locally. No email body text is sent
+    to external services. When an LLM is used for richer analysis, privacy-
+    tiered routing forces email processing to local models.
+    """
+    from a_cal.agents.email_scheduler import scan_emails_for_scheduling
+    from a_cal.providers.factory import build_email_provider
+
+    user_id = _current_user_id()
+
+    # Get email providers
+    from a_cal.api.standalone_data import _store as data_store
+    all_providers = data_store.list_providers()
+    email_types = {"imap_smtp", "gmail"}
+    email_providers = [
+        p for p in all_providers
+        if p["provider_type"] in email_types and p.get("status") == "connected"
+    ]
+
+    # Fetch recent emails
+    emails: list[dict[str, Any]] = []
+    for p in email_providers:
+        try:
+            provider = build_email_provider(p)
+            messages, _ = await provider.list_messages(since_cursor=None, limit=50)
+            for msg in messages:
+                emails.append({
+                    "subject": msg.subject,
+                    "from_address": msg.from_address,
+                    "snippet": msg.snippet or "",
+                    "body_text": msg.body_text or "",
+                    "has_calendar_invite": False,
+                    "received_at": msg.received_at.isoformat() if msg.received_at else None,
+                })
+        except Exception as exc:
+            logger.warning("email fetch failed for %s: %s", p["id"], exc)
+
+    # Get calendar events
+    events = data_store.get_unified_calendar(days=14)
+
+    # Read email integration depth to gate agent-mediated features
+    email_config = _store.get_email_settings(user_id)
+    depth = email_config.depth
+
+    # Run the pipeline with depth gating:
+    #   sync_notify     → read-only detect + suggest
+    #   agent_mediated  → adds draft replies for approval
+    #   full_two_way    → marks suggestions as auto-actionable
+    result = scan_emails_for_scheduling(emails, events, depth=depth)
     return result
 
 
@@ -245,6 +391,123 @@ def set_model_routing(body: ModelRoutingRequest):
     return _store.set_routing(user_id, config).to_dict()
 
 
+# --- settings: agent autonomy ---------------------------------------------
+
+@router.get("/settings/autonomy")
+def get_autonomy():
+    """Get the user's agent autonomy configuration.
+
+    Returns the global default autonomy level and any per-sub-account
+    overrides. The conductor uses this to decide whether to execute
+    actions automatically, ask for confirmation, or only suggest.
+    """
+    user_id = _current_user_id()
+    return _store.get_autonomy(user_id).to_dict()
+
+
+@router.post("/settings/autonomy")
+def set_autonomy(body: AutonomyRequest):
+    """Update agent autonomy settings.
+
+    Valid levels: 'suggest_only' (propose only), 'confirm' (execute with
+    confirmation), 'full_auto' (execute without asking).
+    """
+    valid_levels = {lvl.value for lvl in AutonomyLevel}
+    if body.default_level not in valid_levels:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail=f"default_level must be one of: {', '.join(sorted(valid_levels))}",
+        )
+    for sa_id, level in body.per_sub_account.items():
+        if level not in valid_levels:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid level '{level}' for sub-account '{sa_id}'",
+            )
+    user_id = _current_user_id()
+    config = AutonomyConfig(
+        default_level=body.default_level,
+        per_sub_account=body.per_sub_account,
+    )
+    return _store.set_autonomy(user_id, config).to_dict()
+
+
+# --- settings: timezone ---------------------------------------------------
+
+@router.get("/settings/timezone")
+def get_timezone():
+    """Get the user's IANA timezone (e.g. America/Chicago)."""
+    user_id = _current_user_id()
+    return {"timezone": _store.get_timezone(user_id)}
+
+
+class TimezoneRequest(BaseModel):
+    timezone: str
+
+
+@router.post("/settings/timezone")
+def set_timezone(body: TimezoneRequest):
+    """Set the user's timezone. Accepts any IANA timezone name."""
+    user_id = _current_user_id()
+    # Validate that the timezone is recognized
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(body.timezone)
+    except Exception:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Unknown timezone: {body.timezone}")
+    return {"timezone": _store.set_timezone(user_id, body.timezone)}
+
+
+# --- settings: email integration depth ------------------------------------
+
+class EmailSettingsRequest(BaseModel):
+    depth: str = "sync_notify"
+    per_provider: dict[str, str] = Field(default_factory=dict)
+    auto_scan_enabled: bool = False
+
+
+@router.get("/settings/email")
+def get_email_settings():
+    """Get the user's email integration depth configuration.
+
+    Controls how deeply agents integrate with email (charter §5):
+      - sync_notify: read inbox, send notifications, no agent actions
+      - agent_mediated: parse emails, draft replies for approval
+      - full_two_way: send/decline/renegotiate autonomously
+    """
+    user_id = _current_user_id()
+    return _store.get_email_settings(user_id).to_dict()
+
+
+@router.post("/settings/email")
+def set_email_settings(body: EmailSettingsRequest):
+    """Update email integration depth settings."""
+    valid_depths = {d.value for d in EmailDepth}
+    if body.depth not in valid_depths:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail=f"depth must be one of: {', '.join(sorted(valid_depths))}",
+        )
+    for ptype, depth in body.per_provider.items():
+        if depth not in valid_depths:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid depth '{depth}' for provider '{ptype}'",
+            )
+    user_id = _current_user_id()
+    config = EmailIntegrationConfig(
+        depth=body.depth,
+        per_provider=body.per_provider,
+        auto_scan_enabled=body.auto_scan_enabled,
+    )
+    return _store.set_email_settings(user_id, config).to_dict()
+
+
 # --- settings: self-model --------------------------------------------------
 
 @router.get("/settings/self-model")
@@ -266,11 +529,12 @@ def set_self_model_settings(body: SelfModelSettingsRequest):
         proactive_suggestions_enabled=body.proactive_suggestions_enabled,
         feed_into_calendar_view=body.feed_into_calendar_view,
         feed_into_agents=body.feed_into_agents,
+        feed_into_proactive=body.feed_into_proactive,
     )
     return _store.set_self_model_settings(user_id, settings).to_dict()
- 
 
- 
+
+
 # --- self-model facts (transparency view) ----------------------------------
 
 class FactEditRequest(BaseModel):
@@ -279,7 +543,7 @@ class FactEditRequest(BaseModel):
 
 
 @router.get("/self-model/facts")
-def list_self_model_facts(category: Optional[str] = None):
+def list_self_model_facts(category: str | None = None):
     """List all active self-model facts, optionally filtered by category.
 
     Facts are sorted by confidence (highest first). This is the transparency
@@ -341,11 +605,38 @@ def export_self_model_facts():
     return store.export()
 
 
+@router.get("/self-model/suggestions")
+def get_proactive_suggestions(limit: int = 5):
+    """Get proactive suggestions ranked by priority tier.
+
+    Returns self-model facts that are most relevant for proactive nudges,
+    using the tiered priority system from the meta-cognition protocol.
+    Only returns suggestions if the user has opted into proactive suggestions
+    via their self-model settings.
+
+    Args:
+        limit: Maximum number of suggestions to return (default 5).
+
+    Returns:
+        List of suggestion dicts with fact_id, content, category, priority,
+        and confidence. Empty list if proactive suggestions are disabled.
+    """
+    user_id = _current_user_id()
+    settings = _store.get_self_model_settings(user_id)
+    store = _get_sm_store()
+    model = SelfModel(
+        user_id=user_id,
+        settings=settings,
+        store=store,
+    )
+    return model.get_proactive_suggestions(limit=limit)
+
+
 # --- settings: API keys & model availability -------------------------------
 
 class ApiKeysRequest(BaseModel):
     """Payload for setting provider API keys."""
-    keys: Dict[str, str] = Field(default_factory=dict)
+    keys: dict[str, str] = Field(default_factory=dict)
 
 
 @router.get("/settings/api-keys")
@@ -377,6 +668,50 @@ async def ollama_status():
     return {"available": available, "models": models}
 
 
+# --- settings: backend mode (standalone vs atom) ---------------------------
+
+class BackendModeRequest(BaseModel):
+    """Payload for switching backend mode."""
+    mode: str  # "standalone" or "atom"
+
+
+@router.get("/settings/backend-mode")
+def get_backend_mode():
+    """Get the current backend mode (standalone or atom)."""
+    user_id = _current_user_id()
+    mode = _store.get_backend_mode(user_id)
+    return {"mode": mode}
+
+
+@router.post("/settings/backend-mode")
+def set_backend_mode(body: BackendModeRequest):
+    """Switch the backend mode.
+
+    In standalone mode (default), A-Cal uses its own LLM service with
+    user-configured model routing. In atom mode, A-Cal uses atom's
+    LLMService with BYOKHandler, cognitive tier routing, and governance.
+    Atom mode requires atom to be installed locally.
+    """
+    user_id = _current_user_id()
+    if body.mode not in ("standalone", "atom"):
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="mode must be 'standalone' or 'atom'",
+        )
+    mode = _store.set_backend_mode(user_id, body.mode)
+    return {"mode": mode}
+
+
+@router.get("/settings/atom-status")
+def atom_status():
+    """Check whether atom is available and which adapters are ready.
+
+    The frontend uses this to show the user whether atom mode is available
+    and to enable/disable the backend mode toggle accordingly.
+    """
+    return get_atom_status()
+
 
 class LLMEnabledRequest(BaseModel):
     """Payload for toggling LLM mode."""
@@ -403,6 +738,41 @@ def set_llm_enabled(body: LLMEnabledRequest):
     return {"enabled": enabled}
 
 
+@router.post("/settings/preload-model")
+async def preload_model():
+    """Preload the configured LLM model into memory (Ollama warmup).
+
+    Local models need to be loaded into RAM before the first real request,
+    which can add 30-90 seconds of latency. The frontend should call this
+    endpoint when the page loads (or when the user enables the LLM) so the
+    first chat message is fast. Returns immediately — warmup runs in the
+    background.
+
+    Only works for Ollama (local) providers. Cloud providers don't need
+    warmup.
+    """
+    import asyncio
+
+    from a_cal.agents.llm_service import StandaloneLLMService
+
+    user_id = _current_user_id()
+    if not _store.get_llm_enabled(user_id):
+        return {"status": "skipped", "reason": "LLM not enabled"}
+
+    routing = _store.get_routing(user_id)
+    api_keys = _store._db.get_raw_api_keys()
+    svc = StandaloneLLMService(routing=routing, api_keys=api_keys)
+
+    async def _do_warmup() -> None:
+        try:
+            await svc.warmup()
+        except Exception:
+            logger.debug("model preload failed (not critical)")
+
+    asyncio.create_task(_do_warmup())
+    return {"status": "warming_up"}
+
+
 # ---------------------------------------------------------------------------
 # Nervous System — CAS bio-mimetic agent architecture
 # ---------------------------------------------------------------------------
@@ -411,7 +781,7 @@ from a_cal.agents.nervous_system import NervousSystemCoordinator, SystemState
 from a_cal.agents.cas_specs import CAS_AGENTS, CAS_AGENTS_BY_NAME
 
 # Singleton nervous system coordinator (per-server instance)
-_nervous_system: Optional[NervousSystemCoordinator] = None
+_nervous_system: NervousSystemCoordinator | None = None
 
 
 def _get_nervous_system() -> NervousSystemCoordinator:
@@ -429,13 +799,13 @@ class NSRouteRequest(BaseModel):
 
 class NSUserStateRequest(BaseModel):
     """Request to assess user state from events."""
-    events: list[Dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class NSBindingRequest(BaseModel):
     """Request to verify calendar binding."""
-    events: list[Dict[str, Any]] = Field(default_factory=list)
-    sub_accounts: list[Dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    sub_accounts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @router.get("/nervous-system/overview")

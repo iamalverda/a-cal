@@ -24,11 +24,30 @@ import type {
   Plugin,
   ConfigExport,
   ConfigImportResult,
+  RuntimePlugin,
   CASModule,
   CASAgentSpec,
   SystemState,
   RoutingTrace,
   NervousSystemOverview,
+  WorkflowDef,
+  WorkflowRunResult,
+  AtomStatus,
+  BackendMode,
+  SyncRule,
+  RuleType,
+  RuleField,
+  AutonomyConfig,
+  EmailIntegrationConfig,
+  CommunityProfile,
+  AnalyticsSummary,
+  BusyTimesAnalysis,
+  MeetingStats,
+  FreeSlot,
+  EventType,
+  CalendarTool,
+  ApiRouteInfo,
+  AuthUser,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -59,6 +78,26 @@ export const api = {
     return fetchJson(`${API_BASE}/sub-accounts`, {
       method: "POST",
       body: JSON.stringify(data),
+    });
+  },
+
+  /** Update a sub-account's settings (sync mode, agent enabled, visibility, etc.). */
+  async updateSubAccount(subId: string, patch: {
+    name?: string;
+    sync_mode?: string;
+    agent_enabled?: boolean;
+    settings?: Record<string, unknown>;
+  }): Promise<SubAccount> {
+    return fetchJson(`${API_BASE}/sub-accounts/${subId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  /** Delete a sub-account and all its provider connections. */
+  async deleteSubAccount(subId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/sub-accounts/${subId}`, {
+      method: "DELETE",
     });
   },
 
@@ -96,6 +135,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sub_account_id: subAccountId }),
     });
+  },
+
+  // --- Sync rules ----------------------------------------------------------
+
+  async listSyncRules(subAccountId: string): Promise<SyncRule[]> {
+    return fetchJson(`${API_BASE}/sync-rules?sub_account_id=${encodeURIComponent(subAccountId)}`);
+  },
+
+  async createSyncRule(data: {
+    sub_account_id: string;
+    rule_type: RuleType;
+    field: RuleField;
+    pattern: string;
+    action?: Record<string, unknown>;
+    priority?: number;
+  }): Promise<{ id: string; sub_account_id: string }> {
+    return fetchJson(`${API_BASE}/sync-rules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteSyncRule(ruleId: string): Promise<{ status: string; id: string }> {
+    return fetchJson(`${API_BASE}/sync-rules/${ruleId}`, { method: "DELETE" });
   },
 
   // --- Unified calendar ----------------------------------------------------
@@ -160,6 +224,23 @@ export const api = {
     });
   },
 
+  /** Scan emails for scheduling-related content and return suggestions.
+   *  The depth field reflects the user's email integration depth setting,
+   *  which gates whether draft replies and auto-actions are included. */
+  async scanEmailForSchedule(): Promise<{
+    detections: Array<Record<string, unknown>>;
+    suggestions: Array<Record<string, unknown>>;
+    summary: string;
+    stats: Record<string, number>;
+    depth: string;
+    agent_actions_enabled: boolean;
+    autonomous_enabled: boolean;
+  }> {
+    return fetchJson(`${API_BASE}/email/scan-schedule`, {
+      method: "POST",
+    });
+  },
+
   // --- Conductor chat ------------------------------------------------------
 
   async sendToConductor(message: string): Promise<ConductorResponse> {
@@ -199,6 +280,32 @@ export const api = {
     });
   },
 
+  async getAutonomy(): Promise<AutonomyConfig> {
+    return fetchJson(`${API_BASE}/settings/autonomy`);
+  },
+
+  async setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig> {
+    return fetchJson(`${API_BASE}/settings/autonomy`, {
+      method: "POST",
+      body: JSON.stringify(config),
+    });
+  },
+
+  async getEmailSettings(): Promise<EmailIntegrationConfig> {
+    return fetchJson(`${API_BASE}/settings/email`);
+  },
+
+  async setEmailSettings(config: Partial<EmailIntegrationConfig>): Promise<EmailIntegrationConfig> {
+    return fetchJson(`${API_BASE}/settings/email`, {
+      method: "POST",
+      body: JSON.stringify(config),
+    });
+  },
+
+  async getCommunityProfile(): Promise<CommunityProfile> {
+    return fetchJson(`${API_BASE}/marketplace/community/profile`);
+  },
+
   async getSelfModelSettings(): Promise<SelfModelDepth> {
     return fetchJson(`${API_BASE}/settings/self-model`);
   },
@@ -208,6 +315,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify(settings),
     });
+  },
+
+  /** Get the user's IANA timezone (e.g. America/Chicago). */
+  async getTimezone(): Promise<string> {
+    const data = await fetchJson(`${API_BASE}/settings/timezone`) as { timezone: string };
+    return data.timezone;
+  },
+
+  /** Set the user's IANA timezone. */
+  async setTimezone(timezone: string): Promise<string> {
+    const data = await fetchJson(`${API_BASE}/settings/timezone`, {
+      method: "POST",
+      body: JSON.stringify({ timezone }),
+    }) as { timezone: string };
+    return data.timezone;
   },
 
   // --- Self-model facts (transparency view) ---------------------------------
@@ -246,6 +368,17 @@ export const api = {
     return fetchJson(`${API_BASE}/self-model/export`);
   },
 
+  async getProactiveSuggestions(limit?: number): Promise<Array<{
+    fact_id: string;
+    content: string;
+    category: string;
+    priority: number;
+    confidence: number;
+  }>> {
+    const qs = limit ? `?limit=${limit}` : "";
+    return fetchJson(`${API_BASE}/self-model/suggestions${qs}`);
+  },
+
   // --- LLM settings -------------------------------------------------------
 
   async getLLMEnabled(): Promise<{ enabled: boolean }> {
@@ -261,6 +394,21 @@ export const api = {
 
   async getOllamaStatus(): Promise<{ available: boolean; models: string[] }> {
     return fetchJson(`${API_BASE}/settings/ollama-status`);
+  },
+
+  async getBackendMode(): Promise<{ mode: string }> {
+    return fetchJson(`${API_BASE}/settings/backend-mode`);
+  },
+
+  async setBackendMode(mode: BackendMode): Promise<{ mode: string }> {
+    return fetchJson(`${API_BASE}/settings/backend-mode`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+  },
+
+  async getAtomStatus(): Promise<AtomStatus> {
+    return fetchJson(`${API_BASE}/settings/atom-status`);
   },
 
   async getApiKeys(): Promise<Record<string, string>> {
@@ -293,6 +441,57 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ signal }),
     });
+  },
+
+  // --- Analytics (zero-calendar integration) ---------------------------------
+
+  async getAnalyticsSummary(days = 30): Promise<AnalyticsSummary> {
+    return fetchJson(`${API_BASE}/analytics/summary?days=${days}`);
+  },
+
+  async getBusyTimes(days = 30): Promise<BusyTimesAnalysis> {
+    return fetchJson(`${API_BASE}/analytics/busy-times?days=${days}`);
+  },
+
+  async getMeetingStats(days = 30): Promise<MeetingStats> {
+    return fetchJson(`${API_BASE}/analytics/meeting-stats?days=${days}`);
+  },
+
+  async getFreeSlots(startDate: string, endDate: string, minDuration = 30): Promise<{ free_slots: FreeSlot[]; total: number }> {
+    const params = new URLSearchParams({ start_date: startDate, end_date: endDate, min_duration: String(minDuration) });
+    return fetchJson(`${API_BASE}/analytics/free-slots?${params}`);
+  },
+
+  async suggestReschedule(eventId: string, lookAheadDays = 14): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/analytics/suggest-reschedule`, {
+      method: "POST",
+      body: JSON.stringify({ event_id: eventId, look_ahead_days: lookAheadDays }),
+    });
+  },
+
+  // --- Event Types (cal.com integration) ------------------------------------
+
+  async listEventTypes(): Promise<EventType[]> {
+    return fetchJson(`${API_BASE}/event-types`);
+  },
+
+  async createEventType(data: Partial<EventType>): Promise<EventType> {
+    return fetchJson(`${API_BASE}/event-types`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteEventType(id: string): Promise<{ deleted: string }> {
+    return fetchJson(`${API_BASE}/event-types/${id}`, { method: "DELETE" });
+  },
+
+  async getAvailabilitySchedule(): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/availability/schedule`);
+  },
+
+  async getCalendarTools(): Promise<{ tools: CalendarTool[]; count: number }> {
+    return fetchJson(`${API_BASE}/calendar-tools`);
   },
 
   async getNervousSystemMemories(limit: number = 10): Promise<Array<Record<string, unknown>>> {
@@ -400,6 +599,54 @@ export const marketplaceApi = {
       body: JSON.stringify({ stars }),
     });
   },
+
+  // --- Registry: portable export/import + remote browsing -------------------
+
+  /** Get the local registry manifest (catalog of all items, no full configs). */
+  async getRegistryManifest(): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/marketplace/registry/manifest`);
+  },
+
+  /** Export marketplace items as a portable JSON bundle. Empty ids = all items. */
+  async exportBundle(itemIds?: string[]): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/marketplace/export`, {
+      method: "POST",
+      body: JSON.stringify({ item_ids: itemIds ?? [] }),
+    });
+  },
+
+  /** Import items from a JSON bundle string. Returns import summary. */
+  async importBundle(bundleJson: string): Promise<{
+    imported: number;
+    skipped: number;
+    errors: string[];
+    exported_by: string;
+    exported_at: string;
+  }> {
+    return fetchJson(`${API_BASE}/marketplace/import`, {
+      method: "POST",
+      body: JSON.stringify({ bundle_json: bundleJson }),
+    });
+  },
+
+  /** Fetch a remote registry's manifest for browsing. */
+  async browseRemoteRegistry(registryUrl: string): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/marketplace/registry/browse`, {
+      method: "POST",
+      body: JSON.stringify({ registry_url: registryUrl }),
+    });
+  },
+
+  /** Pull a specific item from a remote registry and publish it locally. */
+  async pullFromRemoteRegistry(
+    registryUrl: string,
+    itemId: string,
+  ): Promise<{ published: boolean; item: MarketplaceItem; message?: string }> {
+    return fetchJson(`${API_BASE}/marketplace/registry/pull`, {
+      method: "POST",
+      body: JSON.stringify({ registry_url: registryUrl, item_id: itemId }),
+    });
+  },
 };
 
 // --- Developer --------------------------------------------------------------
@@ -474,6 +721,78 @@ export const developerApi = {
       body: JSON.stringify({ config }),
     });
   },
+
+  // Plugin runtime (loaded code, not just specs)
+  async listRuntimePlugins(): Promise<RuntimePlugin[]> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/list`);
+  },
+
+  async scanRuntimePlugins(): Promise<{
+    scanned: number;
+    loaded: number;
+    failed: number;
+    plugins: RuntimePlugin[];
+  }> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/scan`, { method: "POST" });
+  },
+
+  async reloadRuntimePlugin(pluginId: string): Promise<RuntimePlugin> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/${pluginId}/reload`, { method: "POST" });
+  },
+
+  async enableRuntimePlugin(pluginId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/${pluginId}/enable`, { method: "POST" });
+  },
+
+  async disableRuntimePlugin(pluginId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/${pluginId}/disable`, { method: "POST" });
+  },
+
+  async listRuntimeHooks(): Promise<{ hooks: string[] }> {
+    return fetchJson(`${API_BASE}/developer/plugins/runtime/hooks`);
+  },
+
+  // Workflows — save, load, run
+  async listWorkflows(): Promise<WorkflowDef[]> {
+    return fetchJson(`${API_BASE}/developer/workflows`);
+  },
+
+  async saveWorkflow(workflow: Omit<WorkflowDef, "created_at" | "updated_at">): Promise<WorkflowDef> {
+    return fetchJson(`${API_BASE}/developer/workflows`, {
+      method: "POST",
+      body: JSON.stringify(workflow),
+    });
+  },
+
+  async getWorkflow(id: string): Promise<WorkflowDef> {
+    return fetchJson(`${API_BASE}/developer/workflows/${id}`);
+  },
+
+  async deleteWorkflow(id: string): Promise<{ status: string; id: string }> {
+    return fetchJson(`${API_BASE}/developer/workflows/${id}`, { method: "DELETE" });
+  },
+
+  async runWorkflow(
+    workflow: { name: string; description: string; nodes: WorkflowDef["nodes"]; trigger: string; version: string },
+    initialMessage?: string,
+  ): Promise<WorkflowRunResult> {
+    return fetchJson(`${API_BASE}/developer/workflows/run`, {
+      method: "POST",
+      body: JSON.stringify({ ...workflow, initial_message: initialMessage || "" }),
+    });
+  },
+
+  async runSavedWorkflow(id: string, initialMessage?: string): Promise<WorkflowRunResult> {
+    return fetchJson(`${API_BASE}/developer/workflows/${id}/run`, {
+      method: "POST",
+      body: JSON.stringify({ initial_message: initialMessage || "" }),
+    });
+  },
+
+  // API Explorer — list all registered routes
+  async getApiRoutes(): Promise<ApiRouteInfo[]> {
+    return fetchJson(`${API_BASE}/developer/api-routes`);
+  },
 };
 
 // --- OAuth ----------------------------------------------------------------
@@ -493,5 +812,85 @@ export const oauthApi = {
   */
   async start(providerId: string): Promise<OAuthStartResponse> {
     return fetchJson(`${API_BASE}/providers/${providerId}/oauth/start`);
+  },
+};
+
+// --- Health ----------------------------------------------------------------
+
+export interface HealthResponse {
+  status: string;
+  mode: string;
+  version: string;
+  database: string;
+}
+
+export const healthApi = {
+  /** Check backend health, including database backend type. */
+  async check(): Promise<HealthResponse> {
+    const res = await fetch("/api/health");
+    if (!res.ok) throw new Error(`health check failed: ${res.status}`);
+    return res.json() as Promise<HealthResponse>;
+  },
+};
+
+// --- Auth ------------------------------------------------------------------
+
+export const authApi = {
+  /** Check if the user has an active session.
+   *
+   * Returns an object with either `user` (authenticated), `user: null`
+   * (backend reachable but no session), or `backendDown: true` (backend
+   * unreachable — fall through to demo mode).
+   */
+  async me(): Promise<{ user: AuthUser | null; backendDown?: boolean }> {
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        credentials: "include",
+      });
+      if (!res.ok) return { user: null };
+      const data = await res.json();
+      return { user: data ?? null };
+    } catch {
+      return { user: null, backendDown: true };
+    }
+  },
+
+  async login(email: string, password: string): Promise<AuthUser> {
+    return fetchJson(`${API_BASE}/auth/login`, {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+      credentials: "include",
+    });
+  },
+
+  async register(
+    email: string,
+    password: string,
+    displayName?: string,
+  ): Promise<AuthUser> {
+    return fetchJson(`${API_BASE}/auth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        password,
+        display_name: displayName ?? undefined,
+      }),
+      credentials: "include",
+    });
+  },
+
+  async logout(): Promise<void> {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  },
+
+  /** Auto-login as the demo user (standalone/dev mode only). */
+  async demoLogin(): Promise<AuthUser> {
+    return fetchJson(`${API_BASE}/auth/demo-login`, {
+      method: "POST",
+      credentials: "include",
+    });
   },
 };

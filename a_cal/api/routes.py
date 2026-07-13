@@ -9,7 +9,7 @@ middleware — these routes assume an authenticated ``user_id``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,9 +27,9 @@ class SubAccountCreate(BaseModel):
     kind: str = "unified"  # calendar | email | unified
     sync_mode: str = "mirror_filter"
     is_main: bool = False
-    parent_sub_account_id: Optional[str] = None
+    parent_sub_account_id: str | None = None
     agent_enabled: bool = False
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class SubAccountOut(BaseModel):
@@ -39,16 +39,16 @@ class SubAccountOut(BaseModel):
     is_main: bool
     sync_mode: str
     agent_enabled: bool
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderConnectionCreate(BaseModel):
     sub_account_id: str
     provider_type: str
     provider_account_id: str
-    display_name: Optional[str] = None
-    config: Dict[str, Any] = Field(default_factory=dict)
-    scopes: List[str] = Field(default_factory=list)
+    display_name: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    scopes: list[str] = Field(default_factory=list)
 
 
 class ProviderConnectionOut(BaseModel):
@@ -56,9 +56,9 @@ class ProviderConnectionOut(BaseModel):
     sub_account_id: str
     provider_type: str
     provider_account_id: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
     status: str
-    last_sync_at: Optional[datetime] = None
+    last_sync_at: datetime | None = None
 
 
 class SyncRuleCreate(BaseModel):
@@ -66,7 +66,7 @@ class SyncRuleCreate(BaseModel):
     rule_type: str  # include | exclude | transform | agent
     field: str = "title"
     pattern: str = "*"
-    action: Dict[str, Any] = Field(default_factory=dict)
+    action: dict[str, Any] = Field(default_factory=dict)
     priority: int = 0
 
 
@@ -76,10 +76,10 @@ class UnifiedEvent(BaseModel):
     title: str
     start: datetime
     end: datetime
-    description: Optional[str] = None
-    location: Optional[str] = None
-    source_sub_account_id: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    description: str | None = None
+    location: str | None = None
+    source_sub_account_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 # --- DB session dependency (bridges to atom's SessionLocal) -----------------
@@ -96,11 +96,9 @@ def get_db():
 
 
 def _current_user_id() -> str:
-    """Placeholder — in production this reads atom's auth session/header.
-
-    Wired to atom's X-User-ID middleware during integration.
-    """
-    return "local-dev-user"
+    """Return the current user ID from the auth context."""
+    from a_cal.auth.session import get_current_user_id
+    return get_current_user_id()
 
 
 # --- sub-account endpoints -------------------------------------------------
@@ -128,7 +126,7 @@ def create_sub_account(body: SubAccountCreate, db=Depends(get_db)):
     )
 
 
-@router.get("/sub-accounts", response_model=List[SubAccountOut])
+@router.get("/sub-accounts", response_model=list[SubAccountOut])
 def list_sub_accounts(db=Depends(get_db)):
     from a_cal.models import SubAccount
 
@@ -167,7 +165,7 @@ def create_provider(body: ProviderConnectionCreate, db=Depends(get_db)):
     )
 
 
-@router.get("/providers", response_model=List[ProviderConnectionOut])
+@router.get("/providers", response_model=list[ProviderConnectionOut])
 def list_providers(sub_account_id: str = Query(...), db=Depends(get_db)):
     from a_cal.models import ProviderConnection
 
@@ -184,7 +182,7 @@ def list_providers(sub_account_id: str = Query(...), db=Depends(get_db)):
 
 # --- unified main-calendar view --------------------------------------------
 
-@router.get("/calendar/unified", response_model=List[UnifiedEvent])
+@router.get("/calendar/unified", response_model=list[UnifiedEvent])
 async def unified_calendar(
     days: int = Query(7, ge=1, le=90),
     db=Depends(get_db),
@@ -200,10 +198,10 @@ async def unified_calendar(
 
     user_id = _current_user_id()
     subs = db.query(SubAccount).filter(SubAccount.user_id == user_id).all()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     window_end = now + timedelta(days=days)
 
-    unified: List[Dict[str, Any]] = []
+    unified: list[dict[str, Any]] = []
     for sub in subs:
         conns = db.query(ProviderConnection).filter(ProviderConnection.sub_account_id == sub.id).all()
         providers = []
@@ -222,7 +220,7 @@ async def unified_calendar(
     return unified
 
 
-def _conn_to_dict(c: Any) -> Dict[str, Any]:
+def _conn_to_dict(c: Any) -> dict[str, Any]:
     return {
         "provider_type": c.provider_type,
         "config": c.config or {},
@@ -230,7 +228,7 @@ def _conn_to_dict(c: Any) -> Dict[str, Any]:
     }
 
 
-def _sub_to_dict(sub: Any, rules: list) -> Dict[str, Any]:
+def _sub_to_dict(sub: Any, rules: list) -> dict[str, Any]:
     return {
         "id": sub.id,
         "sync_mode": sub.sync_mode,

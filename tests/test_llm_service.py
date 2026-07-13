@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, patch
 
 from a_cal.agents.llm_service import StandaloneLLMService, LLMResponse
 from a_cal.settings.model_routing import ModelRoutingConfig, ModelProvider
@@ -164,3 +165,155 @@ class TestConductorWithLLM:
         assert data["response"] is not None  # real rule-based response
         assert "routing" in data
         assert "actions" in data
+
+
+# --- Ollama call parameters tests ------------------------------------------
+
+class TestOllamaCallParameters:
+    """Verify Ollama API call includes correct parameters for quality + speed."""
+
+    def test_ollama_options_include_temperature(self):
+        """Ollama call should include temperature:0.3 for deterministic responses."""
+        import inspect
+        from a_cal.agents.llm_service import StandaloneLLMService
+
+        # Inspect the _call_ollama method source to verify temperature is set
+        source = inspect.getsource(StandaloneLLMService._call_ollama)
+        assert "temperature" in source, (
+            "Ollama call should set temperature for deterministic responses"
+        )
+        assert "0.3" in source, "Temperature should be 0.3 for factual calendar responses"
+
+    def test_ollama_options_include_num_ctx(self):
+        """Ollama call should limit context window to 8192 for speed."""
+        import inspect
+        from a_cal.agents.llm_service import StandaloneLLMService
+
+        source = inspect.getsource(StandaloneLLMService._call_ollama)
+        assert "num_ctx" in source
+        assert "8192" in source
+
+    def test_ollama_options_include_keep_alive(self):
+        """Ollama call should set keep_alive to keep model in memory."""
+        import inspect
+        from a_cal.agents.llm_service import StandaloneLLMService
+
+        source = inspect.getsource(StandaloneLLMService._call_ollama)
+        assert "keep_alive" in source
+
+
+# --- Conductor anti-hallucination tests ------------------------------------
+
+class TestConductorAntiHallucination:
+    """Verify the conductor's hybrid mode includes anti-hallucination directives."""
+
+    def test_conductor_prompt_includes_ground_rules(self):
+        """Conductor's hybrid mode system prompt should include anti-hallucination directives."""
+        import inspect
+        from a_cal.agents.conductor import ACalConductor
+
+        source = inspect.getsource(ACalConductor.handle)
+        assert "GROUND RULES" in source or "ground truth" in source, (
+            "Conductor hybrid mode should include anti-hallucination directives"
+        )
+        assert "invent" in source or "hallucinate" in source or "NOT invent" in source, (
+            "Conductor should explicitly tell the LLM not to invent events"
+        )
+
+
+# --- Ollama model fallback tests -------------------------------------------
+
+class TestOllamaModelFallback:
+    """Verify _resolve_ollama_model prefers local models over cloud-proxied."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_prefers_local_over_cloud(self):
+        """When requested model is missing, should pick a local model, not a cloud one."""
+        svc = StandaloneLLMService(
+            routing=ModelRoutingConfig(
+                global_provider=ModelProvider.OLLAMA.value,
+                global_model="nonexistent-model",
+            ),
+        )
+        # Mock the Ollama /api/tags response with both local and cloud models
+        mock_response = type("MockResp", (), {
+            "status_code": 200,
+            "json": lambda self: {
+                "models": [
+                    {"name": "glm-5.2:cloud", "size": 338, "remote_host": "https://ollama.com:443"},
+                    {"name": "gemma3:4b", "size": 3338801804},
+                    {"name": "qwen3.5:4b", "size": 3389983735},
+                ]
+            },
+        })()
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client_cls.return_value = mock_client
+
+            result = await svc._resolve_ollama_model("nonexistent-model")
+
+        # Should pick gemma3:4b (smallest local model), not glm-5.2:cloud
+        assert result == "gemma3:4b", f"Expected local model, got {result}"
+
+    @pytest.mark.asyncio
+    async def test_fallback_returns_requested_when_available(self):
+        """If the requested model IS available, return it directly."""
+        svc = StandaloneLLMService(
+            routing=ModelRoutingConfig(
+                global_provider=ModelProvider.OLLAMA.value,
+                global_model="gemma3:4b",
+            ),
+        )
+        mock_response = type("MockResp", (), {
+            "status_code": 200,
+            "json": lambda self: {
+                "models": [
+                    {"name": "gemma3:4b", "size": 3338801804},
+                    {"name": "qwen3.5:4b", "size": 3389983735},
+                ]
+            },
+        })()
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client_cls.return_value = mock_client
+
+            result = await svc._resolve_ollama_model("gemma3:4b")
+            assert result == "gemma3:4b"
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_cloud_when_no_local(self):
+        """If only cloud models are available, fall back to the smallest cloud model."""
+        svc = StandaloneLLMService(
+            routing=ModelRoutingConfig(
+                global_provider=ModelProvider.OLLAMA.value,
+                global_model="nonexistent",
+            ),
+        )
+        mock_response = type("MockResp", (), {
+            "status_code": 200,
+            "json": lambda self: {
+                "models": [
+                    {"name": "glm-5.2:cloud", "size": 338, "remote_host": "https://ollama.com:443"},
+                    {"name": "kimi-k2.6:cloud", "size": 384, "remote_host": "https://ollama.com:443"},
+                ]
+            },
+        })()
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client_cls.return_value = mock_client
+
+            result = await svc._resolve_ollama_model("nonexistent")
+            # Should pick glm-5.2:cloud (smaller of the two)
+            assert result == "glm-5.2:cloud"
