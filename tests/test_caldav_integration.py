@@ -1,7 +1,7 @@
 """End-to-end CalDAV integration tests against a real Radicale server.
 
-These tests require a running Radicale instance at 127.0.0.1:5232 with
-a test user (testuser/testpass). If Radicale is not running, the tests
+These tests require a running Radicale instance (env-configurable via
+A_CAL_TEST_RADICALE_HOST/PORT/USER/PASS, default 127.0.0.1:5233 no-auth). If Radicale is not running, the tests
 skip gracefully.
 
 Tests cover:
@@ -15,6 +15,7 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -28,8 +29,12 @@ from a_cal.providers.base import CalendarEventDTO, SyncPage, CalendarProvider
 # Helpers
 # ---------------------------------------------------------------------------
 
-_RADICALE_HOST = "127.0.0.1"
-_RADICALE_PORT = 5232
+# Radicale connection params are env-configurable so tests work against
+# any local Radicale instance (different ports, auth or no-auth).
+_RADICALE_HOST = os.environ.get("A_CAL_TEST_RADICALE_HOST", "127.0.0.1")
+_RADICALE_PORT = int(os.environ.get("A_CAL_TEST_RADICALE_PORT", "5233"))
+_RADICALE_USER = os.environ.get("A_CAL_TEST_RADICALE_USER", "testuser")
+_RADICALE_PASS = os.environ.get("A_CAL_TEST_RADICALE_PASS", "testpass")
 
 
 def _radicale_running() -> bool:
@@ -44,8 +49,8 @@ def _radicale_running() -> bool:
 # Skip all tests in this module if Radicale isn't running.
 pytestmark = pytest.mark.skipif(
     not _radicale_running(),
-    reason="Radicale not running on 127.0.0.1:5232 — start with "
-           "`radicale -C /tmp/radicale-test/config`",
+    reason=f"Radicale not running on {_RADICALE_HOST}:{_RADICALE_PORT} — "
+           "start with `radicale -C /tmp/radicale-test/config`",
 )
 
 
@@ -68,8 +73,8 @@ def _make_provider():
     from a_cal.providers.caldav_provider import CalDAVProvider
     return CalDAVProvider(
         server_url=f"http://{_RADICALE_HOST}:{_RADICALE_PORT}",
-        username="testuser",
-        password="testpass",
+        username=_RADICALE_USER or None,
+        password=_RADICALE_PASS or None,
     )
 
 
@@ -249,8 +254,8 @@ class TestCalDAVAPIIntegration:
             "provider_account_id": "testuser@radicale",
             "config": {
                 "server_url": f"http://{_RADICALE_HOST}:{_RADICALE_PORT}",
-                "username": "testuser",
-                "password": "testpass",
+                "username": _RADICALE_USER,
+                "password": _RADICALE_PASS,
             },
         })
         assert resp.status_code == 200
