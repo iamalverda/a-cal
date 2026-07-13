@@ -6,6 +6,7 @@ shared configs, search, install, remix, and rate items.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -212,3 +213,178 @@ def rate_item(item_id: str, body: RateRequest):
     except KeyError:
         raise HTTPException(status_code=404, detail="item not found")
     return item.to_dict()
+
+
+# --- registry endpoints (export / import / remote browsing) -----------------
+
+from a_cal.marketplace.registry import (
+    BUNDLE_FORMAT,
+    BUNDLE_VERSION,
+    REGISTRY_FORMAT,
+    REGISTRY_VERSION,
+    RegistryBundle,
+    RegistryClient,
+    RegistryManifest,
+    build_manifest_from_store,
+)
+
+
+class ExportRequest(BaseModel):
+    """Request to export marketplace items as a portable bundle."""
+    item_ids: List[str] = Field(default_factory=list)
+    # If empty, exports all items in the store.
+
+
+class ImportBundleRequest(BaseModel):
+    """Request to import items from a bundle (JSON string)."""
+    bundle_json: str
+
+
+class RemoteRegistryRequest(BaseModel):
+    """Request to browse or pull from a remote registry."""
+    registry_url: str
+
+
+class PullItemRequest(BaseModel):
+    """Request to pull a specific item from a remote registry."""
+    registry_url: str
+    item_id: str
+
+
+@router.get("/registry/manifest")
+def get_registry_manifest():
+    """Get the local registry manifest (catalog of all items).
+
+    This endpoint serves the manifest that a remote RegistryClient would
+    fetch. It can be used as a static registry by pointing other A-Cal
+    instances at this server's URL.
+    """
+    store = _get_store()
+    manifest = build_manifest_from_store(store)
+    # Set the registry_url to the current server (best effort)
+    manifest.registry_url = "/api/a-cal/marketplace/registry"
+    return manifest.to_dict()
+
+
+@router.post("/export")
+def export_items(body: ExportRequest):
+    """Export marketplace items as a portable JSON bundle.
+
+    If ``item_ids`` is empty, exports all items in the store. The bundle
+    can be shared as a file and imported into another A-Cal instance via
+    the ``POST /import`` endpoint.
+    """
+    store = _get_store()
+    user_id = _current_user_id()
+
+    if body.item_ids:
+        items = []
+        for item_id in body.item_ids:
+            item = store.get_item(item_id)
+            if item is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"item not found: {item_id}",
+                )
+            items.append(item)
+    else:
+        items = store.list_items(limit=200)
+
+    bundle = RegistryBundle(items=items, exported_by=user_id)
+    return bundle.to_dict()
+
+
+@router.post("/import")
+def import_items(body: ImportBundleRequest):
+    """Import marketplace items from a JSON bundle.
+
+    Parses the bundle, validates the format, and publishes each item to
+    the local store. Items that already exist (by ID) are skipped.
+
+    Returns a summary of imported and skipped items.
+    """
+    store = _get_store()
+
+    try:
+        bundle = RegistryBundle.from_json(body.bundle_json)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid JSON: {exc}")
+
+    imported = 0
+    skipped = 0
+    errors: List[str] = []
+
+    for item in bundle.items:
+        existing = store.get_item(item.id)
+        if existing is not None:
+            skipped += 1
+            continue
+        try:
+            store.publish(item)
+            imported += 1
+        except Exception as exc:
+            errors.append(f"{item.name}: {exc}")
+
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors,
+        "exported_by": bundle.exported_by,
+        "exported_at": bundle.exported_at,
+    }
+
+
+@router.post("/registry/browse")
+def browse_remote_registry(body: RemoteRegistryRequest):
+    """Fetch a remote registry's manifest for browsing.
+
+    Returns the manifest with item summaries (no full configs). Use
+    ``POST /registry/pull`` to fetch and install a specific item.
+    """
+    try:
+        client = RegistryClient(body.registry_url)
+        manifest = client.get_manifest()
+        return manifest.to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"failed to fetch registry: {exc}",
+        )
+
+
+@router.post("/registry/pull")
+def pull_from_remote_registry(body: PullItemRequest):
+    """Pull a specific item from a remote registry and publish it locally.
+
+    Fetches the full item config from the remote registry, then publishes
+    it to the local store. If the item already exists locally, it is
+    skipped.
+    """
+    store = _get_store()
+
+    try:
+        client = RegistryClient(body.registry_url)
+        item = client.pull_item(body.item_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"failed to pull item: {exc}",
+        )
+
+    existing = store.get_item(item.id)
+    if existing is not None:
+        return {
+            "published": False,
+            "item": existing.to_dict(),
+            "message": "item already exists locally",
+        }
+
+    published = store.publish(item)
+    return {
+        "published": True,
+        "item": published.to_dict(),
+    }
