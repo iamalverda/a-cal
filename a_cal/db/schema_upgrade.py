@@ -134,6 +134,63 @@ _COLUMN_ADDITIONS: list[tuple[str, str, str]] = [
         "color",
         "ALTER TABLE a_cal_events ADD COLUMN color VARCHAR(20) NULL",
     ),
+    # EventTypeDB Phase 5 extensions (team + payments)
+    (
+        "a_cal_event_types",
+        "team_id",
+        "ALTER TABLE a_cal_event_types ADD COLUMN team_id VARCHAR(36) NULL",
+    ),
+    (
+        "a_cal_event_types",
+        "assignment_strategy",
+        "ALTER TABLE a_cal_event_types ADD COLUMN assignment_strategy VARCHAR(50) "
+        "NOT NULL DEFAULT 'collective'",
+    ),
+    (
+        "a_cal_event_types",
+        "routing_form_id",
+        "ALTER TABLE a_cal_event_types ADD COLUMN routing_form_id VARCHAR(36) NULL",
+    ),
+    (
+        "a_cal_event_types",
+        "is_paid",
+        "ALTER TABLE a_cal_event_types ADD COLUMN is_paid BOOLEAN "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_event_types",
+        "price_cents",
+        "ALTER TABLE a_cal_event_types ADD COLUMN price_cents INTEGER "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_event_types",
+        "currency",
+        "ALTER TABLE a_cal_event_types ADD COLUMN currency VARCHAR(3) "
+        "NOT NULL DEFAULT 'USD'",
+    ),
+    (
+        "a_cal_event_types",
+        "stripe_product_id",
+        "ALTER TABLE a_cal_event_types ADD COLUMN stripe_product_id VARCHAR(255) NULL",
+    ),
+    # BookingDB Phase 5 extensions (payment + team assignment)
+    (
+        "a_cal_bookings",
+        "payment_status",
+        "ALTER TABLE a_cal_bookings ADD COLUMN payment_status VARCHAR(50) "
+        "NOT NULL DEFAULT 'free'",
+    ),
+    (
+        "a_cal_bookings",
+        "payment_intent_id",
+        "ALTER TABLE a_cal_bookings ADD COLUMN payment_intent_id VARCHAR(255) NULL",
+    ),
+    (
+        "a_cal_bookings",
+        "assigned_member_id",
+        "ALTER TABLE a_cal_bookings ADD COLUMN assigned_member_id VARCHAR(36) NULL",
+    ),
 ]
 
 

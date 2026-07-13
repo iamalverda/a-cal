@@ -163,6 +163,14 @@ class EventTypeRequest(BaseModel):
     reminder_minutes_before: int = 60
     confirmation_email_enabled: bool = True
     confirmation_template: str | None = None
+    # Phase 5: Team & Payments
+    team_id: str | None = None
+    assignment_strategy: str = "collective"
+    routing_form_id: str | None = None
+    is_paid: bool = False
+    price_cents: int = 0
+    currency: str = "USD"
+    stripe_product_id: str | None = None
 
 
 @router.get("/event-types")

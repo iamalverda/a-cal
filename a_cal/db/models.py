@@ -296,6 +296,14 @@ class EventTypeDB(Base):
     # Booking confirmation email
     confirmation_email_enabled = Column(Boolean, nullable=False, default=True)
     confirmation_template = Column(Text, nullable=True)
+    # Phase 5: Team scheduling and payments
+    team_id = Column(String(36), ForeignKey("a_cal_teams.id"), nullable=True)
+    assignment_strategy = Column(String(50), nullable=False, default="collective")
+    routing_form_id = Column(String(36), ForeignKey("a_cal_routing_forms.id"), nullable=True)
+    is_paid = Column(Boolean, nullable=False, default=False)
+    price_cents = Column(Integer, nullable=False, default=0)
+    currency = Column(String(3), nullable=False, default="USD")
+    stripe_product_id = Column(String(255), nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
@@ -321,6 +329,10 @@ class BookingDB(Base):
     video_link = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
     booking_metadata = Column(JSONType, nullable=False, default=dict)
+    # Phase 5: Payment and team assignment
+    payment_status = Column(String(50), nullable=False, default="free")
+    payment_intent_id = Column(String(255), nullable=True)
+    assigned_member_id = Column(String(36), nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
@@ -514,3 +526,96 @@ class EmailTemplate(Base):
     body_text = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Team & Payments models
+# ---------------------------------------------------------------------------
+
+
+class Team(Base):
+    """A team for collaborative scheduling (round-robin, collective).
+
+    A team groups multiple users/members who can share event types and
+    distribute bookings among themselves.
+    """
+    __tablename__ = "a_cal_teams"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), nullable=False, default="")
+    description = Column(Text, nullable=False, default="")
+    logo_url = Column(String(500), nullable=True)
+    branding = Column(JSONType, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class TeamMember(Base):
+    """A member of a scheduling team.
+
+    Each member has an email, display name, role (admin/member), and
+    an optional provider connection for calendar availability checking.
+    """
+    __tablename__ = "a_cal_team_members"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    team_id = Column(String(36), ForeignKey("a_cal_teams.id"), nullable=False, index=True)
+    email = Column(String(255), nullable=False)
+    display_name = Column(String(255), nullable=False, default="")
+    role = Column(String(50), nullable=False, default="member")
+    provider_connection_id = Column(String(36), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class RoutingForm(Base):
+    """A routing form that asks questions before booking.
+
+    Based on answers, the form routes the attendee to the most appropriate
+    event type or team member (cal.com-style routing forms).
+    """
+    __tablename__ = "a_cal_routing_forms"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    questions = Column(JSONType, nullable=False, default=list)
+    routing_rules = Column(JSONType, nullable=False, default=list)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class WebhookConfig(Base):
+    """A webhook endpoint that receives event notifications.
+
+    When events like booking.created or booking.cancelled fire, the
+    webhook delivery service POSTs a JSON payload to the configured URL.
+    """
+    __tablename__ = "a_cal_webhooks"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    url = Column(String(1000), nullable=False)
+    events = Column(JSONType, nullable=False, default=list)
+    secret = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    last_delivery_at = Column(DateTime, nullable=True)
+    last_status = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class WebhookDelivery(Base):
+    """A record of a single webhook delivery attempt."""
+    __tablename__ = "a_cal_webhook_deliveries"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    webhook_id = Column(String(36), ForeignKey("a_cal_webhooks.id"), nullable=False, index=True)
+    event_type = Column(String(100), nullable=False)
+    payload = Column(JSONType, nullable=False, default=dict)
+    status_code = Column(Integer, nullable=True)
+    response_body = Column(Text, nullable=True)
+    delivered_at = Column(DateTime, nullable=False, default=_utcnow)

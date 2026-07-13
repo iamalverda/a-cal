@@ -24,6 +24,45 @@ from pydantic import BaseModel, Field
 
 from a_cal.db.store import PersistentStore
 
+# Phase 5: webhook dispatch + workflow triggers (lazy import to avoid circular deps)
+def _dispatch_webhook(event_type: str, payload: dict) -> None:
+    """Fire webhook event for booking lifecycle events."""
+    try:
+        from a_cal.integrations.webhooks import dispatch_event
+        dispatch_event(event_type, payload)
+    except Exception:
+        pass
+
+def _trigger_workflows(trigger: str, context: dict) -> None:
+    """Run workflows matching the given trigger.
+
+    Maps booking lifecycle triggers to workflow trigger types. Booking
+    events map to ``schedule_change`` which is the closest workflow trigger.
+    """
+    try:
+        from a_cal.workflows.store import WorkflowStore
+        from a_cal.workflows.runner import WorkflowRunner
+        store = WorkflowStore(_db)
+        wfs = store.list_workflows()
+        # Map booking_created -> schedule_change workflow trigger
+        wf_trigger = "schedule_change" if trigger == "booking_created" else trigger
+        matching = [w for w in wfs if w.trigger == wf_trigger]
+        if not matching:
+            return
+        # Workflows require a conductor — skip if not available
+        from a_cal.api.agent_routes import _store as _agent_store
+        from a_cal.auth.session import get_current_user_id
+        conductor = _agent_store.get_conductor(get_current_user_id())
+        runner = WorkflowRunner(conductor)
+        import asyncio
+        loop = asyncio.get_event_loop()
+        for wf in matching:
+            loop.create_task(
+                runner.run(wf, initial_message=str(context))
+            )
+    except Exception:
+        pass
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-booking"])
@@ -65,6 +104,14 @@ class EventTypeExtendedRequest(BaseModel):
     reminder_minutes_before: int = 60
     confirmation_email_enabled: bool = True
     confirmation_template: str | None = None
+    # Phase 5: Team & Payments
+    team_id: str | None = None
+    assignment_strategy: str = "collective"
+    routing_form_id: str | None = None
+    is_paid: bool = False
+    price_cents: int = 0
+    currency: str = "USD"
+    stripe_product_id: str | None = None
 
 
 class BookingCreateRequest(BaseModel):
@@ -233,6 +280,18 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
     # Generate video link if a provider is configured
     video_link = _generate_video_link(et.get("video_provider", ""))
 
+    # Phase 5: Round-robin team member assignment
+    assigned_member_id = None
+    team_id = et.get("team_id")
+    strategy = et.get("assignment_strategy", "collective")
+    if team_id and strategy == "round_robin":
+        member = _db.get_next_round_robin_member(team_id)
+        if member:
+            assigned_member_id = member["id"]
+
+    # Phase 5: Payment status for paid events
+    payment_status = "paid" if not et.get("is_paid") else "pending_payment"
+
     booking = _db.create_booking({
         "event_type_id": et["id"],
         "attendee_name": body.attendee_name,
@@ -243,6 +302,8 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
         "answers": body.answers,
         "video_link": video_link,
         "notes": body.notes,
+        "assigned_member_id": assigned_member_id,
+        "payment_status": payment_status,
     })
 
     # Send confirmation email if enabled
@@ -252,13 +313,35 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
         except Exception as exc:
             logger.warning("Confirmation email failed for booking %s: %s", booking["id"], exc)
 
+    # Phase 5: Dispatch webhook event
+    _dispatch_webhook("booking.created", {
+        "booking_id": booking["id"],
+        "event_type_id": et["id"],
+        "event_type_title": et.get("title", ""),
+        "attendee_name": body.attendee_name,
+        "attendee_email": body.attendee_email,
+        "start_time": booking["start_time"],
+        "assigned_member_id": assigned_member_id,
+        "is_paid": et.get("is_paid", False),
+    })
+
+    # Phase 5: Trigger booking-related workflows
+    _trigger_workflows("booking_created", {
+        "booking_id": booking["id"],
+        "event_type": et.get("title", ""),
+    })
+
     return {
-        "status": "confirmed",
+        "status": "confirmed" if payment_status == "paid" else "pending_payment",
         "booking_id": booking["id"],
         "start_time": booking["start_time"],
         "end_time": booking["end_time"],
         "video_link": video_link,
         "event_type_title": et.get("title", ""),
+        "assigned_member_id": assigned_member_id,
+        "payment_status": payment_status,
+        "price_cents": et.get("price_cents", 0) if et.get("is_paid") else 0,
+        "currency": et.get("currency", "USD"),
     }
 
 

@@ -716,6 +716,14 @@ export interface EventType {
   reminder_minutes_before: number;
   confirmation_email_enabled: boolean;
   confirmation_template: string | null;
+  // Phase 5: Team & Payments
+  team_id: string | null;
+  assignment_strategy: AssignmentStrategy;
+  routing_form_id: string | null;
+  is_paid: boolean;
+  price_cents: number;
+  currency: string;
+  stripe_product_id: string | null;
 }
 
 export interface BookingSlot {
@@ -737,6 +745,10 @@ export interface Booking {
   video_link: string | null;
   notes: string | null;
   metadata: Record<string, unknown>;
+  // Phase 5: Payment and team assignment
+  payment_status: string;
+  payment_intent_id: string | null;
+  assigned_member_id: string | null;
   created_at: string | null;
 }
 
@@ -747,6 +759,11 @@ export interface BookingResult {
   end_time: string;
   video_link: string | null;
   event_type_title: string;
+  // Phase 5
+  assigned_member_id: string | null;
+  payment_status: string;
+  price_cents: number;
+  currency: string;
 }
 
 // --- Calendar Tools (zero-calendar integration) ----------------------------
@@ -786,4 +803,122 @@ export interface AuthUser {
   email: string;
   display_name: string | null;
   is_active: boolean;
+}
+
+// --- Phase 5: Team & Payments types ----------------------------------------
+
+/** Assignment strategy for team event types. */
+export type AssignmentStrategy = "collective" | "round_robin";
+
+/** A scheduling team. */
+export interface Team {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  logo_url: string | null;
+  branding: Record<string, unknown>;
+  members?: TeamMember[];
+  created_at: string | null;
+}
+
+/** A member of a scheduling team. */
+export interface TeamMember {
+  id: string;
+  team_id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  provider_connection_id: string | null;
+  is_active: boolean;
+}
+
+/** A routing form question. */
+export interface RoutingQuestion {
+  id: string;
+  label: string;
+  type: "text" | "textarea" | "select" | "phone" | "checkbox";
+  required: boolean;
+  options: string[];
+}
+
+/** A routing rule mapping answers to event types or members. */
+export interface RoutingRule {
+  condition: string;
+  event_type_id: string | null;
+  member_id: string | null;
+}
+
+/** A routing form. */
+export interface RoutingForm {
+  id: string;
+  name: string;
+  description: string;
+  questions: RoutingQuestion[];
+  routing_rules: RoutingRule[];
+  is_active: boolean;
+  created_at: string | null;
+}
+
+/** A webhook endpoint configuration. */
+export interface WebhookConfig {
+  id: string;
+  url: string;
+  events: string[];
+  secret: string | null;
+  is_active: boolean;
+  last_delivery_at: string | null;
+  last_status: number | null;
+  created_at: string | null;
+}
+
+/** A webhook delivery record. */
+export interface WebhookDelivery {
+  id: string;
+  webhook_id: string;
+  event_type: string;
+  status_code: number | null;
+  response_body: string | null;
+  delivered_at: string | null;
+}
+
+/** Payment service configuration. */
+export interface PaymentConfig {
+  is_configured: boolean;
+  is_mock: boolean;
+  publishable_key: string | null;
+}
+
+/** A Stripe payment intent. */
+export interface PaymentIntent {
+  id: string;
+  client_secret: string | null;
+  amount: number;
+  currency: string;
+  status: string;
+}
+
+/** Custom domain configuration for booking pages. */
+export interface CustomDomainConfig {
+  domain: string;
+  is_active: boolean;
+  ssl_verified: boolean;
+}
+
+/** Workflow trigger configuration. */
+export interface WorkflowTriggerConfig {
+  booking_created: boolean;
+  booking_cancelled: boolean;
+  booking_rescheduled: boolean;
+}
+
+/** GraphQL query response. */
+export interface GraphQLResponse {
+  data: Record<string, unknown>;
+  errors?: Array<{ message: string }>;
+}
+
+/** GraphQL schema introspection. */
+export interface GraphQLSchema {
+  types: Record<string, Record<string, unknown>>;
 }

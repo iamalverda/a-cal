@@ -63,6 +63,18 @@ import type {
   VacationConfig,
   EmailSummary,
   EventAttendee,
+  Team,
+  TeamMember,
+  RoutingForm,
+  WebhookConfig,
+  WebhookDelivery,
+  PaymentConfig,
+  PaymentIntent,
+  CustomDomainConfig,
+  WorkflowTriggerConfig,
+  GraphQLResponse,
+  GraphQLSchema,
+  RoutingQuestion,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -846,6 +858,197 @@ export const api = {
       body: JSON.stringify(data),
     });
   },
+
+    // --- Phase 5: Teams -----------------------------------------------------
+
+  async listTeams(): Promise<Team[]> {
+    return fetchJson(`${API_BASE}/teams`);
+  },
+
+  async createTeam(data: {
+    name: string;
+    slug?: string;
+    description?: string;
+    logo_url?: string;
+    branding?: Record<string, unknown>;
+  }): Promise<Team> {
+    return fetchJson(`${API_BASE}/teams`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getTeam(teamId: string): Promise<Team> {
+    return fetchJson(`${API_BASE}/teams/${teamId}`);
+  },
+
+  async updateTeam(teamId: string, patch: Partial<Team>): Promise<Team> {
+    return fetchJson(`${API_BASE}/teams/${teamId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async deleteTeam(teamId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/teams/${teamId}`, { method: "DELETE" });
+  },
+
+  async addTeamMember(teamId: string, data: {
+    email: string;
+    display_name?: string;
+    role?: string;
+    provider_connection_id?: string;
+    is_active?: boolean;
+  }): Promise<TeamMember> {
+    return fetchJson(`${API_BASE}/teams/${teamId}/members`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTeamMember(teamId: string, memberId: string, patch: Partial<TeamMember>): Promise<TeamMember> {
+    return fetchJson(`${API_BASE}/teams/${teamId}/members/${memberId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async removeTeamMember(teamId: string, memberId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/teams/${teamId}/members/${memberId}`, { method: "DELETE" });
+  },
+
+  // --- Phase 5: Routing Forms ---------------------------------------------
+
+  async listRoutingForms(): Promise<RoutingForm[]> {
+    return fetchJson(`${API_BASE}/routing-forms`);
+  },
+
+  async createRoutingForm(data: {
+    name: string;
+    description?: string;
+    questions?: RoutingQuestion[];
+    routing_rules?: Array<{ condition: string; event_type_id: string | null; member_id: string | null }>;
+    is_active?: boolean;
+  }): Promise<RoutingForm> {
+    return fetchJson(`${API_BASE}/routing-forms`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateRoutingForm(formId: string, patch: Partial<RoutingForm>): Promise<RoutingForm> {
+    return fetchJson(`${API_BASE}/routing-forms/${formId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async deleteRoutingForm(formId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/routing-forms/${formId}`, { method: "DELETE" });
+  },
+
+  // --- Phase 5: Webhooks --------------------------------------------------
+
+  async listWebhooks(): Promise<WebhookConfig[]> {
+    return fetchJson(`${API_BASE}/webhooks`);
+  },
+
+  async createWebhook(data: {
+    url: string;
+    events?: string[];
+    secret?: string;
+    is_active?: boolean;
+  }): Promise<WebhookConfig> {
+    return fetchJson(`${API_BASE}/webhooks`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateWebhook(webhookId: string, patch: Partial<WebhookConfig>): Promise<WebhookConfig> {
+    return fetchJson(`${API_BASE}/webhooks/${webhookId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async deleteWebhook(webhookId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/webhooks/${webhookId}`, { method: "DELETE" });
+  },
+
+  async testWebhook(event: string, payload?: Record<string, unknown>): Promise<{
+    dispatched: number;
+    deliveries: WebhookDelivery[];
+  }> {
+    return fetchJson(`${API_BASE}/webhooks/test`, {
+      method: "POST",
+      body: JSON.stringify({ event, payload: payload ?? { test: true } }),
+    });
+  },
+
+  async listWebhookDeliveries(webhookId: string): Promise<WebhookDelivery[]> {
+    return fetchJson(`${API_BASE}/webhooks/${webhookId}/deliveries`);
+  },
+
+  // --- Phase 5: Payments --------------------------------------------------
+
+  async getPaymentConfig(): Promise<PaymentConfig> {
+    return fetchJson(`${API_BASE}/payments/config`);
+  },
+
+  async createPaymentIntent(data: {
+    event_type_id: string;
+    booking_id?: string;
+    metadata?: Record<string, string>;
+  }): Promise<PaymentIntent> {
+    return fetchJson(`${API_BASE}/payments/intent`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async confirmPayment(paymentIntentId: string): Promise<{ id: string; status: string }> {
+    return fetchJson(`${API_BASE}/payments/confirm/${paymentIntentId}`, { method: "POST" });
+  },
+
+  // --- Phase 5: Workflow Triggers -----------------------------------------
+
+  async getWorkflowTriggers(): Promise<WorkflowTriggerConfig> {
+    return fetchJson(`${API_BASE}/workflow-triggers`);
+  },
+
+  async setWorkflowTriggers(config: WorkflowTriggerConfig): Promise<WorkflowTriggerConfig> {
+    return fetchJson(`${API_BASE}/workflow-triggers`, {
+      method: "PUT",
+      body: JSON.stringify(config),
+    });
+  },
+
+  // --- Phase 6: Custom Domain ---------------------------------------------
+
+  async getCustomDomain(): Promise<CustomDomainConfig> {
+    return fetchJson(`${API_BASE}/platform/domain`);
+  },
+
+  async setCustomDomain(config: CustomDomainConfig): Promise<CustomDomainConfig> {
+    return fetchJson(`${API_BASE}/platform/domain`, {
+      method: "PUT",
+      body: JSON.stringify(config),
+    });
+  },
+
+  // --- Phase 6: GraphQL ---------------------------------------------------
+
+  async graphqlQuery(query: string, variables?: Record<string, unknown>): Promise<GraphQLResponse> {
+    return fetchJson(`${API_BASE}/graphql`, {
+      method: "POST",
+      body: JSON.stringify({ query, variables }),
+    });
+  },
+
+  async getGraphQLSchema(): Promise<GraphQLSchema> {
+    return fetchJson(`${API_BASE}/graphql/schema`);
+  },
 };
 
 // --- Swarm negotiation -----------------------------------------------------
@@ -1163,7 +1366,6 @@ export const developerApi = {
   async getApiRoutes(): Promise<ApiRouteInfo[]> {
     return fetchJson(`${API_BASE}/developer/api-routes`);
   },
-
 };
 
 // --- OAuth ----------------------------------------------------------------

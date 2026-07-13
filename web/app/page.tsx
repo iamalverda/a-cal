@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
-import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, CalendarClock, User, Menu, X, LogOut, Loader2 } from "lucide-react";
+import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, CalendarClock, User, Menu, X, LogOut, Loader2, Users, Globe } from "lucide-react";
 import { Network, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,8 @@ import { NervousSystemPanel } from "@/components/nervous-system-panel";
 import { EmailPanel } from "@/components/email-panel";
 import { AnalyticsPanel } from "@/components/analytics-panel";
 import { SchedulingPanel } from "@/components/scheduling-panel";
+import { TeamsPanel } from "@/components/teams-panel";
+import { PlatformPanel } from "@/components/platform-panel";
 import { AddAccountWizard } from "@/components/add-account-wizard";
 import { ProactiveSuggestions } from "@/components/proactive-suggestions";
 import { CommandBar } from "@/components/command-bar";
@@ -65,6 +67,8 @@ export default function Page() {
   const [showEmail, setShowEmail] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showScheduling, setShowScheduling] = useState(false);
+  const [showTeams, setShowTeams] = useState(false);
+  const [showPlatform, setShowPlatform] = useState(false);
   const [oauthResult, setOauthResult] = useState<string | null>(null);
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [showCommandBar, setShowCommandBar] = useState(false);
@@ -364,6 +368,20 @@ export default function Page() {
             </button>
           )}
           <button
+            onClick={() => setShowTeams(true)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <Users size={15} className="text-[var(--muted-foreground)]" />
+            <span>Teams & Payments</span>
+          </button>
+          <button
+            onClick={() => setShowPlatform(true)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <Globe size={15} className="text-[var(--muted-foreground)]" />
+            <span>Platform & API</span>
+          </button>
+          <button
             onClick={() => setDark(!dark)}
             className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
           >
@@ -582,6 +600,20 @@ export default function Page() {
       {showDeveloper && (
         <SlideInOverlay title="Developer Studio" icon={<Code2 size={18} className="text-[var(--primary)]" />} onClose={() => setShowDeveloper(false)}>
           <DeveloperPanel />
+        </SlideInOverlay>
+      )}
+
+      {/* Teams & Payments overlay */}
+      {showTeams && (
+        <SlideInOverlay title="Teams & Payments" icon={<Users size={18} className="text-[var(--primary)]" />} onClose={() => setShowTeams(false)}>
+          <TeamsPanel />
+        </SlideInOverlay>
+      )}
+
+      {/* Platform & API overlay */}
+      {showPlatform && (
+        <SlideInOverlay title="Platform & API" icon={<Globe size={18} className="text-[var(--primary)]" />} onClose={() => setShowPlatform(false)}>
+          <PlatformPanel />
         </SlideInOverlay>
       )}
 
