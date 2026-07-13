@@ -47,6 +47,7 @@ import type {
   EventType,
   CalendarTool,
   ApiRouteInfo,
+  AuthUser,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -829,5 +830,67 @@ export const healthApi = {
     const res = await fetch("/api/health");
     if (!res.ok) throw new Error(`health check failed: ${res.status}`);
     return res.json() as Promise<HealthResponse>;
+  },
+};
+
+// --- Auth ------------------------------------------------------------------
+
+export const authApi = {
+  /** Check if the user has an active session.
+   *
+   * Returns an object with either `user` (authenticated), `user: null`
+   * (backend reachable but no session), or `backendDown: true` (backend
+   * unreachable — fall through to demo mode).
+   */
+  async me(): Promise<{ user: AuthUser | null; backendDown?: boolean }> {
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        credentials: "include",
+      });
+      if (!res.ok) return { user: null };
+      const data = await res.json();
+      return { user: data ?? null };
+    } catch {
+      return { user: null, backendDown: true };
+    }
+  },
+
+  async login(email: string, password: string): Promise<AuthUser> {
+    return fetchJson(`${API_BASE}/auth/login`, {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+      credentials: "include",
+    });
+  },
+
+  async register(
+    email: string,
+    password: string,
+    displayName?: string,
+  ): Promise<AuthUser> {
+    return fetchJson(`${API_BASE}/auth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        password,
+        display_name: displayName ?? undefined,
+      }),
+      credentials: "include",
+    });
+  },
+
+  async logout(): Promise<void> {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  },
+
+  /** Auto-login as the demo user (standalone/dev mode only). */
+  async demoLogin(): Promise<AuthUser> {
+    return fetchJson(`${API_BASE}/auth/demo-login`, {
+      method: "POST",
+      credentials: "include",
+    });
   },
 };

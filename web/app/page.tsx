@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
-import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, User, Menu, X } from "lucide-react";
+import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, User, Menu, X, LogOut, Loader2 } from "lucide-react";
 import { Network, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,8 @@ import { AddAccountWizard } from "@/components/add-account-wizard";
 import { ProactiveSuggestions } from "@/components/proactive-suggestions";
 import { CommandBar } from "@/components/command-bar";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { LoginPanel } from "@/components/login-panel";
 import {
   mockSubAccounts,
   mockProviders,
@@ -32,6 +34,7 @@ import {
 import type { SkillMode, SubAccount, ProviderConnection, UnifiedEvent, AgentSpec } from "@/types";
 
 export default function Page() {
+  const { user, loading: authLoading, backendDown, logout } = useAuth();
   const [mode, setMode] = useState<SkillMode>("pro");
   const [showSettings, setShowSettings] = useState(false);
   const [dark, setDark] = useState(true);
@@ -212,6 +215,19 @@ export default function Page() {
     [providers]
   );
 
+  // Auth gate: show login panel if not authenticated.
+  // When the backend is unreachable, fall through to demo mode (backward compat).
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[var(--background)]">
+        <Loader2 size={32} className="animate-spin text-[var(--muted-foreground)]" />
+      </div>
+    );
+  }
+  if (!user && !backendDown) {
+    return <LoginPanel />;
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Left sidebar — branding + sub-accounts */}
@@ -343,6 +359,19 @@ export default function Page() {
             {dark ? <Moon size={15} /> : <Sun size={15} />}
             <span>{dark ? "Dark" : "Light"}</span>
           </button>
+          <div className="border-t border-[var(--border)] pt-2 mt-1">
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--muted-foreground)] truncate">
+              <User size={13} className="shrink-0" />
+              <span className="truncate">{user?.email ?? "demo mode"}</span>
+            </div>
+            <button
+              onClick={() => logout()}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors text-[var(--muted-foreground)]"
+            >
+              <LogOut size={15} />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </div>
       </aside>
 

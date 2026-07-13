@@ -600,3 +600,13 @@ export interface ApiRouteInfo {
     }>;
   } | null;
 }
+
+// --- Auth ------------------------------------------------------------------
+
+/** Authenticated user info from GET /api/a-cal/auth/me */
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string | null;
+  is_active: boolean;
+}
