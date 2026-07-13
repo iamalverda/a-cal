@@ -213,8 +213,12 @@ def test_oauth_start_missing_provider(client):
     assert resp.status_code == 404
 
 
-def test_oauth_start_no_client_id(client):
+def test_oauth_start_no_client_id(client, monkeypatch):
     """OAuth start with no client_id configured returns 400."""
+    monkeypatch.delenv("A_CAL_GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("A_CAL_GOOGLE_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
     sub_id = _create_sub(client)
     prov_id = _create_google_provider(client, sub_id, config={})
 
