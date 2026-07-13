@@ -322,16 +322,16 @@ plugins/
 
 ## Project Status
 
-718 passing tests (Python), 38 E2E tests (Playwright). 72 Python source files
-(16k+ lines), 24 TypeScript files (8.8k+ lines). Frontend build passes,
-TypeScript typecheck clean. Standalone server runs all 80+ endpoints without
+829 passing tests (Python), 79 E2E tests (Playwright). 76 Python source files
+(18.6k+ lines), 52 TypeScript/TSX files (13.1k+ lines). Frontend build passes,
+TypeScript typecheck clean. Standalone server runs all 127 endpoints without
 atom. PostgreSQL production support via `DATABASE_URL` with native JSONB,
 Alembic migrations, and Docker Compose `--profile postgres`. Conductor routes
 natural language across all 5 intents with real calendar operations. Self-model
 extractor learns from synced events. Federated swarm negotiation resolves
 sub-account conflicts with full audit trails. IMAP/SMTP email provider for any
 email server. Docker self-hosting via `docker compose up`. 5 example plugins
-with full hook coverage. SDK covers all 60+ REST endpoints.
+with full hook coverage. SDK covers all 127 REST endpoints.
 
 ### Remaining for production
 - Real OAuth credentials (Google/Outlook client ID + secret)
@@ -345,3 +345,12 @@ charter and design decisions.
 ## License
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## Additional Documentation
+
+- [Contributing Guide](CONTRIBUTING.md) — setup, code standards, git workflow, plugin development
+- [Developer Guide](docs/DEVELOPER_GUIDE.md) — API, SDK, plugins, workflows, agent specs, marketplace
+- [API Reference](docs/API_REFERENCE.md) — full REST endpoint documentation
+- [SDK README](sdk/README.md) — TypeScript SDK usage and API surface
+- [Plugin Examples](plugins/README.md) — hook reference and working plugin examples
+- [Product Charter](outputs/A-Cal_end_goal.md) — full design vision and architectural decisions
