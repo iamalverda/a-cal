@@ -245,27 +245,44 @@ class StandaloneLLMService:
             )
 
     async def _resolve_ollama_model(self, requested: str) -> str:
-        """Return the requested model if available, else the first installed model.
+        """Return the requested model if available, else the best installed model.
 
-        This handles the case where the user's configured model name doesn't
-        match any installed Ollama model (e.g. default 'llama3.2' when only
-        'gemma3:4b' is installed). Falls back gracefully instead of erroring.
+        When the requested model isn't installed, prefers a local (non-cloud)
+        model over a cloud-proxied one. Among local models, prefers smaller
+        ones for faster inference. Falls back gracefully instead of erroring.
         """
         try:
             async with httpx.AsyncClient(timeout=_OLLAMA_LIST_TIMEOUT) as client:
                 resp = await client.get(f"{self._ollama_url}/api/tags")
                 if resp.status_code != 200:
                     return requested
-                models = [m["name"] for m in resp.json().get("models", [])]
-                if requested in models:
+                all_models = resp.json().get("models", [])
+                model_names = [m["name"] for m in all_models]
+                if requested in model_names:
                     return requested
-                if models:
-                    logger.info(
-                        "model %r not found in Ollama, falling back to %r",
-                        requested, models[0],
-                    )
-                    return models[0]
-                return requested
+                if not model_names:
+                    return requested
+
+                # Separate local from cloud-proxied models. Ollama marks
+                # cloud models with a "remote_host" field in their details.
+                local_models = [
+                    m["name"] for m in all_models
+                    if not m.get("remote_host")
+                ]
+                # Prefer local models; fall back to any available.
+                candidates = local_models if local_models else model_names
+
+                # Prefer smaller models (faster for chat). Heuristic: sort by
+                # size ascending so we pick the lightest available model.
+                size_map = {m["name"]: m.get("size", 0) for m in all_models}
+                candidates.sort(key=lambda n: size_map.get(n, 0))
+
+                chosen = candidates[0]
+                logger.info(
+                    "model %r not found in Ollama, falling back to %r",
+                    requested, chosen,
+                )
+                return chosen
         except Exception:
             return requested
 
