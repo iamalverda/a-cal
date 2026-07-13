@@ -322,13 +322,22 @@ plugins/
 
 ## Project Status
 
-506 passing tests. 60 Python source files (14k lines), 23 TypeScript files
-(7k lines). Frontend build passes, TypeScript typecheck clean. Standalone
-server runs all 80+ endpoints without atom. Conductor routes natural language
-across all 5 intents with real calendar operations. Self-model extractor
-learns from synced events. Natural-language account creation works end-to-end.
-Docker self-hosting via `docker compose up`. 5 example plugins with full
-hook coverage. SDK covers all 60+ REST endpoints.
+718 passing tests (Python), 38 E2E tests (Playwright). 72 Python source files
+(16k+ lines), 24 TypeScript files (8.8k+ lines). Frontend build passes,
+TypeScript typecheck clean. Standalone server runs all 80+ endpoints without
+atom. PostgreSQL production support via `DATABASE_URL` with native JSONB,
+Alembic migrations, and Docker Compose `--profile postgres`. Conductor routes
+natural language across all 5 intents with real calendar operations. Self-model
+extractor learns from synced events. Federated swarm negotiation resolves
+sub-account conflicts with full audit trails. IMAP/SMTP email provider for any
+email server. Docker self-hosting via `docker compose up`. 5 example plugins
+with full hook coverage. SDK covers all 60+ REST endpoints.
+
+### Remaining for production
+- Real OAuth credentials (Google/Outlook client ID + secret)
+- LLM API keys for cloud model routing (or use local Ollama)
+- Community marketplace hosted registry (local file-based registry is ready)
+- SDK npm publishing (npm org/account needed)
 
 See `outputs/A-Cal_end_goal.md` in the workspace root for the full product
 charter and design decisions.
