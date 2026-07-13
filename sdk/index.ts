@@ -212,6 +212,12 @@ export class ACalClient {
     getRemixes: (id: string) => Promise<Json[]>;
     getRemixChain: (id: string) => Promise<Json[]>;
     rate: (id: string, stars: number) => Promise<Json>;
+    // Registry: portable export/import + remote browsing
+    getRegistryManifest: () => Promise<Json>;
+    exportBundle: (itemIds?: string[]) => Promise<Json>;
+    importBundle: (bundleJson: string) => Promise<Json>;
+    browseRemoteRegistry: (registryUrl: string) => Promise<Json>;
+    pullFromRemoteRegistry: (registryUrl: string, itemId: string) => Promise<Json>;
   };
 
   /** Developer API. */
@@ -379,6 +385,11 @@ export class ACalClient {
       getRemixes: (id) => get<Json[]>(`/marketplace/items/${id}/remixes`),
       getRemixChain: (id) => get<Json[]>(`/marketplace/items/${id}/remix-chain`),
       rate: (id, stars) => post<Json>(`/marketplace/items/${id}/rate`, { stars }),
+      getRegistryManifest: () => get<Json>("/marketplace/registry/manifest"),
+      exportBundle: (itemIds = []) => post<Json>("/marketplace/export", { item_ids: itemIds }),
+      importBundle: (bundleJson) => post<Json>("/marketplace/import", { bundle_json: bundleJson }),
+      browseRemoteRegistry: (registryUrl) => post<Json>("/marketplace/registry/browse", { registry_url: registryUrl }),
+      pullFromRemoteRegistry: (registryUrl, itemId) => post<Json>("/marketplace/registry/pull", { registry_url: registryUrl, item_id: itemId }),
     };
 
     this.developer = {

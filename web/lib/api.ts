@@ -565,6 +565,54 @@ export const marketplaceApi = {
       body: JSON.stringify({ stars }),
     });
   },
+
+  // --- Registry: portable export/import + remote browsing -------------------
+
+  /** Get the local registry manifest (catalog of all items, no full configs). */
+  async getRegistryManifest(): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/marketplace/registry/manifest`);
+  },
+
+  /** Export marketplace items as a portable JSON bundle. Empty ids = all items. */
+  async exportBundle(itemIds?: string[]): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/marketplace/export`, {
+      method: "POST",
+      body: JSON.stringify({ item_ids: itemIds ?? [] }),
+    });
+  },
+
+  /** Import items from a JSON bundle string. Returns import summary. */
+  async importBundle(bundleJson: string): Promise<{
+    imported: number;
+    skipped: number;
+    errors: string[];
+    exported_by: string;
+    exported_at: string;
+  }> {
+    return fetchJson(`${API_BASE}/marketplace/import`, {
+      method: "POST",
+      body: JSON.stringify({ bundle_json: bundleJson }),
+    });
+  },
+
+  /** Fetch a remote registry's manifest for browsing. */
+  async browseRemoteRegistry(registryUrl: string): Promise<Record<string, unknown>> {
+    return fetchJson(`${API_BASE}/marketplace/registry/browse`, {
+      method: "POST",
+      body: JSON.stringify({ registry_url: registryUrl }),
+    });
+  },
+
+  /** Pull a specific item from a remote registry and publish it locally. */
+  async pullFromRemoteRegistry(
+    registryUrl: string,
+    itemId: string,
+  ): Promise<{ published: boolean; item: MarketplaceItem; message?: string }> {
+    return fetchJson(`${API_BASE}/marketplace/registry/pull`, {
+      method: "POST",
+      body: JSON.stringify({ registry_url: registryUrl, item_id: itemId }),
+    });
+  },
 };
 
 // --- Developer --------------------------------------------------------------
