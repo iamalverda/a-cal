@@ -31,6 +31,17 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+# --- Email depth levels (mirrors a_cal.settings.email.EmailDepth) ----------
+# Duplicated here to avoid a circular import (settings imports nothing from
+# agents, but keeping the values in sync is straightforward).
+
+DEPTH_SYNC_NOTIFY = "sync_notify"
+DEPTH_AGENT_MEDIATED = "agent_mediated"
+DEPTH_FULL_TWO_WAY = "full_two_way"
+
+_VALID_DEPTHS = {DEPTH_SYNC_NOTIFY, DEPTH_AGENT_MEDIATED, DEPTH_FULL_TWO_WAY}
+
+
 # --- Scheduling keyword detection -------------------------------------------
 
 SCHEDULING_KEYWORDS = [
@@ -183,6 +194,11 @@ class SchedulingSuggestion:
     suggested_alternative: Optional[str] = None
     confidence: float = 0.0
     message: str = ""
+    # Draft reply text (populated at agent_mediated depth or above).
+    draft_reply: Optional[str] = None
+    # Whether this suggestion may be auto-executed without per-action
+    # confirmation (only at full_two_way depth).
+    auto_action: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -194,6 +210,8 @@ class SchedulingSuggestion:
             "suggested_alternative": self.suggested_alternative,
             "confidence": self.confidence,
             "message": self.message,
+            "draft_reply": self.draft_reply,
+            "auto_action": self.auto_action,
         }
 
 
@@ -511,6 +529,7 @@ def _estimate_duration(raw: str, ptype: str, match: re.Match) -> Optional[int]:
 def check_conflicts(
     detection: SchedulingDetection,
     calendar_events: List[Dict[str, Any]],
+    depth: str = DEPTH_SYNC_NOTIFY,
 ) -> List[SchedulingSuggestion]:
     """Check if proposed meeting times conflict with existing events.
 
@@ -537,7 +556,7 @@ def check_conflicts(
                     # Check for overlap
                     if (extracted.estimated_start < evt_end and extracted.estimated_end > evt_start):
                         conflict_found = True
-                        suggestions.append(SchedulingSuggestion(
+                        conflict_suggestion = SchedulingSuggestion(
                             type="conflict_warning",
                             email_subject=detection.subject,
                             email_from=detection.proposed_by,
@@ -549,13 +568,20 @@ def check_conflicts(
                                 f"'{event.get('title', 'existing event')}' at {extracted.date_text} {extracted.time_text}. "
                                 f"Would you like me to propose an alternative time?"
                             ),
-                        ))
+                        )
+                        if depth in (DEPTH_AGENT_MEDIATED, DEPTH_FULL_TWO_WAY):
+                            conflict_suggestion.draft_reply = _draft_conflict_reply(
+                                detection, event.get("title", "existing event"), extracted
+                            )
+                        if depth == DEPTH_FULL_TWO_WAY:
+                            conflict_suggestion.auto_action = True
+                        suggestions.append(conflict_suggestion)
                         break
             except (ValueError, TypeError):
                 continue
 
         if not conflict_found:
-            suggestions.append(SchedulingSuggestion(
+            create_suggestion = SchedulingSuggestion(
                 type="create_event",
                 email_subject=detection.subject,
                 email_from=detection.proposed_by,
@@ -566,9 +592,46 @@ def check_conflicts(
                     f"for {extracted.date_text} {extracted.time_text}. "
                     f"No conflicts found. Shall I add it to your calendar?"
                 ),
-            ))
+            )
+            if depth in (DEPTH_AGENT_MEDIATED, DEPTH_FULL_TWO_WAY):
+                create_suggestion.draft_reply = _draft_accept_reply(
+                    detection, extracted
+                )
+            if depth == DEPTH_FULL_TWO_WAY:
+                create_suggestion.auto_action = True
+            suggestions.append(create_suggestion)
 
     return suggestions
+
+
+def _draft_accept_reply(
+    detection: SchedulingDetection,
+    extracted: ExtractedTime,
+) -> str:
+    """Draft a reply accepting a meeting proposal (agent_mediated+)."""
+    time_str = f"{extracted.date_text} {extracted.time_text}".strip()
+    return (
+        f"Hi {detection.proposed_by.split('@')[0]},\n\n"
+        f"That works for me. I've added '{detection.subject}' to my calendar "
+        f"for {time_str}. Looking forward to it.\n\n"
+        f"Best"
+    )
+
+
+def _draft_conflict_reply(
+    detection: SchedulingDetection,
+    conflict_title: str,
+    extracted: ExtractedTime,
+) -> str:
+    """Draft a reply proposing an alternative time due to a conflict (agent_mediated+)."""
+    time_str = f"{extracted.date_text} {extracted.time_text}".strip()
+    return (
+        f"Hi {detection.proposed_by.split('@')[0]},\n\n"
+        f"Thanks for the invite for {time_str}. Unfortunately I have a conflict "
+        f"with '{conflict_title}' at that time. Could we find another slot? "
+        f"I'm happy to suggest a few alternatives.\n\n"
+        f"Best"
+    )
 
 
 def _parse_event_time(time_str: str) -> Optional[datetime]:
@@ -589,6 +652,7 @@ def _parse_event_time(time_str: str) -> Optional[datetime]:
 def scan_emails_for_scheduling(
     emails: List[Dict[str, Any]],
     calendar_events: List[Dict[str, Any]],
+    depth: str = DEPTH_SYNC_NOTIFY,
 ) -> Dict[str, Any]:
     """Full email-to-schedule pipeline: scan emails, detect meetings, check conflicts.
 
@@ -596,6 +660,11 @@ def scan_emails_for_scheduling(
         emails: List of email message dicts with subject, from_address,
             snippet, has_calendar_invite fields.
         calendar_events: List of existing calendar events.
+        depth: Email integration depth — one of ``sync_notify``,
+            ``agent_mediated``, or ``full_two_way``. At ``sync_notify``
+            the scan is read-only (detect + suggest). At
+            ``agent_mediated`` draft replies are included. At
+            ``full_two_way`` suggestions are marked auto-actionable.
 
     Returns:
         Dict with:
@@ -603,7 +672,12 @@ def scan_emails_for_scheduling(
           - suggestions: List of SchedulingSuggestion (create event / conflict warning)
           - summary: Human-readable summary string
           - stats: Counts (total_scanned, scheduling_related, proposals, conflicts)
+          - depth: The depth level used for this scan
+          - agent_actions_enabled: Whether draft replies were generated
+          - autonomous_enabled: Whether suggestions are auto-actionable
     """
+    if depth not in _VALID_DEPTHS:
+        depth = DEPTH_SYNC_NOTIFY
     detections: List[SchedulingDetection] = []
     all_suggestions: List[SchedulingSuggestion] = []
 
@@ -618,7 +692,7 @@ def scan_emails_for_scheduling(
 
         if detection.is_scheduling_related:
             detections.append(detection)
-            suggestions = check_conflicts(detection, calendar_events)
+            suggestions = check_conflicts(detection, calendar_events, depth=depth)
             all_suggestions.extend(suggestions)
 
     # Generate summary
@@ -631,6 +705,8 @@ def scan_emails_for_scheduling(
         "cancellations": sum(1 for d in detections if d.is_cancellation),
         "conflicts": sum(1 for s in all_suggestions if s.type == "conflict_warning"),
         "create_ready": sum(1 for s in all_suggestions if s.type == "create_event"),
+        "draft_replies": sum(1 for s in all_suggestions if s.draft_reply is not None),
+        "auto_actions": sum(1 for s in all_suggestions if s.auto_action),
     }
 
     summary_parts: List[str] = []
@@ -655,4 +731,7 @@ def scan_emails_for_scheduling(
         "suggestions": [s.to_dict() for s in all_suggestions],
         "summary": " ".join(summary_parts),
         "stats": stats,
+        "depth": depth,
+        "agent_actions_enabled": depth in (DEPTH_AGENT_MEDIATED, DEPTH_FULL_TWO_WAY),
+        "autonomous_enabled": depth == DEPTH_FULL_TWO_WAY,
     }

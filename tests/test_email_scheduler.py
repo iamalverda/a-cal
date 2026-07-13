@@ -306,3 +306,120 @@ class TestScanEmailsForScheduling:
         result = scan_emails_for_scheduling(emails, calendar_events)
         # The pipeline should detect the scheduling content
         assert result["stats"]["scheduling_related"] == 1
+
+
+class TestDepthGatedScan:
+    """Tests for depth-gated email scan behavior (charter §5)."""
+
+    def _make_scheduling_email(self) -> dict:
+        """Create an email that will be detected as a meeting proposal with time."""
+        now = datetime.now(timezone.utc)
+        tomorrow = now + timedelta(days=1)
+        tomorrow_str = tomorrow.strftime("%B %d")
+        return {
+            "subject": f"Let's meet on {tomorrow_str} at 2pm",
+            "from_address": "colleague@work.com",
+            "snippet": f"Can we schedule a meeting on {tomorrow_str} at 2pm for 30 minutes? Please confirm.",
+            "has_calendar_invite": False,
+        }
+
+    def _make_conflicting_events(self) -> list[dict]:
+        """Create calendar events that conflict with the 2pm meeting."""
+        now = datetime.now(timezone.utc)
+        tomorrow = now + timedelta(days=1)
+        return [
+            {
+                "title": "Busy Block",
+                "start": tomorrow.replace(hour=14, minute=0, second=0, microsecond=0).isoformat(),
+                "end": tomorrow.replace(hour=14, minute=30, second=0, microsecond=0).isoformat(),
+            }
+        ]
+
+    def test_sync_notify_no_draft_replies(self):
+        """At sync_notify depth, no draft replies are generated."""
+        result = scan_emails_for_scheduling(
+            [self._make_scheduling_email()], [], depth="sync_notify"
+        )
+        assert result["depth"] == "sync_notify"
+        assert result["agent_actions_enabled"] is False
+        assert result["autonomous_enabled"] is False
+        assert result["stats"]["draft_replies"] == 0
+        assert result["stats"]["auto_actions"] == 0
+
+    def test_agent_mediated_includes_draft_replies(self):
+        """At agent_mediated depth, draft replies are generated for suggestions."""
+        result = scan_emails_for_scheduling(
+            [self._make_scheduling_email()], [], depth="agent_mediated"
+        )
+        assert result["depth"] == "agent_mediated"
+        assert result["agent_actions_enabled"] is True
+        assert result["autonomous_enabled"] is False
+        # If any suggestions were generated, they should have draft replies
+        if result["suggestions"]:
+            assert result["stats"]["draft_replies"] > 0
+            assert all(s["draft_reply"] is not None for s in result["suggestions"])
+            # But not auto-actionable
+            assert all(not s["auto_action"] for s in result["suggestions"])
+
+    def test_full_two_way_marks_auto_action(self):
+        """At full_two_way depth, suggestions are auto-actionable."""
+        result = scan_emails_for_scheduling(
+            [self._make_scheduling_email()], [], depth="full_two_way"
+        )
+        assert result["depth"] == "full_two_way"
+        assert result["agent_actions_enabled"] is True
+        assert result["autonomous_enabled"] is True
+        if result["suggestions"]:
+            assert result["stats"]["auto_actions"] > 0
+            assert all(s["auto_action"] for s in result["suggestions"])
+            # Draft replies also present
+            assert all(s["draft_reply"] is not None for s in result["suggestions"])
+
+    def test_agent_mediated_conflict_draft_reply(self):
+        """At agent_mediated, conflict warnings include a draft reply."""
+        result = scan_emails_for_scheduling(
+            [self._make_scheduling_email()],
+            self._make_conflicting_events(),
+            depth="agent_mediated",
+        )
+        conflicts = [s for s in result["suggestions"] if s["type"] == "conflict_warning"]
+        if conflicts:
+            assert all(c["draft_reply"] is not None for c in conflicts)
+            assert all("conflict" in c["draft_reply"].lower() for c in conflicts)
+
+    def test_full_two_way_conflict_auto_action(self):
+        """At full_two_way, conflict warnings are auto-actionable."""
+        result = scan_emails_for_scheduling(
+            [self._make_scheduling_email()],
+            self._make_conflicting_events(),
+            depth="full_two_way",
+        )
+        conflicts = [s for s in result["suggestions"] if s["type"] == "conflict_warning"]
+        if conflicts:
+            assert all(c["auto_action"] for c in conflicts)
+            assert all(c["draft_reply"] is not None for c in conflicts)
+
+    def test_invalid_depth_falls_back_to_sync_notify(self):
+        """An invalid depth string falls back to sync_notify behavior."""
+        result = scan_emails_for_scheduling(
+            [self._make_scheduling_email()], [], depth="bogus"
+        )
+        assert result["depth"] == "sync_notify"
+        assert result["agent_actions_enabled"] is False
+
+    def test_default_depth_is_sync_notify(self):
+        """When depth is not specified, defaults to sync_notify."""
+        result = scan_emails_for_scheduling([self._make_scheduling_email()], [])
+        assert result["depth"] == "sync_notify"
+        assert result["agent_actions_enabled"] is False
+
+    def test_draft_reply_content_is_reasonable(self):
+        """Draft reply text contains a greeting and references the meeting."""
+        result = scan_emails_for_scheduling(
+            [self._make_scheduling_email()], [], depth="agent_mediated"
+        )
+        for s in result["suggestions"]:
+            if s["draft_reply"]:
+                # Should start with "Hi" and contain a newline
+                assert s["draft_reply"].startswith("Hi")
+                assert "\\n" in s["draft_reply"] or "\n" in s["draft_reply"]

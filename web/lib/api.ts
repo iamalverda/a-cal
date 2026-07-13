@@ -223,12 +223,17 @@ export const api = {
     });
   },
 
-  /** Scan emails for scheduling-related content and return suggestions. */
+  /** Scan emails for scheduling-related content and return suggestions.
+   *  The depth field reflects the user's email integration depth setting,
+   *  which gates whether draft replies and auto-actions are included. */
   async scanEmailForSchedule(): Promise<{
     detections: Array<Record<string, unknown>>;
     suggestions: Array<Record<string, unknown>>;
     summary: string;
     stats: Record<string, number>;
+    depth: string;
+    agent_actions_enabled: boolean;
+    autonomous_enabled: boolean;
   }> {
     return fetchJson(`${API_BASE}/email/scan-schedule`, {
       method: "POST",

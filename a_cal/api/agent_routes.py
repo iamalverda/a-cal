@@ -328,8 +328,15 @@ async def scan_emails_for_schedule():
     # Get calendar events
     events = data_store.get_unified_calendar(days=14)
 
-    # Run the pipeline
-    result = scan_emails_for_scheduling(emails, events)
+    # Read email integration depth to gate agent-mediated features
+    email_config = _store.get_email_settings(user_id)
+    depth = email_config.depth
+
+    # Run the pipeline with depth gating:
+    #   sync_notify     → read-only detect + suggest
+    #   agent_mediated  → adds draft replies for approval
+    #   full_two_way    → marks suggestions as auto-actionable
+    result = scan_emails_for_scheduling(emails, events, depth=depth)
     return result
 
 
