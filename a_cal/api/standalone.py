@@ -31,6 +31,7 @@ from a_cal.api.developer_routes import router as developer_router
 from a_cal.api.standalone_data import router as standalone_data_router
 from a_cal.api.oauth_routes import router as oauth_router
 from a_cal.api.analytics_routes import router as analytics_router
+from a_cal.api.booking_routes import router as booking_router
 from a_cal.auth.session import (
     router as auth_router,
     AuthMiddleware,
@@ -117,6 +118,7 @@ app.include_router(developer_router)
 app.include_router(standalone_data_router)
 app.include_router(oauth_router)
 app.include_router(analytics_router)
+app.include_router(booking_router)
 app.include_router(auth_router)
 
 

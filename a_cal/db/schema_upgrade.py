@@ -39,6 +39,79 @@ _COLUMN_ADDITIONS: list[tuple[str, str, str]] = [
         "ALTER TABLE a_cal_marketplace_items ADD COLUMN flag_count INTEGER "
         "NOT NULL DEFAULT 0",
     ),
+    # EventTypeDB scheduling extensions (Phase 2)
+    (
+        "a_cal_event_types",
+        "buffer_before_minutes",
+        "ALTER TABLE a_cal_event_types ADD COLUMN buffer_before_minutes INTEGER "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_event_types",
+        "buffer_after_minutes",
+        "ALTER TABLE a_cal_event_types ADD COLUMN buffer_after_minutes INTEGER "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_event_types",
+        "min_notice_hours",
+        "ALTER TABLE a_cal_event_types ADD COLUMN min_notice_hours INTEGER "
+        "NOT NULL DEFAULT 24",
+    ),
+    (
+        "a_cal_event_types",
+        "max_booking_days",
+        "ALTER TABLE a_cal_event_types ADD COLUMN max_booking_days INTEGER "
+        "NOT NULL DEFAULT 60",
+    ),
+    (
+        "a_cal_event_types",
+        "recurring_pattern",
+        "ALTER TABLE a_cal_event_types ADD COLUMN recurring_pattern VARCHAR(50) "
+        "NOT NULL DEFAULT 'none'",
+    ),
+    (
+        "a_cal_event_types",
+        "recurring_interval",
+        "ALTER TABLE a_cal_event_types ADD COLUMN recurring_interval INTEGER "
+        "NOT NULL DEFAULT 1",
+    ),
+    (
+        "a_cal_event_types",
+        "custom_questions",
+        "ALTER TABLE a_cal_event_types ADD COLUMN custom_questions TEXT "
+        "NOT NULL DEFAULT '[]'",
+    ),
+    (
+        "a_cal_event_types",
+        "video_provider",
+        "ALTER TABLE a_cal_event_types ADD COLUMN video_provider VARCHAR(50) "
+        "NOT NULL DEFAULT ''",
+    ),
+    (
+        "a_cal_event_types",
+        "reminder_enabled",
+        "ALTER TABLE a_cal_event_types ADD COLUMN reminder_enabled BOOLEAN "
+        "NOT NULL DEFAULT 1",
+    ),
+    (
+        "a_cal_event_types",
+        "reminder_minutes_before",
+        "ALTER TABLE a_cal_event_types ADD COLUMN reminder_minutes_before INTEGER "
+        "NOT NULL DEFAULT 60",
+    ),
+    (
+        "a_cal_event_types",
+        "confirmation_email_enabled",
+        "ALTER TABLE a_cal_event_types ADD COLUMN confirmation_email_enabled BOOLEAN "
+        "NOT NULL DEFAULT 1",
+    ),
+    (
+        "a_cal_event_types",
+        "confirmation_template",
+        "ALTER TABLE a_cal_event_types ADD COLUMN confirmation_template TEXT "
+        "NULL",
+    ),
 ]
 
 

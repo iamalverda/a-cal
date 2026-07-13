@@ -100,6 +100,14 @@ class SyncRuleCreate(BaseModel):
     priority: int = 0
 
 
+class AttachmentOut(BaseModel):
+    """Metadata for an email attachment shown in the UI."""
+    filename: str
+    content_type: str = "application/octet-stream"
+    size: int = 0
+    content_id: str | None = None
+
+
 class EmailMessageOut(BaseModel):
     """Serialized email message returned to the frontend.
 
@@ -124,6 +132,7 @@ class EmailMessageOut(BaseModel):
     is_starred: bool = False
     body_text: str | None = None
     thread_id: str | None = None
+    attachments: list[AttachmentOut] = Field(default_factory=list)
 
 
 class EmailAccountOut(BaseModel):
@@ -646,6 +655,15 @@ async def list_email_messages(
                     is_starred=is_starred,
                     body_text=msg.body_text,
                     thread_id=msg.thread_id,
+                    attachments=[
+                        AttachmentOut(
+                            filename=a.filename,
+                            content_type=a.content_type,
+                            size=a.size,
+                            content_id=a.content_id,
+                        )
+                        for a in (msg.attachments or [])
+                    ],
                 ))
         except Exception as exc:
             logger.warning("email listing failed for %s: %s", p["id"], exc)
@@ -858,6 +876,15 @@ async def search_email(
                     is_starred="STARRED" in labels,
                     body_text=msg.body_text,
                     thread_id=msg.thread_id,
+                    attachments=[
+                        AttachmentOut(
+                            filename=a.filename,
+                            content_type=a.content_type,
+                            size=a.size,
+                            content_id=a.content_id,
+                        )
+                        for a in (msg.attachments or [])
+                    ],
                 ))
         except Exception as exc:
             logger.warning("email search failed for %s: %s", p["id"], exc)
@@ -909,7 +936,9 @@ async def list_email_folders(
 async def send_email(body: dict[str, Any]) -> dict[str, Any]:
     """Send an email through a connected email provider.
 
-    Body fields: provider_connection_id, to (list), subject, body_text.
+    Body fields: provider_connection_id, to (list), subject, body_text,
+    attachments (optional list of {filename, content_type, content} where
+    content is base64-encoded).
     """
     from a_cal.providers.factory import build_email_provider
 
@@ -926,11 +955,15 @@ async def send_email(body: dict[str, Any]) -> dict[str, Any]:
 
     try:
         provider = build_email_provider(conn)
-        msg_id = await provider.send_message(
-            to=body.get("to", []),
-            subject=body.get("subject", ""),
-            body_text=body.get("body_text", ""),
-        )
+        kwargs: dict[str, Any] = {
+            "to": body.get("to", []),
+            "subject": body.get("subject", ""),
+            "body_text": body.get("body_text", ""),
+        }
+        attachments = body.get("attachments")
+        if attachments:
+            kwargs["attachments"] = attachments
+        msg_id = await provider.send_message(**kwargs)
         return {"status": "sent", "provider_message_id": msg_id}
     except Exception as exc:
         logger.warning("email send failed for %s: %s", provider_id, exc)

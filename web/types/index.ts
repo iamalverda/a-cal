@@ -45,6 +45,13 @@ export interface UnifiedEvent {
   metadata: Record<string, unknown>;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content_type: string;
+  size: number;
+  content_id?: string | null;
+}
+
 export interface EmailMessage {
   provider_message_id: string;
   provider_type: string;
@@ -64,6 +71,7 @@ export interface EmailMessage {
   is_starred?: boolean;
   body_text?: string | null;
   thread_id?: string | null;
+  attachments?: EmailAttachment[];
 }
 
 /** A connected email account shown in the unified inbox sidebar. */
@@ -603,6 +611,15 @@ export interface AvailabilitySchedule {
   timezone: string;
 }
 
+export interface CustomQuestion {
+  id: string;
+  label: string;
+  type: "text" | "textarea" | "select" | "phone" | "checkbox";
+  required: boolean;
+  options: string[];
+  placeholder: string;
+}
+
 export interface EventType {
   id: string;
   title: string;
@@ -614,6 +631,49 @@ export interface EventType {
   status: string;
   color: string;
   metadata: Record<string, unknown>;
+  buffer_before_minutes: number;
+  buffer_after_minutes: number;
+  min_notice_hours: number;
+  max_booking_days: number;
+  recurring_pattern: string;
+  recurring_interval: number;
+  custom_questions: CustomQuestion[];
+  video_provider: string;
+  reminder_enabled: boolean;
+  reminder_minutes_before: number;
+  confirmation_email_enabled: boolean;
+  confirmation_template: string | null;
+}
+
+export interface BookingSlot {
+  start: string;
+  end: string;
+}
+
+export interface Booking {
+  id: string;
+  event_type_id: string;
+  user_id: string;
+  attendee_name: string;
+  attendee_email: string;
+  attendee_timezone: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+  answers: Record<string, unknown>;
+  video_link: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface BookingResult {
+  status: string;
+  booking_id: string;
+  start_time: string;
+  end_time: string;
+  video_link: string | null;
+  event_type_title: string;
 }
 
 // --- Calendar Tools (zero-calendar integration) ----------------------------

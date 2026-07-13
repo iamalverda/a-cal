@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Base,
+    BookingDB,
     CalendarEvent,
     EventTypeDB,
     Negotiation,
@@ -119,6 +120,18 @@ def _serialize_event_type(et: EventTypeDB) -> dict[str, Any]:
         "status": et.status,
         "color": et.color,
         "metadata": et.event_metadata or {},
+        "buffer_before_minutes": et.buffer_before_minutes,
+        "buffer_after_minutes": et.buffer_after_minutes,
+        "min_notice_hours": et.min_notice_hours,
+        "max_booking_days": et.max_booking_days,
+        "recurring_pattern": et.recurring_pattern,
+        "recurring_interval": et.recurring_interval,
+        "custom_questions": et.custom_questions or [],
+        "video_provider": et.video_provider,
+        "reminder_enabled": et.reminder_enabled,
+        "reminder_minutes_before": et.reminder_minutes_before,
+        "confirmation_email_enabled": et.confirmation_email_enabled,
+        "confirmation_template": et.confirmation_template,
     }
 
 
@@ -882,7 +895,8 @@ class PersistentStore:
         """Create a new event type and persist it to the database.
 
         Args:
-            data: Event type fields (title, slug, duration_minutes, etc.).
+            data: Event type fields including scheduling constraints, recurring
+                pattern, custom questions, video provider, and reminders.
 
         Returns:
             The created event type as a dict.
@@ -899,6 +913,18 @@ class PersistentStore:
                 status=data.get("status", "active"),
                 color=data.get("color", "#3B82F6"),
                 event_metadata=data.get("metadata", {}),
+                buffer_before_minutes=data.get("buffer_before_minutes", 0),
+                buffer_after_minutes=data.get("buffer_after_minutes", 0),
+                min_notice_hours=data.get("min_notice_hours", 24),
+                max_booking_days=data.get("max_booking_days", 60),
+                recurring_pattern=data.get("recurring_pattern", "none"),
+                recurring_interval=data.get("recurring_interval", 1),
+                custom_questions=data.get("custom_questions", []),
+                video_provider=data.get("video_provider", ""),
+                reminder_enabled=data.get("reminder_enabled", True),
+                reminder_minutes_before=data.get("reminder_minutes_before", 60),
+                confirmation_email_enabled=data.get("confirmation_email_enabled", True),
+                confirmation_template=data.get("confirmation_template"),
             )
             db.add(et)
             db.commit()
@@ -948,3 +974,208 @@ class PersistentStore:
         with self._session() as db:
             db.query(EventTypeDB).delete()
             db.commit()
+
+    def update_event_type(self, et_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update an event type's fields.
+
+        Args:
+            et_id: The event type UUID.
+            patch: Dict of fields to update.
+
+        Returns:
+            Updated event type dict, or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(EventTypeDB).filter(
+                EventTypeDB.id == et_id,
+                EventTypeDB.user_id == _uid(),
+            ).first()
+            if row is None:
+                return None
+            for key, val in patch.items():
+                if key == "metadata":
+                    row.event_metadata = val
+                elif hasattr(row, key):
+                    setattr(row, key, val)
+            db.commit()
+            db.refresh(row)
+            return _serialize_event_type(row)
+
+    def get_event_type_by_slug(self, slug: str) -> dict[str, Any] | None:
+        """Get an event type by its slug (for public booking pages).
+
+        Does not filter by user_id since the booking page is public.
+
+        Args:
+            slug: The URL slug of the event type.
+
+        Returns:
+            Event type dict or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(EventTypeDB).filter(
+                EventTypeDB.slug == slug,
+                EventTypeDB.status == "active",
+            ).first()
+            if row is None:
+                return None
+            return _serialize_event_type(row)
+
+    # --- Bookings ---
+
+    def create_booking(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new booking.
+
+        Args:
+            data: Booking fields (event_type_id, attendee_name, attendee_email,
+                start_time, end_time, answers, video_link, etc.).
+
+        Returns:
+            The created booking as a dict.
+        """
+        with self._session() as db:
+            # Look up the event type to get the owner's user_id.
+            et = db.query(EventTypeDB).filter(
+                EventTypeDB.id == data["event_type_id"]
+            ).first()
+            if et is None:
+                raise ValueError("Event type not found")
+
+            booking = BookingDB(
+                event_type_id=data["event_type_id"],
+                user_id=et.user_id,
+                attendee_name=data.get("attendee_name", ""),
+                attendee_email=data.get("attendee_email", ""),
+                attendee_timezone=data.get("attendee_timezone", "UTC"),
+                start_time=data.get("start_time"),
+                end_time=data.get("end_time"),
+                status=data.get("status", "confirmed"),
+                answers=data.get("answers", {}),
+                video_link=data.get("video_link"),
+                notes=data.get("notes"),
+                booking_metadata=data.get("metadata", {}),
+            )
+            db.add(booking)
+            db.commit()
+            db.refresh(booking)
+            return self._serialize_booking(booking)
+
+    def list_bookings(self, event_type_id: str | None = None) -> list[dict[str, Any]]:
+        """List bookings for the current user.
+
+        Args:
+            event_type_id: If given, filter to bookings for that event type.
+
+        Returns:
+            List of booking dicts.
+        """
+        with self._session() as db:
+            q = db.query(BookingDB).filter(BookingDB.user_id == _uid())
+            if event_type_id:
+                q = q.filter(BookingDB.event_type_id == event_type_id)
+            rows = q.order_by(BookingDB.start_time.desc()).all()
+            return [self._serialize_booking(r) for r in rows]
+
+    def get_booking(self, booking_id: str) -> dict[str, Any] | None:
+        """Get a single booking by ID.
+
+        Args:
+            booking_id: The booking UUID.
+
+        Returns:
+            Booking dict or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(BookingDB).filter(
+                BookingDB.id == booking_id,
+                BookingDB.user_id == _uid(),
+            ).first()
+            if row is None:
+                return None
+            return self._serialize_booking(row)
+
+    def update_booking(self, booking_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update a booking (e.g. cancel, add notes).
+
+        Args:
+            booking_id: The booking UUID.
+            patch: Dict of fields to update.
+
+        Returns:
+            Updated booking dict, or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(BookingDB).filter(
+                BookingDB.id == booking_id,
+                BookingDB.user_id == _uid(),
+            ).first()
+            if row is None:
+                return None
+            for key, val in patch.items():
+                if key == "metadata":
+                    row.booking_metadata = val
+                elif hasattr(row, key):
+                    setattr(row, key, val)
+            db.commit()
+            db.refresh(row)
+            return self._serialize_booking(row)
+
+    def delete_booking(self, booking_id: str) -> bool:
+        """Delete a booking by ID.
+
+        Args:
+            booking_id: The booking UUID.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        with self._session() as db:
+            row = db.query(BookingDB).filter(
+                BookingDB.id == booking_id,
+                BookingDB.user_id == _uid(),
+            ).first()
+            if row is None:
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+
+    def check_slot_available(self, event_type_id: str, start_time: datetime, end_time: datetime) -> bool:
+        """Check if a time slot is available (no overlapping bookings).
+
+        Args:
+            event_type_id: The event type UUID.
+            start_time: Proposed booking start.
+            end_time: Proposed booking end.
+
+        Returns:
+            True if the slot is available, False if there's a conflict.
+        """
+        with self._session() as db:
+            existing = db.query(BookingDB).filter(
+                BookingDB.event_type_id == event_type_id,
+                BookingDB.status != "cancelled",
+                BookingDB.start_time < end_time,
+                BookingDB.end_time > start_time,
+            ).first()
+            return existing is None
+
+    @staticmethod
+    def _serialize_booking(b: BookingDB) -> dict[str, Any]:
+        """Convert a BookingDB ORM object to a dict."""
+        return {
+            "id": b.id,
+            "event_type_id": b.event_type_id,
+            "user_id": b.user_id,
+            "attendee_name": b.attendee_name,
+            "attendee_email": b.attendee_email,
+            "attendee_timezone": b.attendee_timezone,
+            "start_time": b.start_time.isoformat() if b.start_time else None,
+            "end_time": b.end_time.isoformat() if b.end_time else None,
+            "status": b.status,
+            "answers": b.answers or {},
+            "video_link": b.video_link,
+            "notes": b.notes,
+            "metadata": b.booking_metadata or {},
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+        }

@@ -5,7 +5,7 @@ import {
   Mail, RefreshCw, Inbox, CalendarPlus, Send, Loader2, ChevronRight,
   ScanLine, AlertTriangle, Clock, CheckCircle2, XCircle, Star, Search,
   Trash2, MailOpen, Reply, ReplyAll, Forward, X, Plus, User, Folder,
-  Archive, PenSquare, CircleDot,
+  Archive, PenSquare, CircleDot, Paperclip, FileText, Image as ImageIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import type { EmailMessage, EmailAccount, EmailFolder } from "@/types";
+import type { EmailMessage, EmailAccount, EmailFolder, EmailAttachment } from "@/types";
 
 interface ExtractedTime {
   raw_text: string;
@@ -614,6 +614,36 @@ export function EmailPanel() {
                 <div className="prose prose-sm max-w-none whitespace-pre-wrap text-sm leading-relaxed">
                   {selected.body_text || selected.snippet || "(no body content available)"}
                 </div>
+
+                {/* Attachments */}
+                {selected.attachments && selected.attachments.length > 0 && (
+                  <div className="mt-4 border-t border-[var(--border)] pt-3">
+                    <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]">
+                      <Paperclip size={12} />
+                      {selected.attachments.length} attachment{selected.attachments.length > 1 ? "s" : ""}
+                    </div>
+                    <div className="space-y-1.5">
+                      {selected.attachments.map((att, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-sm"
+                        >
+                          {att.content_type.startsWith("image/")
+                            ? <ImageIcon size={14} className="text-[var(--primary)]" />
+                            : <FileText size={14} className="text-[var(--primary)]" />}
+                          <span className="flex-1 truncate">{att.filename}</span>
+                          <span className="text-xs text-[var(--muted-foreground)]">
+                            {att.size > 1024 * 1024
+                              ? `${(att.size / (1024 * 1024)).toFixed(1)} MB`
+                              : att.size > 1024
+                                ? `${Math.ceil(att.size / 1024)} KB`
+                                : `${att.size} B`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Reply bar */}
@@ -794,6 +824,37 @@ function ComposeModal({
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<{ filename: string; content_type: string; content: string }[]>([]);
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const newAttachments: { filename: string; content_type: string; content: string }[] = [];
+    for (const file of Array.from(files)) {
+      const content = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Strip the data URL prefix (e.g. "data:image/png;base64,")
+          const base64 = result.includes(",") ? result.split(",")[1] : result;
+          resolve(base64);
+        };
+        reader.readAsDataURL(file);
+      });
+      newAttachments.push({
+        filename: file.name,
+        content_type: file.type || "application/octet-stream",
+        content,
+      });
+    }
+    setAttachments((prev) => [...prev, ...newAttachments]);
+    // Reset the input so the same file can be selected again.
+    e.target.value = "";
+  }, []);
+
+  const removeAttachment = useCallback((idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
 
   const handleSend = useCallback(async () => {
     if (!fromId || !to.trim()) return;
@@ -806,6 +867,7 @@ function ComposeModal({
         to: toList,
         subject: subject || "(no subject)",
         body_text: body,
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
       onSent();
     } catch (err) {
@@ -813,7 +875,7 @@ function ComposeModal({
     } finally {
       setSending(false);
     }
-  }, [fromId, to, subject, body, onSent]);
+  }, [fromId, to, subject, body, attachments, onSent]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -875,6 +937,35 @@ function ComposeModal({
             className="w-full resize-none rounded-md border border-[var(--input)] bg-[var(--background)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
             rows={8}
           />
+
+          {/* Attachments */}
+          <div className="space-y-1.5">
+            {attachments.map((att, idx) => (
+              <div
+                key={idx}
+                className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--muted)] px-3 py-1.5 text-sm"
+              >
+                <Paperclip size={12} className="text-[var(--muted-foreground)]" />
+                <span className="flex-1 truncate">{att.filename}</span>
+                <button
+                  onClick={() => removeAttachment(idx)}
+                  className="text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+              <Paperclip size={12} />
+              Attach files
+              <input
+                type="file"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+            </label>
+          </div>
 
           {error && (
             <div className="flex items-center gap-2 text-sm text-[var(--destructive)]">

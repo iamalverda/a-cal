@@ -86,6 +86,22 @@ class SyncPage:
 
 
 @dataclass
+class AttachmentDTO:
+    """Metadata for an email attachment (filename, type, size).
+
+    ``content`` is populated only when the attachment is being sent or
+    explicitly downloaded; it is left empty during listing to avoid
+    downloading large payloads on every inbox refresh.
+    """
+
+    filename: str
+    content_type: str = "application/octet-stream"
+    size: int = 0
+    content: bytes | None = None
+    content_id: str | None = None  # for inline images
+
+
+@dataclass
 class EmailMessageDTO:
     """Provider-agnostic email message (minimal fields the agents need)."""
 
@@ -100,6 +116,7 @@ class EmailMessageDTO:
     thread_id: str | None = None
     labels: list[str] = field(default_factory=list)
     headers: dict[str, str] = field(default_factory=dict)
+    attachments: list[AttachmentDTO] = field(default_factory=list)
 
 
 class CalendarProvider(ABC):

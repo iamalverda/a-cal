@@ -257,7 +257,9 @@ class EventTypeDB(Base):
 
     Persisted version of the EventType dataclass from calcom_bridge.
     Survives server restarts so users don't lose their event type
-    configurations.
+    configurations. Extended with scheduling constraints (buffer time,
+    min notice, max booking window), recurring patterns, custom questions,
+    video provider, and reminder configuration.
     """
     __tablename__ = "a_cal_event_types"
 
@@ -272,6 +274,49 @@ class EventTypeDB(Base):
     status = Column(String(50), nullable=False, default="active")
     color = Column(String(20), nullable=False, default="#3B82F6")
     event_metadata = Column(JSONType, nullable=False, default=dict)
+    # Scheduling constraints
+    buffer_before_minutes = Column(Integer, nullable=False, default=0)
+    buffer_after_minutes = Column(Integer, nullable=False, default=0)
+    min_notice_hours = Column(Integer, nullable=False, default=24)
+    max_booking_days = Column(Integer, nullable=False, default=60)
+    # Recurring event type support
+    recurring_pattern = Column(String(50), nullable=False, default="none")
+    recurring_interval = Column(Integer, nullable=False, default=1)
+    # Custom questions for booking form
+    custom_questions = Column(JSONType, nullable=False, default=list)
+    # Video conferencing auto-link
+    video_provider = Column(String(50), nullable=False, default="")
+    # Reminders
+    reminder_enabled = Column(Boolean, nullable=False, default=True)
+    reminder_minutes_before = Column(Integer, nullable=False, default=60)
+    # Booking confirmation email
+    confirmation_email_enabled = Column(Boolean, nullable=False, default=True)
+    confirmation_template = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class BookingDB(Base):
+    """A booking made through a public booking page.
+
+    Stores attendee info, selected time slot, answers to custom questions,
+    and the generated video link. Owned by the event type's user.
+    """
+    __tablename__ = "a_cal_bookings"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    event_type_id = Column(String(36), ForeignKey("a_cal_event_types.id"), nullable=False, index=True)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    attendee_name = Column(String(255), nullable=False)
+    attendee_email = Column(String(255), nullable=False)
+    attendee_timezone = Column(String(100), nullable=False, default="UTC")
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    status = Column(String(50), nullable=False, default="confirmed")
+    answers = Column(JSONType, nullable=False, default=dict)
+    video_link = Column(String(500), nullable=True)
+    notes = Column(Text, nullable=True)
+    booking_metadata = Column(JSONType, nullable=False, default=dict)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 

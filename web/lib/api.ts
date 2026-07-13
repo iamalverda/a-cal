@@ -46,6 +46,10 @@ import type {
   MeetingStats,
   FreeSlot,
   EventType,
+  Booking,
+  BookingResult,
+  BookingSlot,
+  CustomQuestion,
   CalendarTool,
   ApiRouteInfo,
   AuthUser,
@@ -284,6 +288,7 @@ export const api = {
     to: string[];
     subject: string;
     body_text: string;
+    attachments?: { filename: string; content_type: string; content: string }[];
   }): Promise<{ status: string; provider_message_id: string }> {
     return fetchJson(`${API_BASE}/email/send`, {
       method: "POST",
@@ -583,6 +588,94 @@ export const api = {
     return fetchJson(`${API_BASE}/nervous-system/cas-agents`);
   },
 
+  // --- Scheduling / Booking (Phase 2) -------------------------------------
+
+  /** Get event type info for a public booking page (no auth required). */
+  async getPublicEventType(slug: string): Promise<EventType> {
+    return fetchJson(`${API_BASE}/booking/${slug}`);
+  },
+
+  /** Get available time slots for a date on a public booking page. */
+  async getBookingSlots(slug: string, date: string, tz?: string): Promise<{
+    event_type_id: string;
+    date: string;
+    duration_minutes: number;
+    slots: BookingSlot[];
+    timezone: string;
+    reason?: string;
+  }> {
+    const params = new URLSearchParams({ date });
+    if (tz) params.set("tz", tz);
+    return fetchJson(`${API_BASE}/booking/${slug}/slots?${params}`);
+  },
+
+  /** Create a booking from the public booking page. */
+  async createPublicBooking(slug: string, data: {
+    attendee_name: string;
+    attendee_email: string;
+    attendee_timezone?: string;
+    start_time: string;
+    answers?: Record<string, unknown>;
+    notes?: string;
+  }): Promise<BookingResult> {
+    return fetchJson(`${API_BASE}/booking/${slug}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** List bookings for the current user (optionally filtered by event type). */
+  async listBookings(eventTypeId?: string): Promise<Booking[]> {
+    const params = eventTypeId ? `?event_type_id=${eventTypeId}` : "";
+    return fetchJson(`${API_BASE}/bookings${params}`);
+  },
+
+  /** Get a single booking by ID. */
+  async getBooking(bookingId: string): Promise<Booking> {
+    return fetchJson(`${API_BASE}/bookings/${bookingId}`);
+  },
+
+  /** Update a booking (cancel, add notes, update video link). */
+  async updateBooking(bookingId: string, patch: {
+    status?: string;
+    notes?: string;
+    video_link?: string;
+  }): Promise<Booking> {
+    return fetchJson(`${API_BASE}/bookings/${bookingId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  /** Delete a booking. */
+  async deleteBooking(bookingId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/bookings/${bookingId}`, { method: "DELETE" });
+  },
+
+  /** Update an event type with full scheduling configuration. */
+  async updateEventType(eventTypeId: string, data: {
+    title?: string;
+    slug?: string;
+    duration_minutes?: number;
+    description?: string;
+    buffer_before_minutes?: number;
+    buffer_after_minutes?: number;
+    min_notice_hours?: number;
+    max_booking_days?: number;
+    recurring_pattern?: string;
+    recurring_interval?: number;
+    custom_questions?: CustomQuestion[];
+    video_provider?: string;
+    reminder_enabled?: boolean;
+    reminder_minutes_before?: number;
+    confirmation_email_enabled?: boolean;
+    confirmation_template?: string;
+  }): Promise<EventType> {
+    return fetchJson(`${API_BASE}/event-types/${eventTypeId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
 };
 
 // --- Swarm negotiation -----------------------------------------------------
@@ -900,6 +993,7 @@ export const developerApi = {
   async getApiRoutes(): Promise<ApiRouteInfo[]> {
     return fetchJson(`${API_BASE}/developer/api-routes`);
   },
+
 };
 
 // --- OAuth ----------------------------------------------------------------
