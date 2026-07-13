@@ -203,6 +203,7 @@ class MarketplaceStore:
             tags=list(parent.tags) + ["remix"],
             remixed_from=parent_item_id,
         )
+        child.compute_hash()
 
         self._items[child.id] = child
 
