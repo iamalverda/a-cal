@@ -59,7 +59,12 @@ def _serialize_sub_account(sa: SubAccount) -> dict[str, Any]:
 
 
 def _serialize_provider(p: ProviderConnection) -> dict[str, Any]:
-    """Convert a ProviderConnection ORM object to a dict."""
+    """Convert a ProviderConnection ORM object to a dict.
+
+    Note: OAuth tokens are stored in config["oauth_tokens"] but are never
+    exposed through API responses because ProviderConnectionOut does not
+    include the config field.
+    """
     return {
         "id": p.id,
         "sub_account_id": p.sub_account_id,
