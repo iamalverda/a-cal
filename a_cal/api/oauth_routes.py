@@ -56,7 +56,9 @@ def _get_token_storage():
     return _atom_token_storage
 
 # Configurable URLs so the flow works in dev, self-hosted, or cloud.
-USER_ID = "local-dev-user"
+from a_cal.auth.session import get_current_user_id
+
+USER_ID = "local-dev-user"  # Legacy fallback
 
 _BACKEND_URL = os.environ.get("A_CAL_BASE_URL", "http://localhost:8000")
 _FRONTEND_URL = os.environ.get("A_CAL_FRONTEND_URL", "http://localhost:3456")
@@ -199,7 +201,7 @@ async def oauth_callback(
     token_storage = _get_token_storage()
     if token_storage:
         token_storage.save_oauth_tokens(
-            user_id=USER_ID,
+            user_id=get_current_user_id(),
             provider_type=provider_type,
             tokens=token_data,
         )

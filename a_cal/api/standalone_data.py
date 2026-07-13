@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-data"])
 
-USER_ID = "local-dev-user"
+from a_cal.auth.session import get_current_user_id as _get_uid
+
+USER_ID = "local-dev-user"  # Legacy fallback; use _uid() for runtime
 
 
 def _fire_plugin_hook(hook_name: str, *args) -> None:
@@ -322,7 +324,7 @@ async def trigger_sync(body: SyncTriggerRequest) -> dict[str, Any]:
                 sm_settings = SelfModelSettings.default_for_depth(
                     __import__("a_cal.self_model.types", fromlist=["SelfModelDepth"]).SelfModelDepth.PATTERN_MEMORY
                 )
-            sm = SelfModel(user_id=USER_ID, settings=sm_settings)
+            sm = SelfModel(user_id=_get_uid(), settings=sm_settings)
             provenance = f"sync:{body.sub_account_id}"
             facts = await sm.observe_events(all_events, provenance)
             facts_learned = len(facts)

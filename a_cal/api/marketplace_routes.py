@@ -48,8 +48,9 @@ def _get_store():
 
 
 def _current_user_id() -> str:
-    """Placeholder — wired to atom's auth in production."""
-    return "local-dev-user"
+    """Return the current user ID from the auth context."""
+    from a_cal.auth.session import get_current_user_id
+    return get_current_user_id()
 
 
 # --- request/response models -----------------------------------------------

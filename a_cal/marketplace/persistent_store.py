@@ -30,7 +30,9 @@ from a_cal.marketplace.types import (
 
 logger = logging.getLogger(__name__)
 
-USER_ID = "local-dev-user"
+from a_cal.auth.session import get_current_user_id
+
+USER_ID = "local-dev-user"  # Legacy fallback
 
 
 def _row_to_item(row: MarketplaceItemDB) -> MarketplaceItem:

@@ -16,6 +16,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from a_cal.api.agent_routes import router as agent_router
 from a_cal.api.swarm_routes import router as swarm_router
@@ -24,6 +25,7 @@ from a_cal.api.developer_routes import router as developer_router
 from a_cal.api.standalone_data import router as standalone_data_router
 from a_cal.api.oauth_routes import router as oauth_router
 from a_cal.api.analytics_routes import router as analytics_router
+from a_cal.auth.session import router as auth_router, AuthMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +50,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Session middleware (signed cookie) + auth context middleware.
+# AuthMiddleware must run after SessionMiddleware so request.session is available.
+_session_secret = os.environ.get(
+    "A_CAL_SESSION_SECRET",
+    "a-cal-dev-secret-change-in-production-do-not-use-in-prod",
+)
+app.add_middleware(SessionMiddleware, secret_key=_session_secret)
+app.add_middleware(AuthMiddleware)
+
 app.include_router(agent_router)
 app.include_router(swarm_router)
 app.include_router(marketplace_router)
@@ -55,6 +66,7 @@ app.include_router(developer_router)
 app.include_router(standalone_data_router)
 app.include_router(oauth_router)
 app.include_router(analytics_router)
+app.include_router(auth_router)
 
 
 @app.get("/health")

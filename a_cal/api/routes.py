@@ -96,11 +96,9 @@ def get_db():
 
 
 def _current_user_id() -> str:
-    """Placeholder — in production this reads atom's auth session/header.
-
-    Wired to atom's X-User-ID middleware during integration.
-    """
-    return "local-dev-user"
+    """Return the current user ID from the auth context."""
+    from a_cal.auth.session import get_current_user_id
+    return get_current_user_id()
 
 
 # --- sub-account endpoints -------------------------------------------------

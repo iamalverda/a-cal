@@ -28,7 +28,20 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-USER_ID = "local-dev-user"
+USER_ID = "local-dev-user"  # Fallback for seeding; runtime uses _uid()
+
+
+def _uid() -> str:
+    """Return the current user ID from auth context.
+
+    Falls back to USER_ID ("local-dev-user") when no session is active,
+    preserving backward compatibility with standalone/demo mode.
+    """
+    try:
+        from a_cal.auth.session import get_current_user_id
+        return get_current_user_id()
+    except Exception:
+        return USER_ID
 
 
 def _serialize_sub_account(sa: SubAccount) -> dict[str, Any]:
@@ -343,7 +356,7 @@ class PersistentStore:
             import uuid as _uuid
             sa = SubAccount(
                 id=f"sa-{_uuid.uuid4().hex[:8]}",
-                user_id=USER_ID,
+                user_id=_uid(),
                 name=data["name"],
                 kind=data.get("kind", "unified"),
                 is_main=data.get("is_main", False),
@@ -677,7 +690,7 @@ class PersistentStore:
         """Get a setting value by key."""
         with self._session() as db:
             s = db.query(Setting).filter(
-                Setting.user_id == USER_ID,
+                Setting.user_id == _uid(),
                 Setting.key == key,
             ).first()
             if not s:
@@ -688,13 +701,13 @@ class PersistentStore:
         """Set a setting value by key."""
         with self._session() as db:
             s = db.query(Setting).filter(
-                Setting.user_id == USER_ID,
+                Setting.user_id == _uid(),
                 Setting.key == key,
             ).first()
             if s:
                 s.value = value
             else:
-                s = Setting(user_id=USER_ID, key=key, value=value)
+                s = Setting(user_id=_uid(), key=key, value=value)
                 db.add(s)
             db.commit()
             return value
@@ -747,7 +760,7 @@ class PersistentStore:
         """Add a self-model fact."""
         with self._session() as db:
             f = SelfModelFact(
-                user_id=USER_ID,
+                user_id=_uid(),
                 category=data["category"],
                 content=data["content"],
                 depth=data.get("depth", "pattern_memory"),
@@ -799,7 +812,7 @@ class PersistentStore:
         """Save a negotiation."""
         with self._session() as db:
             n = Negotiation(
-                user_id=USER_ID,
+                user_id=_uid(),
                 state=data.get("state", "initiated"),
                 claims=data.get("claims", []),
                 messages=data.get("messages", []),

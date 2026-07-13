@@ -76,6 +76,24 @@ def _new_uuid() -> str:
     return str(uuid.uuid4())
 
 
+
+class User(Base):
+    """A registered A-Cal user.
+
+    Each user has one or more sub-accounts linked to provider connections.
+    In standalone mode, the first registered user becomes the default.
+    """
+    __tablename__ = "a_cal_users"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    display_name = Column(String(255), nullable=True)
+    password_hash = Column(String(512), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
 class SubAccount(Base):
     """A sub-account grouping one or more provider connections."""
     __tablename__ = "a_cal_sub_accounts"
