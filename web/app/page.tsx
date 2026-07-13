@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3 } from "lucide-react";
 import { Network, Brain } from "lucide-react";
@@ -20,6 +20,7 @@ import { EmailPanel } from "@/components/email-panel";
 import { AnalyticsPanel } from "@/components/analytics-panel";
 import { AddAccountWizard } from "@/components/add-account-wizard";
 import { ProactiveSuggestions } from "@/components/proactive-suggestions";
+import { CommandBar } from "@/components/command-bar";
 import { api } from "@/lib/api";
 import {
   mockSubAccounts,
@@ -52,6 +53,7 @@ export default function Page() {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [oauthResult, setOauthResult] = useState<string | null>(null);
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
+  const [showCommandBar, setShowCommandBar] = useState(false);
   const [showAddWizard, setShowAddWizard] = useState(false);
 
   /** Load real data from the backend on mount, falling back to mock data. */
@@ -117,6 +119,40 @@ export default function Page() {
       return () => clearTimeout(timer);
     }
   }, []);
+
+  /** Listen for cmd+k / ctrl+k to open the command bar. */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setShowCommandBar((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  /** Trigger sync for all sub-accounts. */
+  const handleSyncAll = useCallback(async () => {
+    for (const sub of subAccounts) {
+      if (sub.is_main) continue;
+      try {
+        await api.triggerSync(sub.id);
+      } catch {
+        // continue to next sub-account
+      }
+    }
+    // Refresh events after sync
+    try {
+      const res = await fetch("/api/a-cal/calendar/unified?days=7");
+      if (res.ok) {
+        const evs = await res.json();
+        if (evs.length > 0) setEvents(evs);
+      }
+    } catch {
+      // keep current events
+    }
+  }, [subAccounts]);
 
   /** Switch skill mode and persist to backend. */
   const handleModeChange = async (newMode: SkillMode) => {
@@ -447,6 +483,19 @@ export default function Page() {
           <DeveloperPanel />
         </SlideInOverlay>
       )}
+
+      {/* Contextual command bar — cmd+k palette */}
+      <CommandBar
+        open={showCommandBar}
+        onClose={() => setShowCommandBar(false)}
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenMarketplace={() => setShowMarketplace(true)}
+        onOpenEmail={() => setShowEmail(true)}
+        onOpenAnalytics={() => setShowAnalytics(true)}
+        onOpenConductor={() => setShowConductor(true)}
+        onSyncCalendars={handleSyncAll}
+        mode={mode}
+      />
 
       {/* Proactive suggestions — floating notifications */}
       <ProactiveSuggestions enabled={proactiveEnabled} />
