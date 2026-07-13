@@ -10,6 +10,7 @@ import type {
   ProviderConnection,
   UnifiedEvent,
   EmailMessage,
+  EmailAccount,
   ModeConfig,
   ModelRoutingConfig,
   AgentSpec,
@@ -205,13 +206,77 @@ export const api = {
 
   async listEmailMessages(opts?: {
     subAccountId?: string;
+    providerConnectionId?: string;
+    folder?: string;
     limit?: number;
   }): Promise<EmailMessage[]> {
     const params = new URLSearchParams();
     if (opts?.subAccountId) params.set("sub_account_id", opts.subAccountId);
+    if (opts?.providerConnectionId) params.set("provider_connection_id", opts.providerConnectionId);
+    if (opts?.folder) params.set("folder", opts.folder);
     if (opts?.limit) params.set("limit", String(opts.limit));
     const qs = params.toString();
     return fetchJson(`${API_BASE}/email/messages${qs ? `?${qs}` : ""}`);
+  },
+
+  /** List all connected email accounts for the unified inbox sidebar. */
+  async listEmailAccounts(): Promise<EmailAccount[]> {
+    return fetchJson(`${API_BASE}/email/accounts`);
+  },
+
+  /** Star or unstar an email message. */
+  async starEmail(data: {
+    provider_connection_id: string;
+    provider_message_id: string;
+    starred: boolean;
+  }): Promise<{ status: string; starred: boolean }> {
+    return fetchJson(`${API_BASE}/email/star`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Mark an email message as read or unread. */
+  async markEmailRead(data: {
+    provider_connection_id: string;
+    provider_message_id: string;
+    read: boolean;
+  }): Promise<{ status: string; read: boolean }> {
+    return fetchJson(`${API_BASE}/email/mark-read`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Delete or trash an email message. */
+  async deleteEmail(data: {
+    provider_connection_id: string;
+    provider_message_id: string;
+  }): Promise<{ status: string; deleted: boolean }> {
+    return fetchJson(`${API_BASE}/email/delete`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Search email messages across all connected accounts. */
+  async searchEmail(opts: {
+    q: string;
+    subAccountId?: string;
+    providerConnectionId?: string;
+    limit?: number;
+  }): Promise<EmailMessage[]> {
+    const params = new URLSearchParams({ q: opts.q });
+    if (opts.subAccountId) params.set("sub_account_id", opts.subAccountId);
+    if (opts.providerConnectionId) params.set("provider_connection_id", opts.providerConnectionId);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    return fetchJson(`${API_BASE}/email/search?${params.toString()}`);
+  },
+
+  /** List available email folders/labels per connected account. */
+  async listEmailFolders(providerConnectionId?: string): Promise<Record<string, string[]>> {
+    const qs = providerConnectionId ? `?provider_connection_id=${providerConnectionId}` : "";
+    return fetchJson(`${API_BASE}/email/folders${qs}`);
   },
 
   async sendEmail(data: {

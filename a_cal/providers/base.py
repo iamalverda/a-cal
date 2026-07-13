@@ -165,6 +165,64 @@ class EmailProvider(ABC):
     ) -> str:
         """Reply to a specific message; return the new message id."""
 
+    async def star_message(self, provider_message_id: str, starred: bool) -> bool:
+        """Star or unstar a message. Returns True on success.
+
+        Args:
+            provider_message_id: The provider-specific message identifier.
+            starred: True to star, False to unstar.
+
+        Returns:
+            True if the operation succeeded, False otherwise.
+        """
+        return False
+
+    async def mark_read(self, provider_message_id: str, read: bool) -> bool:
+        """Mark a message as read or unread. Returns True on success.
+
+        Args:
+            provider_message_id: The provider-specific message identifier.
+            read: True to mark as read, False to mark as unread.
+
+        Returns:
+            True if the operation succeeded, False otherwise.
+        """
+        return False
+
+    async def delete_message(self, provider_message_id: str) -> bool:
+        """Delete or trash a message. Returns True on success.
+
+        Args:
+            provider_message_id: The provider-specific message identifier.
+
+        Returns:
+            True if the operation succeeded, False otherwise.
+        """
+        return False
+
+    async def search_messages(
+        self, query: str, folder: str = "INBOX", limit: int = 50
+    ) -> list[EmailMessageDTO]:
+        """Search messages by query string.
+
+        Args:
+            query: Search query (subject, from, body text).
+            folder: The folder to search in.
+            limit: Maximum number of results.
+
+        Returns:
+            List of matching EmailMessageDTOs.
+        """
+        return []
+
+    async def list_folders(self) -> list[str]:
+        """List available folders/labels for this provider.
+
+        Returns:
+            List of folder names.
+        """
+        return ["INBOX"]
+
 
 # --- provider registry -----------------------------------------------------
 

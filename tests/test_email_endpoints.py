@@ -324,3 +324,227 @@ def test_send_email_wrong_provider_type(client):
         "body_text": "Hello",
     })
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Unified inbox — account listing, search, star, mark-read, delete, folders
+# ---------------------------------------------------------------------------
+
+def test_list_email_accounts_empty(client):
+    """GET /email/accounts returns empty list when no email providers connected."""
+    _clear_seeded_email_providers(client)
+    resp = client.get("/api/a-cal/email/accounts")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_list_email_accounts_with_provider(client):
+    """GET /email/accounts returns connected email accounts with metadata."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client, name="Personal Email")
+    pid = _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.list_messages = AsyncMock(return_value=([], None))
+        mock_build.return_value = mock_provider
+        resp = client.get("/api/a-cal/email/accounts")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) >= 1
+    acct = next(a for a in data if a["provider_connection_id"] == pid)
+    assert acct["provider_type"] == "imap_smtp"
+    assert acct["sub_account_id"] == sub_id
+    assert acct["status"] == "connected"
+
+
+def test_list_email_messages_with_account_metadata(client):
+    """GET /email/messages includes account_display_name and account_email."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client, name="Work Email")
+    pid = _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    mock_dto = EmailMessageDTO(
+        provider_message_id="msg-1",
+        provider_type="imap_smtp",
+        subject="Test Subject",
+        from_address="sender@example.com",
+        to_addresses=["recipient@example.com"],
+        snippet="Hello world",
+        labels=["UNREAD"],
+    )
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.list_messages = AsyncMock(return_value=([mock_dto], None))
+        mock_build.return_value = mock_provider
+        resp = client.get("/api/a-cal/email/messages")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) >= 1
+    msg = next(m for m in data if m["provider_message_id"] == "msg-1")
+    assert msg["is_unread"] is True
+    assert msg["is_starred"] is False
+    assert msg["provider_connection_id"] == pid
+    assert msg["account_display_name"] is not None
+
+
+def test_list_email_messages_filter_by_provider(client):
+    """GET /email/messages filters by provider_connection_id."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client)
+    pid1 = _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+    pid2 = _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.list_messages = AsyncMock(return_value=([], None))
+        mock_build.return_value = mock_provider
+        resp = client.get(f"/api/a-cal/email/messages?provider_connection_id={pid1}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    for msg in data:
+        assert msg["provider_connection_id"] == pid1
+
+
+def test_list_email_messages_folder_param(client):
+    """GET /email/messages accepts folder parameter."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client)
+    _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.list_messages = AsyncMock(return_value=([], None))
+        mock_build.return_value = mock_provider
+        resp = client.get("/api/a-cal/email/messages?folder=STARRED")
+
+    assert resp.status_code == 200
+
+
+def test_star_email_missing_fields(client):
+    """POST /email/star returns 400 when required fields are missing."""
+    resp = client.post("/api/a-cal/email/star", json={"starred": True})
+    assert resp.status_code == 400
+
+
+def test_star_email_provider_not_found(client):
+    """POST /email/star returns 404 for nonexistent provider."""
+    resp = client.post("/api/a-cal/email/star", json={
+        "provider_connection_id": "nonexistent",
+        "provider_message_id": "msg-1",
+        "starred": True,
+    })
+    assert resp.status_code == 404
+
+
+def test_star_email_success(client):
+    """POST /email/star stars a message through the provider."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client)
+    pid = _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.star_message = AsyncMock(return_value=True)
+        mock_build.return_value = mock_provider
+        resp = client.post("/api/a-cal/email/star", json={
+            "provider_connection_id": pid,
+            "provider_message_id": "msg-1",
+            "starred": True,
+        })
+
+    assert resp.status_code == 200
+    assert resp.json()["starred"] is True
+
+
+def test_mark_read_email_success(client):
+    """POST /email/mark-read marks a message as read."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client)
+    pid = _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.mark_read = AsyncMock(return_value=True)
+        mock_build.return_value = mock_provider
+        resp = client.post("/api/a-cal/email/mark-read", json={
+            "provider_connection_id": pid,
+            "provider_message_id": "msg-1",
+            "read": True,
+        })
+
+    assert resp.status_code == 200
+    assert resp.json()["read"] is True
+
+
+def test_delete_email_success(client):
+    """POST /email/delete trashes a message through the provider."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client)
+    pid = _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.delete_message = AsyncMock(return_value=True)
+        mock_build.return_value = mock_provider
+        resp = client.post("/api/a-cal/email/delete", json={
+            "provider_connection_id": pid,
+            "provider_message_id": "msg-1",
+        })
+
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+
+
+def test_search_email(client):
+    """GET /email/search searches across connected accounts."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client)
+    _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    mock_dto = EmailMessageDTO(
+        provider_message_id="search-1",
+        provider_type="imap_smtp",
+        subject="Meeting Tomorrow",
+        from_address="boss@example.com",
+        snippet="Let's meet",
+    )
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.search_messages = AsyncMock(return_value=[mock_dto])
+        mock_build.return_value = mock_provider
+        resp = client.get("/api/a-cal/email/search?q=meeting")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) >= 1
+    assert data[0]["subject"] == "Meeting Tomorrow"
+
+
+def test_search_email_empty_query(client):
+    """GET /email/search returns 422 when query is too short."""
+    resp = client.get("/api/a-cal/email/search?q=")
+    assert resp.status_code == 422
+
+
+def test_list_email_folders(client):
+    """GET /email/folders lists folders for connected accounts."""
+    _clear_seeded_email_providers(client)
+    sub_id = _create_sub_account(client)
+    pid = _create_email_provider(client, sub_id, ptype="imap_smtp", status="connected")
+
+    with patch("a_cal.providers.factory.build_email_provider") as mock_build:
+        mock_provider = AsyncMock()
+        mock_provider.list_folders = AsyncMock(return_value=["INBOX", "Sent", "Drafts", "Trash"])
+        mock_build.return_value = mock_provider
+        resp = client.get("/api/a-cal/email/folders")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert pid in data
+    assert "INBOX" in data[pid]

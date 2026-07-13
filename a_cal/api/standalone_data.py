@@ -101,7 +101,11 @@ class SyncRuleCreate(BaseModel):
 
 
 class EmailMessageOut(BaseModel):
-    """Serialized email message returned to the frontend."""
+    """Serialized email message returned to the frontend.
+
+    Includes account-level metadata so the frontend can show which account
+    each message belongs to in the unified inbox view.
+    """
     provider_message_id: str
     provider_type: str
     provider_connection_id: str
@@ -112,6 +116,27 @@ class EmailMessageOut(BaseModel):
     snippet: str | None = None
     has_calendar_invite: bool = False
     labels: list[str] = Field(default_factory=list)
+    account_display_name: str | None = None
+    account_email: str | None = None
+    sub_account_id: str | None = None
+    sub_account_name: str | None = None
+    is_unread: bool = False
+    is_starred: bool = False
+    body_text: str | None = None
+    thread_id: str | None = None
+
+
+class EmailAccountOut(BaseModel):
+    """A connected email account in the unified inbox."""
+    provider_connection_id: str
+    provider_type: str
+    display_name: str
+    email: str | None = None
+    sub_account_id: str
+    sub_account_name: str
+    status: str
+    unread_count: int = 0
+    total_count: int = 0
 
 
 class UnifiedEvent(BaseModel):
@@ -536,13 +561,25 @@ def delete_sync_rule(rule_id: str) -> dict[str, str]:
 @router.get("/email/messages", response_model=list[EmailMessageOut])
 async def list_email_messages(
     sub_account_id: str | None = Query(None),
+    provider_connection_id: str | None = Query(None),
+    folder: str = Query("INBOX"),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[EmailMessageOut]:
     """List email messages from connected email providers.
 
-    Pulls real messages from IMAP/Gmail providers when credentials are
-    configured. Falls back to an empty list when no email providers are
-    connected or credentials are missing (standalone demo mode).
+    When no ``sub_account_id`` or ``provider_connection_id`` is given, returns
+    a unified inbox — messages from ALL connected email accounts, merged and
+    sorted newest-first. When a filter is provided, only that account's
+    messages are returned.
+
+    Args:
+        sub_account_id: Filter to a specific sub-account.
+        provider_connection_id: Filter to a specific provider connection.
+        folder: IMAP folder or Gmail label (INBOX, STARRED, SENT, DRAFT, TRASH, ALL).
+        limit: Maximum number of messages to return.
+
+    Returns:
+        List of email messages with account metadata for the unified inbox.
     """
     from a_cal.providers.factory import build_email_provider
 
@@ -555,14 +592,28 @@ async def list_email_messages(
     ]
     if sub_account_id:
         email_providers = [p for p in email_providers if p["sub_account_id"] == sub_account_id]
+    if provider_connection_id:
+        email_providers = [p for p in email_providers if p["id"] == provider_connection_id]
+
+    # Build sub-account name lookup
+    all_subs = _store.list_sub_accounts()
+    sub_map = {s["id"]: s for s in all_subs}
 
     results: list[EmailMessageOut] = []
     for p in email_providers:
         try:
             provider = build_email_provider(p)
+            # Map folder names: "ALL" -> INBOX for IMAP (no All Mail concept)
+            imap_folder = "INBOX" if folder in ("ALL", "INBOX") else folder
+            gmail_label = folder  # Gmail uses label names directly
+            actual_folder = gmail_label if p["provider_type"] == "gmail" else imap_folder
+
             messages, _cursor = await provider.list_messages(
-                since_cursor=None, folder="INBOX", limit=limit,
+                since_cursor=None, folder=actual_folder, limit=limit,
             )
+            account_name = p.get("display_name") or p.get("provider_account_id", "Email Account")
+            account_email = p.get("config", {}).get("email") or p.get("config", {}).get("username")
+            sub = sub_map.get(p.get("sub_account_id", ""), {})
             for msg in messages:
                 # Detect calendar invites by checking common headers/labels
                 invite_headers = {"text/calendar", "method=request"}
@@ -573,6 +624,9 @@ async def list_email_messages(
                     or "calendar" in " ".join(msg.labels).lower()
                     or any("invite" in lbl.lower() for lbl in msg.labels)
                 )
+                labels = msg.labels or []
+                is_unread = "UNREAD" in labels
+                is_starred = "STARRED" in labels
                 results.append(EmailMessageOut(
                     provider_message_id=msg.provider_message_id,
                     provider_type=msg.provider_type,
@@ -583,17 +637,272 @@ async def list_email_messages(
                     received_at=msg.received_at,
                     snippet=msg.snippet,
                     has_calendar_invite=has_invite,
-                    labels=msg.labels,
+                    labels=labels,
+                    account_display_name=account_name,
+                    account_email=account_email,
+                    sub_account_id=p.get("sub_account_id"),
+                    sub_account_name=sub.get("name"),
+                    is_unread=is_unread,
+                    is_starred=is_starred,
+                    body_text=msg.body_text,
+                    thread_id=msg.thread_id,
                 ))
         except Exception as exc:
             logger.warning("email listing failed for %s: %s", p["id"], exc)
 
-    # Sort by received_at descending (newest first)
+    # Sort: starred emails first, then newest first (stable sort).
+    results.sort(
+        key=lambda m: m.received_at or datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )
+    results.sort(key=lambda m: not m.is_starred)
+    return results[:limit]
+
+
+@router.get("/email/accounts", response_model=list[EmailAccountOut])
+async def list_email_accounts() -> list[EmailAccountOut]:
+    """List all connected email accounts for the unified inbox sidebar.
+
+    Returns one entry per connected email provider (Gmail or IMAP/SMTP),
+    with display name, email address, sub-account info, and unread count.
+    """
+    all_providers = _store.list_providers()
+    email_types = {"imap_smtp", "gmail"}
+    email_providers = [
+        p for p in all_providers
+        if p["provider_type"] in email_types
+    ]
+
+    all_subs = _store.list_sub_accounts()
+    sub_map = {s["id"]: s for s in all_subs}
+
+    accounts: list[EmailAccountOut] = []
+    for p in email_providers:
+        account_name = p.get("display_name") or p.get("provider_account_id", "Email Account")
+        account_email = p.get("config", {}).get("email") or p.get("config", {}).get("username")
+        sub = sub_map.get(p.get("sub_account_id", ""), {})
+        unread = 0
+        total = 0
+        if p.get("status") == "connected":
+            try:
+                from a_cal.providers.factory import build_email_provider
+                provider = build_email_provider(p)
+                messages, _ = await provider.list_messages(
+                    since_cursor=None, folder="INBOX", limit=50,
+                )
+                total = len(messages)
+                unread = sum(1 for m in messages if "UNREAD" in (m.labels or []))
+            except Exception:
+                pass
+        accounts.append(EmailAccountOut(
+            provider_connection_id=p["id"],
+            provider_type=p["provider_type"],
+            display_name=account_name,
+            email=account_email,
+            sub_account_id=p.get("sub_account_id", ""),
+            sub_account_name=sub.get("name", ""),
+            status=p.get("status", "pending"),
+            unread_count=unread,
+            total_count=total,
+        ))
+    return accounts
+
+
+@router.post("/email/star")
+async def star_email(body: dict[str, Any]) -> dict[str, Any]:
+    """Star or unstar an email message.
+
+    Body fields: provider_connection_id, provider_message_id, starred (bool).
+    """
+    from a_cal.providers.factory import build_email_provider
+
+    conn_id = body.get("provider_connection_id")
+    msg_id = body.get("provider_message_id")
+    starred = body.get("starred", True)
+    if not conn_id or not msg_id:
+        raise HTTPException(status_code=400, detail="provider_connection_id and provider_message_id required")
+
+    all_providers = _store.list_providers()
+    conn = next((p for p in all_providers if p["id"] == conn_id), None)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Provider connection not found")
+
+    try:
+        provider = build_email_provider(conn)
+        ok = await provider.star_message(msg_id, starred)
+        return {"status": "ok" if ok else "failed", "starred": starred}
+    except Exception as exc:
+        logger.warning("email star failed for %s: %s", conn_id, exc)
+        raise HTTPException(status_code=502, detail=f"Star failed: {exc}")
+
+
+@router.post("/email/mark-read")
+async def mark_email_read(body: dict[str, Any]) -> dict[str, Any]:
+    """Mark an email message as read or unread.
+
+    Body fields: provider_connection_id, provider_message_id, read (bool).
+    """
+    from a_cal.providers.factory import build_email_provider
+
+    conn_id = body.get("provider_connection_id")
+    msg_id = body.get("provider_message_id")
+    read = body.get("read", True)
+    if not conn_id or not msg_id:
+        raise HTTPException(status_code=400, detail="provider_connection_id and provider_message_id required")
+
+    all_providers = _store.list_providers()
+    conn = next((p for p in all_providers if p["id"] == conn_id), None)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Provider connection not found")
+
+    try:
+        provider = build_email_provider(conn)
+        ok = await provider.mark_read(msg_id, read)
+        return {"status": "ok" if ok else "failed", "read": read}
+    except Exception as exc:
+        logger.warning("email mark_read failed for %s: %s", conn_id, exc)
+        raise HTTPException(status_code=502, detail=f"Mark read failed: {exc}")
+
+
+@router.post("/email/delete")
+async def delete_email(body: dict[str, Any]) -> dict[str, Any]:
+    """Delete or trash an email message.
+
+    Body fields: provider_connection_id, provider_message_id.
+    """
+    from a_cal.providers.factory import build_email_provider
+
+    conn_id = body.get("provider_connection_id")
+    msg_id = body.get("provider_message_id")
+    if not conn_id or not msg_id:
+        raise HTTPException(status_code=400, detail="provider_connection_id and provider_message_id required")
+
+    all_providers = _store.list_providers()
+    conn = next((p for p in all_providers if p["id"] == conn_id), None)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Provider connection not found")
+
+    try:
+        provider = build_email_provider(conn)
+        ok = await provider.delete_message(msg_id)
+        return {"status": "ok" if ok else "failed", "deleted": True}
+    except Exception as exc:
+        logger.warning("email delete failed for %s: %s", conn_id, exc)
+        raise HTTPException(status_code=502, detail=f"Delete failed: {exc}")
+
+
+@router.get("/email/search", response_model=list[EmailMessageOut])
+async def search_email(
+    q: str = Query(..., min_length=1),
+    sub_account_id: str | None = Query(None),
+    provider_connection_id: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[EmailMessageOut]:
+    """Search email messages across all connected accounts.
+
+    When no filter is given, searches ALL connected email accounts and merges
+    results. Uses provider-native search (Gmail search syntax or IMAP SEARCH).
+
+    Args:
+        q: Search query string.
+        sub_account_id: Filter to a specific sub-account.
+        provider_connection_id: Filter to a specific provider connection.
+        limit: Maximum number of results.
+
+    Returns:
+        List of matching email messages from all searched accounts.
+    """
+    from a_cal.providers.factory import build_email_provider
+
+    all_providers = _store.list_providers()
+    email_types = {"imap_smtp", "gmail"}
+    email_providers = [
+        p for p in all_providers
+        if p["provider_type"] in email_types
+        and p.get("status") == "connected"
+    ]
+    if sub_account_id:
+        email_providers = [p for p in email_providers if p["sub_account_id"] == sub_account_id]
+    if provider_connection_id:
+        email_providers = [p for p in email_providers if p["id"] == provider_connection_id]
+
+    all_subs = _store.list_sub_accounts()
+    sub_map = {s["id"]: s for s in all_subs}
+
+    results: list[EmailMessageOut] = []
+    for p in email_providers:
+        try:
+            provider = build_email_provider(p)
+            messages = await provider.search_messages(query=q, folder="INBOX", limit=limit)
+            account_name = p.get("display_name") or p.get("provider_account_id", "Email Account")
+            account_email = p.get("config", {}).get("email") or p.get("config", {}).get("username")
+            sub = sub_map.get(p.get("sub_account_id", ""), {})
+            for msg in messages:
+                labels = msg.labels or []
+                results.append(EmailMessageOut(
+                    provider_message_id=msg.provider_message_id,
+                    provider_type=msg.provider_type,
+                    provider_connection_id=p["id"],
+                    subject=msg.subject,
+                    from_address=msg.from_address,
+                    to_addresses=msg.to_addresses,
+                    received_at=msg.received_at,
+                    snippet=msg.snippet,
+                    has_calendar_invite=any("invite" in lbl.lower() for lbl in labels),
+                    labels=labels,
+                    account_display_name=account_name,
+                    account_email=account_email,
+                    sub_account_id=p.get("sub_account_id"),
+                    sub_account_name=sub.get("name"),
+                    is_unread="UNREAD" in labels,
+                    is_starred="STARRED" in labels,
+                    body_text=msg.body_text,
+                    thread_id=msg.thread_id,
+                ))
+        except Exception as exc:
+            logger.warning("email search failed for %s: %s", p["id"], exc)
+
     results.sort(
         key=lambda m: m.received_at or datetime.min.replace(tzinfo=UTC),
         reverse=True,
     )
     return results[:limit]
+
+
+@router.get("/email/folders")
+async def list_email_folders(
+    provider_connection_id: str | None = Query(None),
+) -> dict[str, list[str]]:
+    """List available email folders/labels per connected email account.
+
+    Args:
+        provider_connection_id: If given, only list folders for that account.
+
+    Returns:
+        Dict mapping provider_connection_id to list of folder names.
+    """
+    from a_cal.providers.factory import build_email_provider
+
+    all_providers = _store.list_providers()
+    email_types = {"imap_smtp", "gmail"}
+    email_providers = [
+        p for p in all_providers
+        if p["provider_type"] in email_types
+        and p.get("status") == "connected"
+    ]
+    if provider_connection_id:
+        email_providers = [p for p in email_providers if p["id"] == provider_connection_id]
+
+    result: dict[str, list[str]] = {}
+    for p in email_providers:
+        try:
+            provider = build_email_provider(p)
+            folders = await provider.list_folders()
+            result[p["id"]] = folders
+        except Exception as exc:
+            logger.warning("folder listing failed for %s: %s", p["id"], exc)
+            result[p["id"]] = ["INBOX"]
+    return result
 
 
 @router.post("/email/send")

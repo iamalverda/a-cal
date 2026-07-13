@@ -56,7 +56,31 @@ export interface EmailMessage {
   snippet: string | null;
   has_calendar_invite: boolean;
   labels: string[];
+  account_display_name?: string | null;
+  account_email?: string | null;
+  sub_account_id?: string | null;
+  sub_account_name?: string | null;
+  is_unread?: boolean;
+  is_starred?: boolean;
+  body_text?: string | null;
+  thread_id?: string | null;
 }
+
+/** A connected email account shown in the unified inbox sidebar. */
+export interface EmailAccount {
+  provider_connection_id: string;
+  provider_type: string;
+  display_name: string;
+  email: string | null;
+  sub_account_id: string;
+  sub_account_name: string;
+  status: string;
+  unread_count: number;
+  total_count: number;
+}
+
+/** Email folder/label type for the folder navigation bar. */
+export type EmailFolder = "INBOX" | "STARRED" | "SENT" | "DRAFT" | "TRASH" | "ALL";
 
 export type SkillMode = "simple" | "pro" | "developer";
 

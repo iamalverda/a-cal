@@ -256,6 +256,163 @@ class ImapSmtpProvider(EmailProvider):
             except Exception:
                 pass
 
+    async def star_message(self, provider_message_id: str, starred: bool) -> bool:
+        """Star or unstar a message via IMAP \\Flagged flag.
+
+        Args:
+            provider_message_id: The IMAP UID of the message.
+            starred: True to set \\Flagged, False to remove it.
+
+        Returns:
+            True if the flag operation succeeded.
+        """
+        conn = self._connect_imap()
+        try:
+            conn.select("INBOX")
+            op = "+FLAGS" if starred else "-FLAGS"
+            typ, _ = conn.uid("STORE", provider_message_id, f"({op}\\Flagged)")
+            return typ == "OK"
+        except Exception as exc:
+            logger.warning("IMAP star failed for %s: %s", provider_message_id, exc)
+            return False
+        finally:
+            try:
+                conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def mark_read(self, provider_message_id: str, read: bool) -> bool:
+        """Mark a message as read or unread via IMAP \\Seen flag.
+
+        Args:
+            provider_message_id: The IMAP UID of the message.
+            read: True to add \\Seen (mark read), False to remove it.
+
+        Returns:
+            True if the flag operation succeeded.
+        """
+        conn = self._connect_imap()
+        try:
+            conn.select("INBOX")
+            op = "+FLAGS" if read else "-FLAGS"
+            typ, _ = conn.uid("STORE", provider_message_id, f"({op}\\Seen)")
+            return typ == "OK"
+        except Exception as exc:
+            logger.warning("IMAP mark_read failed for %s: %s", provider_message_id, exc)
+            return False
+        finally:
+            try:
+                conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def delete_message(self, provider_message_id: str) -> bool:
+        """Delete a message by marking it \\Deleted and expunging.
+
+        Args:
+            provider_message_id: The IMAP UID of the message to delete.
+
+        Returns:
+            True if the delete operation succeeded.
+        """
+        conn = self._connect_imap()
+        try:
+            conn.select("INBOX")
+            try:
+                conn.uid("COPY", provider_message_id, "Trash")
+            except Exception:
+                pass
+            typ, _ = conn.uid("STORE", provider_message_id, "(+FLAGS\\Deleted)")
+            if typ == "OK":
+                conn.expunge()
+                return True
+            return False
+        except Exception as exc:
+            logger.warning("IMAP delete failed for %s: %s", provider_message_id, exc)
+            return False
+        finally:
+            try:
+                conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def search_messages(
+        self, query: str, folder: str = "INBOX", limit: int = 50
+    ) -> list[EmailMessageDTO]:
+        """Search messages via IMAP SEARCH across FROM, SUBJECT, and BODY.
+
+        Args:
+            query: Search text.
+            folder: The IMAP folder to search in.
+            limit: Maximum number of results.
+
+        Returns:
+            List of matching EmailMessageDTOs.
+        """
+        conn = self._connect_imap()
+        try:
+            conn.select(folder, readonly=True)
+            criteria = f'OR OR FROM "{query}" SUBJECT "{query}" BODY "{query}"'
+            status, data = conn.uid("search", None, criteria)
+            if status != "OK" or not data or not data[0]:
+                return []
+            uid_list = data[0].split()[-limit:]
+            messages: list[EmailMessageDTO] = []
+            for uid in uid_list:
+                uid_s = uid.decode() if isinstance(uid, bytes) else str(uid)
+                status, fetch_data = conn.uid("fetch", uid_s, "(UID FLAGS BODY.PEEK[])")
+                if status != "OK" or not fetch_data:
+                    continue
+                for item in fetch_data:
+                    if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], bytes):
+                        msg = email.message_from_bytes(item[1])
+                        uid_val = self._extract_uid(item[0]) or uid_s
+                        messages.append(self._msg_to_dto(msg, uid_val))
+                        break
+            return messages
+        except Exception as exc:
+            logger.warning("IMAP search failed: %s", exc)
+            return []
+        finally:
+            try:
+                conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def list_folders(self) -> list[str]:
+        """List available IMAP folders.
+
+        Returns:
+            List of folder names.
+        """
+        conn = self._connect_imap()
+        try:
+            typ, folders = conn.list()
+            if typ != "OK":
+                return ["INBOX"]
+            result: list[str] = []
+            for f in folders:
+                if isinstance(f, bytes):
+                    decoded = f.decode("utf-8", errors="replace")
+                    parts = decoded.split('"')
+                    if len(parts) >= 2:
+                        result.append(parts[-2])
+                    elif "INBOX" in decoded:
+                        result.append("INBOX")
+            return result or ["INBOX"]
+        except Exception as exc:
+            logger.warning("IMAP list_folders failed: %s", exc)
+            return ["INBOX"]
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+
     @staticmethod
     def _extract_uid(flag_data: object) -> str | None:
         """Extract the UID from a FETCH response flag string."""
