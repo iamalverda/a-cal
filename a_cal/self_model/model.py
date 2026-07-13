@@ -144,7 +144,7 @@ class SelfModel:
         facts that touch the user's attention/intent are higher priority than
         pure pattern facts. Only returned if the user opted into proactive.
         """
-        if not self.settings.feed_into_proactive:
+        if not self.settings.feed_into_proactive or not self.settings.proactive_suggestions_enabled:
             return []
 
         facts = self.store.all_active()

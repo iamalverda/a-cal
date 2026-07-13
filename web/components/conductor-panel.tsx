@@ -61,6 +61,16 @@ export function ConductorPanel() {
     }
   }, [messages]);
 
+  // Listen for proactive suggestion "Tell agent" events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      if (detail) setInput(detail);
+    };
+    window.addEventListener("a-cal:conductor-message", handler);
+    return () => window.removeEventListener("a-cal:conductor-message", handler);
+  }, []);
+
   const send = async () => {
     if (!input.trim()) return;
     const userMsg: Message = {

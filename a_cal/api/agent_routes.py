@@ -27,6 +27,7 @@ from a_cal.settings.modes import get_mode_config, SkillMode
 from a_cal.settings.model_routing import ModelRoutingConfig
 from a_cal.settings.autonomy import AutonomyConfig, AutonomyLevel
 from a_cal.self_model.settings import SelfModelSettings
+from a_cal.self_model.model import SelfModel
 from a_cal.self_model.store import SelfModelStore
 
 logger = logging.getLogger(__name__)
@@ -233,6 +234,7 @@ class SelfModelSettingsRequest(BaseModel):
     proactive_suggestions_enabled: bool = False
     feed_into_calendar_view: bool = True
     feed_into_agents: bool = True
+    feed_into_proactive: bool = False
 
 
 class AutonomyRequest(BaseModel):
@@ -461,6 +463,7 @@ def set_self_model_settings(body: SelfModelSettingsRequest):
         proactive_suggestions_enabled=body.proactive_suggestions_enabled,
         feed_into_calendar_view=body.feed_into_calendar_view,
         feed_into_agents=body.feed_into_agents,
+        feed_into_proactive=body.feed_into_proactive,
     )
     return _store.set_self_model_settings(user_id, settings).to_dict()
  
@@ -534,6 +537,33 @@ def export_self_model_facts():
     """Export all self-model facts as a JSON blob (for backup / transfer)."""
     store = _get_sm_store()
     return store.export()
+
+
+@router.get("/self-model/suggestions")
+def get_proactive_suggestions(limit: int = 5):
+    """Get proactive suggestions ranked by priority tier.
+
+    Returns self-model facts that are most relevant for proactive nudges,
+    using the tiered priority system from the meta-cognition protocol.
+    Only returns suggestions if the user has opted into proactive suggestions
+    via their self-model settings.
+
+    Args:
+        limit: Maximum number of suggestions to return (default 5).
+
+    Returns:
+        List of suggestion dicts with fact_id, content, category, priority,
+        and confidence. Empty list if proactive suggestions are disabled.
+    """
+    user_id = _current_user_id()
+    settings = _store.get_self_model_settings(user_id)
+    store = _get_sm_store()
+    model = SelfModel(
+        user_id=user_id,
+        settings=settings,
+        store=store,
+    )
+    return model.get_proactive_suggestions(limit=limit)
 
 
 # --- settings: API keys & model availability -------------------------------

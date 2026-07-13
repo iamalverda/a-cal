@@ -106,6 +106,7 @@ export interface SelfModelDepth {
   proactive_suggestions_enabled: boolean;
   feed_into_calendar_view: boolean;
   feed_into_agents: boolean;
+  feed_into_proactive: boolean;
 }
 
 /** A single fact the self-model has learned about the user. */

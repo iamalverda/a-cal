@@ -19,6 +19,7 @@ import { NervousSystemPanel } from "@/components/nervous-system-panel";
 import { EmailPanel } from "@/components/email-panel";
 import { AnalyticsPanel } from "@/components/analytics-panel";
 import { AddAccountWizard } from "@/components/add-account-wizard";
+import { ProactiveSuggestions } from "@/components/proactive-suggestions";
 import { api } from "@/lib/api";
 import {
   mockSubAccounts,
@@ -50,6 +51,7 @@ export default function Page() {
   const [showEmail, setShowEmail] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [oauthResult, setOauthResult] = useState<string | null>(null);
+  const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [showAddWizard, setShowAddWizard] = useState(false);
 
   /** Load real data from the backend on mount, falling back to mock data. */
@@ -80,6 +82,17 @@ export default function Page() {
         // chat message is fast. Fire-and-forget — if it fails, the first
         // real request will cold-start the model (just slower).
         fetch("/api/a-cal/settings/preload-model", { method: "POST" }).catch(() => {});
+
+        // Check if proactive suggestions are enabled
+        try {
+          const smResp = await fetch("/api/a-cal/settings/self-model");
+          if (smResp.ok) {
+            const sm = await smResp.json();
+            setProactiveEnabled(sm.proactive_suggestions_enabled && sm.feed_into_proactive);
+          }
+        } catch {
+          // keep default (false)
+        }
       } catch {
         // Backend not running — use mock data (already set)
       }
@@ -434,6 +447,9 @@ export default function Page() {
           <DeveloperPanel />
         </SlideInOverlay>
       )}
+
+      {/* Proactive suggestions — floating notifications */}
+      <ProactiveSuggestions enabled={proactiveEnabled} />
 
       {/* Add Sub-Calendar wizard */}
       {showAddWizard && (

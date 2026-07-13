@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from a_cal.api import agent_routes
 from a_cal.api.agent_routes import router as agent_router
 from a_cal.self_model.store import SelfModelStore
+from a_cal.self_model.settings import SelfModelSettings
 from a_cal.self_model.types import SelfModelFact, FactCategory, SelfModelDepth, PrivacyTier
 
 
@@ -147,3 +148,104 @@ class TestSelfModelFactsAPI:
         assert data["fact_count"] == 3
         assert len(data["facts"]) == 3
         assert data["user_id"] == "local-dev-user"
+
+
+class TestProactiveSuggestionsAPI:
+    """Test the GET /self-model/suggestions endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_sm_settings(self):
+        """Reset self-model settings to defaults after each test."""
+        yield
+        # Reset to defaults so other test files aren't affected
+        from a_cal.api.agent_routes import _store, _current_user_id
+        _store.set_self_model_settings(
+            _current_user_id(),
+            SelfModelSettings(),
+        )
+
+    def test_suggestions_empty_when_proactive_disabled(self, client, store_with_facts):
+        """Returns empty list when proactive suggestions are disabled (default)."""
+        resp = client.get("/api/a-cal/self-model/suggestions")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_suggestions_returned_when_enabled(self, client, store_with_facts):
+        """Returns ranked suggestions when proactive is enabled."""
+        # Enable proactive suggestions + feed_into_proactive
+        client.post("/api/a-cal/settings/self-model", json={
+            "depth": "attention_intent",
+            "enabled_categories": {},
+            "cloud_sync_enabled": False,
+            "proactive_suggestions_enabled": True,
+            "feed_into_proactive": True,
+            "feed_into_calendar_view": True,
+            "feed_into_agents": True,
+        })
+
+        resp = client.get("/api/a-cal/self-model/suggestions")
+        assert resp.status_code == 200
+        suggestions = resp.json()
+        assert len(suggestions) > 0
+        assert all("fact_id" in s for s in suggestions)
+        assert all("content" in s for s in suggestions)
+        assert all("priority" in s for s in suggestions)
+        assert all("confidence" in s for s in suggestions)
+
+    def test_suggestions_ranked_by_priority(self, client, store_with_facts):
+        """Longitudinal identity facts rank higher than attention/pattern facts."""
+        client.post("/api/a-cal/settings/self-model", json={
+            "depth": "longitudinal_identity",
+            "enabled_categories": {},
+            "cloud_sync_enabled": False,
+            "proactive_suggestions_enabled": True,
+            "feed_into_proactive": True,
+            "feed_into_calendar_view": True,
+            "feed_into_agents": True,
+        })
+
+        resp = client.get("/api/a-cal/self-model/suggestions")
+        assert resp.status_code == 200
+        suggestions = resp.json()
+        assert len(suggestions) == 3
+
+        # fact-3 is longitudinal_identity (priority 3), should be first
+        assert suggestions[0]["fact_id"] == "fact-3"
+        assert suggestions[0]["priority"] == 3
+
+    def test_suggestions_limit_parameter(self, client, store_with_facts):
+        """The limit parameter caps the number of suggestions."""
+        client.post("/api/a-cal/settings/self-model", json={
+            "depth": "longitudinal_identity",
+            "enabled_categories": {},
+            "cloud_sync_enabled": False,
+            "proactive_suggestions_enabled": True,
+            "feed_into_proactive": True,
+            "feed_into_calendar_view": True,
+            "feed_into_agents": True,
+        })
+
+        resp = client.get("/api/a-cal/self-model/suggestions?limit=2")
+        assert resp.status_code == 200
+        suggestions = resp.json()
+        assert len(suggestions) == 2
+
+    def test_suggestions_empty_when_no_facts(self, client):
+        """Returns empty list when proactive is enabled but no facts exist."""
+        # Clear any existing facts
+        store = SelfModelStore(user_id="local-dev-user", data_dir="/tmp/a-cal-test-sm")
+        store.clear_all()
+
+        client.post("/api/a-cal/settings/self-model", json={
+            "depth": "attention_intent",
+            "enabled_categories": {},
+            "cloud_sync_enabled": False,
+            "proactive_suggestions_enabled": True,
+            "feed_into_proactive": True,
+            "feed_into_calendar_view": True,
+            "feed_into_agents": True,
+        })
+
+        resp = client.get("/api/a-cal/self-model/suggestions")
+        assert resp.status_code == 200
+        assert resp.json() == []

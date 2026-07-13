@@ -320,6 +320,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
     proactive_suggestions_enabled: boolean;
     feed_into_calendar_view: boolean;
     feed_into_agents: boolean;
+    feed_into_proactive?: boolean;
   }>) => {
     try {
       await api.setSelfModelSettings({
@@ -329,6 +330,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         proactive_suggestions_enabled: updates.proactive_suggestions_enabled ?? proactive,
         feed_into_calendar_view: updates.feed_into_calendar_view ?? feedCalendar,
         feed_into_agents: updates.feed_into_agents ?? feedAgents,
+        feed_into_proactive: updates.feed_into_proactive ?? proactive,
       });
     } catch {
       // Backend not running — local state already updated

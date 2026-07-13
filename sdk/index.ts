@@ -179,6 +179,7 @@ export class ACalClient {
     clearAllFacts: () => Promise<{ cleared: boolean }>;
     editFact: (factId: string, patch: Json) => Promise<Json>;
     export: () => Promise<Json>;
+    suggestions: (limit?: number) => Promise<Json[]>;
   };
 
   /** Swarm negotiation API. */
@@ -349,6 +350,7 @@ export class ACalClient {
       clearAllFacts: () => del<{ cleared: boolean }>("/self-model/facts"),
       editFact: (factId, patchData) => patch<Json>(`/self-model/facts/${factId}`, patchData),
       export: () => get<Json>("/self-model/export"),
+      suggestions: (limit) => get<Json[]>(`/self-model/suggestions${limit ? `?limit=${limit}` : ""}`),
     };
 
     this.swarm = {

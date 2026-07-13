@@ -345,6 +345,17 @@ export const api = {
     return fetchJson(`${API_BASE}/self-model/export`);
   },
 
+  async getProactiveSuggestions(limit?: number): Promise<Array<{
+    fact_id: string;
+    content: string;
+    category: string;
+    priority: number;
+    confidence: number;
+  }>> {
+    const qs = limit ? `?limit=${limit}` : "";
+    return fetchJson(`${API_BASE}/self-model/suggestions${qs}`);
+  },
+
   // --- LLM settings -------------------------------------------------------
 
   async getLLMEnabled(): Promise<{ enabled: boolean }> {
