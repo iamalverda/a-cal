@@ -1,0 +1,25 @@
+{
+  "name": "Auto-Resolve Conflicts",
+  "description": "Detect scheduling conflicts and negotiate between sub-account agents",
+  "nodes": [
+    {
+      "id": "fetch",
+      "type": "calendar.fetch",
+      "params": { "days": 7 }
+    },
+    {
+      "id": "detect",
+      "type": "filter",
+      "params": { "filter": "conflicts" }
+    },
+    {
+      "id": "negotiate",
+      "type": "transform",
+      "params": {
+        "action": "swarm_negotiate",
+        "strategy": "priority_based"
+      }
+    }
+  ],
+  "edges": [["fetch", "detect"], ["detect", "negotiate"]]
+}

@@ -66,3 +66,11 @@ class Plugin:
 - Plugin errors are caught and logged — they never crash the host
 - Plugins run in the same process (sandboxing is a future concern)
 - Disable a plugin from the UI or API without removing the file
+
+## Additional Examples
+
+| Plugin | Type | Hooks | What it does |
+|--------|------|-------|-------------|
+| `smart_tagger.py` | agent | `on_event_created`, `on_event_updated` | Auto-categorizes events by title keywords (meeting, focus, social, travel, health, etc.) |
+| `auto_decline.py` | agent | `on_event_created` | Flags events that conflict with high-priority existing events |
+| `response_translator.py` | agent | `on_conductor_response` | Adds timestamp and quick-action hints to conductor responses |

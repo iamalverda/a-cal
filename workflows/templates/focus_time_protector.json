@@ -1,0 +1,29 @@
+{
+  "name": "Focus Time Protector",
+  "description": "Scan upcoming events and protect marked focus blocks from being overwritten",
+  "nodes": [
+    {
+      "id": "fetch",
+      "type": "calendar.fetch",
+      "params": { "days": 14 }
+    },
+    {
+      "id": "filter_focus",
+      "type": "filter",
+      "params": { "filter": "metadata.protected == true" }
+    },
+    {
+      "id": "check_conflicts",
+      "type": "filter",
+      "params": { "filter": "overlapping_events" }
+    },
+    {
+      "id": "alert",
+      "type": "email.send",
+      "params": {
+        "subject": "Focus time conflict detected"
+      }
+    }
+  ],
+  "edges": [["fetch", "filter_focus"], ["filter_focus", "check_conflicts"], ["check_conflicts", "alert"]]
+}

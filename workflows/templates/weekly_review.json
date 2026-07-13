@@ -1,0 +1,31 @@
+{
+  "name": "Weekly Review",
+  "description": "Summarize the past week and plan the next, using self-model insights",
+  "nodes": [
+    {
+      "id": "fetch_past",
+      "type": "calendar.fetch",
+      "params": { "days": -7 }
+    },
+    {
+      "id": "fetch_future",
+      "type": "calendar.fetch",
+      "params": { "days": 7 }
+    },
+    {
+      "id": "analyze",
+      "type": "llm.generate",
+      "params": {
+        "prompt": "Analyze the past week's meetings and upcoming week's schedule. Identify patterns, overloaded days, and suggest optimizations based on the user's energy patterns."
+      }
+    },
+    {
+      "id": "notify",
+      "type": "email.send",
+      "params": {
+        "subject": "Your A-Cal Weekly Review"
+      }
+    }
+  ],
+  "edges": [["fetch_past", "analyze"], ["fetch_future", "analyze"], ["analyze", "notify"]]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Daily Morning Briefing",
+  "description": "Fetch today's events, summarize with LLM, and email the summary",
+  "nodes": [
+    {
+      "id": "fetch",
+      "type": "calendar.fetch",
+      "params": { "days": 1 }
+    },
+    {
+      "id": "summarize",
+      "type": "llm.summarize",
+      "params": {
+        "prompt": "Summarize today's meetings. Highlight any conflicts, back-to-back sessions, or gaps for deep work. Keep it under 200 words."
+      }
+    },
+    {
+      "id": "notify",
+      "type": "email.send",
+      "params": {
+        "subject": "Your A-Cal Daily Briefing"
+      }
+    }
+  ],
+  "edges": [["fetch", "summarize"], ["summarize", "notify"]]
+}
