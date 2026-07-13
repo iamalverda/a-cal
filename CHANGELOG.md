@@ -4,6 +4,26 @@ All notable changes to A-Cal are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Marketplace trust & moderation system
+  - Content hashing (deterministic SHA-256 over item config) for tamper detection
+  - Trust scoring (0-100) from ratings, verification status, and flag count
+  - Flagging system: users can flag items; 3+ unresolved flags auto-marks as flagged
+  - Verification system: moderators/admins can verify items
+  - 5 new API endpoints: flag, get flags, resolve flag, verify, get trust info
+  - Frontend trust badges (Verified / Flagged / Trust: NN) and flag button with
+    reason form on marketplace item cards
+  - TypeScript types: VerificationStatus, FlagRecord, trust fields on MarketplaceItem
+  - 27 Python tests + 4 E2E tests for the trust system
+
+### Fixed
+- Remixed marketplace items now compute content hash (both in-memory and persistent
+  store). Previously remixed items had empty content_hash fields.
+- E2E email-depth test race condition: waitForResponse now filters for POST method
+  only, preventing it from catching the initial GET settings load
+
 ## [0.1.0] — 2026-07-12
 
 ### Added
