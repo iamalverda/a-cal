@@ -123,3 +123,53 @@ async def test_per_sub_agent_flags_agent_review():
     out = await engine.pull_window(NOW, NOW + timedelta(days=1))
     flagged = [e for e in out if e.metadata.get("agent_review")]
     assert len(flagged) == 1
+
+
+def test_include_rule_excludes_non_matching():
+    """When include rules exist, events that don't match any are excluded (whitelist)."""
+    ev = _ev("Personal Lunch", NOW)
+    rules = [{"rule_type": "include", "field": "keyword", "pattern": "Team", "priority": 0, "is_active": True}]
+    outcome = evaluate_rules(ev, rules)
+    assert outcome.included is False
+
+
+def test_include_rule_whitelist_with_multiple_rules():
+    """Multiple include rules: event must match at least one to be included."""
+    ev_match = _ev("Team Standup", NOW)
+    ev_no_match = _ev("Personal Lunch", NOW)
+    rules = [
+        {"rule_type": "include", "field": "keyword", "pattern": "Team", "priority": 0, "is_active": True},
+        {"rule_type": "include", "field": "keyword", "pattern": "Sprint", "priority": 1, "is_active": True},
+    ]
+    assert evaluate_rules(ev_match, rules).included is True
+    assert evaluate_rules(ev_no_match, rules).included is False
+
+
+def test_exclude_overrides_include():
+    """An exclude match always wins over an include match."""
+    ev = _ev("Confidential Team Meeting", NOW)
+    rules = [
+        {"rule_type": "include", "field": "keyword", "pattern": "Team", "priority": 0, "is_active": True},
+        {"rule_type": "exclude", "field": "keyword", "pattern": "Confidential", "priority": 1, "is_active": True},
+    ]
+    outcome = evaluate_rules(ev, rules)
+    assert outcome.included is False
+
+
+def test_no_rules_includes_everything():
+    """With no rules, all events are included (default behavior)."""
+    ev = _ev("Anything", NOW)
+    outcome = evaluate_rules(ev, [])
+    assert outcome.included is True
+
+
+@pytest.mark.asyncio
+async def test_mirror_filter_with_include_whitelist():
+    """Mirror+filter with include rules acts as a whitelist on the main calendar."""
+    events = [_ev("Team Standup", NOW), _ev("Personal Lunch", NOW + timedelta(hours=1))]
+    rules = [{"rule_type": "include", "field": "keyword", "pattern": "Team", "priority": 0, "is_active": True}]
+    engine = SubAccountSyncEngine({"id": "sub-1", "sync_mode": "mirror_filter", "sync_rules": rules}, [MockProvider(events)])
+    out = await engine.pull_window(NOW, NOW + timedelta(days=1))
+    titles = [e.title for e in out]
+    assert "Team Standup" in titles
+    assert "Personal Lunch" not in titles
