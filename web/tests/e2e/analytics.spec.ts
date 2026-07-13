@@ -75,7 +75,7 @@ test.describe("Analytics panel", () => {
   });
 });
 
-  test("create event type via UI and verify it persists", async ({ page }) => {
+  test("create event type via UI form and verify it persists", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Analytics" }).click();
     await expect(
@@ -85,15 +85,21 @@ test.describe("Analytics panel", () => {
     await page.getByRole("button", { name: "Event Types" }).click();
     await page.waitForTimeout(500);
 
-    // Click "New" to create an event type
+    // Click "New" to open the creation form
     await page.getByRole("button", { name: "New", exact: true }).click();
+    await page.waitForTimeout(500);
+
+    // Fill in a custom title
+    const titleInput = page.getByPlaceholder("30 Minute Meeting");
+    await titleInput.fill("Strategy Session");
+    await page.waitForTimeout(200);
+
+    // Click Create button
+    await page.getByRole("button", { name: "Create" }).click();
     await page.waitForTimeout(1000);
 
-    // The newly created event type "New Event Type" should appear
-    await expect(page.getByText("New Event Type").first()).toBeVisible({ timeout: 5_000 });
-
-    // Verify duration and scheduling type are shown
-    await expect(page.getByText(/30 min/i).first()).toBeVisible({ timeout: 5_000 });
+    // The newly created event type should appear in the list
+    await expect(page.getByText("Strategy Session").first()).toBeVisible({ timeout: 5_000 });
   });
 
   test("delete event type via UI removes it from list", async ({ page }) => {
@@ -106,17 +112,22 @@ test.describe("Analytics panel", () => {
     await page.getByRole("button", { name: "Event Types" }).click();
     await page.waitForTimeout(500);
 
-    // Create one first so we have something to delete
+    // Create one first via the form with a unique name
+    const uniqueName = "Cleanup " + Date.now();
     await page.getByRole("button", { name: "New", exact: true }).click();
-    await page.waitForTimeout(1000);
-    await expect(page.getByText("New Event Type").first()).toBeVisible({ timeout: 5_000 });
+    await page.waitForTimeout(500);
+    const titleInput = page.getByPlaceholder("30 Minute Meeting");
+    await titleInput.fill(uniqueName);
+    await page.waitForTimeout(200);
+    await page.getByRole("button", { name: "Create" }).click();
+    await page.waitForTimeout(1500);
+    await expect(page.getByText(uniqueName).first()).toBeVisible({ timeout: 5_000 });
 
-    // Click the delete button (Trash2 icon button)
-    const deleteButton = page.locator("button:has(svg.lucide-trash2)").first();
-    await deleteButton.click();
-    await page.waitForTimeout(1000);
+    // Find the event type card containing our text and click its delete button
+    const card = page.locator('.flex.items-center.gap-3.rounded-lg', { hasText: uniqueName }).first();
+    await card.locator('button').click();
+    await page.waitForTimeout(1500);
 
     // The event type should be gone from the list
-    // Check that the "No event types yet" message appears OR the count decreased
-    await page.waitForTimeout(500);
+    await expect(page.getByText(uniqueName)).toHaveCount(0, { timeout: 5_000 });
   });

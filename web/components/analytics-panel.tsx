@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type {
@@ -24,6 +26,7 @@ import type {
   EventType,
   CalendarTool,
   FreeSlot,
+  SchedulingType,
 } from "@/types";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -74,6 +77,15 @@ export function AnalyticsPanel() {
   const [showFreeSlots, setShowFreeSlots] = useState(false);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [calendarTools, setCalendarTools] = useState<CalendarTool[]>([]);
+  const [showEtForm, setShowEtForm] = useState(false);
+  const [etForm, setEtForm] = useState({
+    title: "New Event Type",
+    slug: "new-event",
+    duration_minutes: 30,
+    scheduling_type: "collective" as SchedulingType,
+    description: "",
+    color: "#3B82F6",
+  });
   const [activeTab, setActiveTab] = useState<"overview" | "freeslots" | "eventtypes" | "tools">("overview");
 
   /** Load analytics summary from backend. */
@@ -129,12 +141,23 @@ export function AnalyticsPanel() {
   const handleCreateEventType = async () => {
     try {
       const et = await api.createEventType({
+        title: etForm.title,
+        slug: etForm.slug || etForm.title.toLowerCase().replace(/\s+/g, "-"),
+        duration_minutes: etForm.duration_minutes,
+        scheduling_type: etForm.scheduling_type,
+        description: etForm.description,
+        color: etForm.color,
+      } as Partial<EventType>);
+      setEventTypes([...eventTypes, et]);
+      setShowEtForm(false);
+      setEtForm({
         title: "New Event Type",
         slug: "new-event",
         duration_minutes: 30,
-        scheduling_type: "collective",
-      } as Partial<EventType>);
-      setEventTypes([...eventTypes, et]);
+        scheduling_type: "collective" as SchedulingType,
+        description: "",
+        color: "#3B82F6",
+      });
     } catch {
       // Backend not running
     }
@@ -328,10 +351,81 @@ export function AnalyticsPanel() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Event Types (cal.com-style booking pages)</span>
-              <Button variant="outline" size="sm" onClick={handleCreateEventType}>
+              <Button variant="outline" size="sm" onClick={() => setShowEtForm(!showEtForm)}>
                 <Plus size={14} className="mr-1" /> New
               </Button>
             </div>
+            {showEtForm && (
+              <div className="rounded-lg border border-[var(--border)] p-4 space-y-3 bg-[var(--muted)]/20">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-[var(--muted-foreground)]">Title</label>
+                    <Input
+                      value={etForm.title}
+                      onChange={(e) => setEtForm({ ...etForm, title: e.target.value })}
+                      placeholder="30 Minute Meeting"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-[var(--muted-foreground)]">Slug</label>
+                    <Input
+                      value={etForm.slug}
+                      onChange={(e) => setEtForm({ ...etForm, slug: e.target.value })}
+                      placeholder="30-min"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-[var(--muted-foreground)]">Duration (min)</label>
+                    <Input
+                      type="number"
+                      min={5}
+                      max={480}
+                      value={etForm.duration_minutes}
+                      onChange={(e) => setEtForm({ ...etForm, duration_minutes: parseInt(e.target.value) || 30 })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-[var(--muted-foreground)]">Scheduling Type</label>
+                    <Select
+                      value={etForm.scheduling_type}
+                      onChange={(e) => setEtForm({ ...etForm, scheduling_type: e.target.value as SchedulingType })}
+                    >
+                      <option value="collective">Collective (all attend)</option>
+                      <option value="round_robin">Round Robin (one attends)</option>
+                      <option value="managed">Managed (first participant)</option>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-[var(--muted-foreground)]">Color</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={etForm.color}
+                        onChange={(e) => setEtForm({ ...etForm, color: e.target.value })}
+                        className="h-9 w-12 rounded-md border border-[var(--input)] cursor-pointer"
+                      />
+                      <Input
+                        value={etForm.color}
+                        onChange={(e) => setEtForm({ ...etForm, color: e.target.value })}
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-[var(--muted-foreground)]">Description</label>
+                    <Input
+                      value={etForm.description}
+                      onChange={(e) => setEtForm({ ...etForm, description: e.target.value })}
+                      placeholder="Optional description"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setShowEtForm(false)}>Cancel</Button>
+                  <Button size="sm" onClick={handleCreateEventType}>Create</Button>
+                </div>
+              </div>
+            )}
             {eventTypes.length === 0 ? (
               <div className="text-center py-8 text-sm text-[var(--muted-foreground)]">
                 No event types yet. Create one to enable booking pages.
