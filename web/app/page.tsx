@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
-import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, User } from "lucide-react";
+import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, User, Menu, X } from "lucide-react";
 import { Network, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +57,7 @@ export default function Page() {
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [showCommandBar, setShowCommandBar] = useState(false);
   const [showAddWizard, setShowAddWizard] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   /** Load real data from the backend on mount, falling back to mock data. */
   useEffect(() => {
@@ -207,9 +208,14 @@ export default function Page() {
   return (
     <div className={`flex h-screen overflow-hidden ${dark ? "dark" : ""}`}>
       {/* Left sidebar — branding + sub-accounts */}
-      <aside className="w-64 shrink-0 border-r border-[var(--border)] flex flex-col bg-[var(--card)]">
+      <aside className={cn(
+        "w-64 shrink-0 border-r border-[var(--border)] flex-col bg-[var(--card)] z-50",
+        "fixed inset-y-0 left-0 transition-transform md:static md:translate-x-0 md:flex",
+        mobileSidebarOpen ? "translate-x-0 flex" : "-translate-x-0 md:translate-x-0",
+        !mobileSidebarOpen && "hidden md:flex",
+      )}>
         {/* Logo */}
-        <div className="px-4 py-4 border-b border-[var(--border)]">
+        <div className="px-4 py-4 border-b border-[var(--border)] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-[var(--primary)] flex items-center justify-center">
               <Sparkles size={18} className="text-[var(--primary-foreground)]" />
@@ -219,6 +225,13 @@ export default function Page() {
               <div className="text-xs text-[var(--muted-foreground)]">Agentic Calendar</div>
             </div>
           </div>
+          <button
+            onClick={() => setMobileSidebarOpen(false)}
+            className="md:hidden p-1.5 rounded-md hover:bg-[var(--accent)]"
+            title="Close menu"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Sub-account sidebar */}
@@ -326,11 +339,26 @@ export default function Page() {
         </div>
       </aside>
 
+      {/* Mobile sidebar backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
       {/* Center — calendar */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden p-1.5 rounded-md hover:bg-[var(--accent)]"
+              title="Open menu"
+            >
+              <Menu size={18} />
+            </button>
             <div className="flex rounded-md border border-[var(--border)] overflow-hidden">
               {(["simple", "pro", "developer"] as SkillMode[]).map((m) => (
                 <button
@@ -423,7 +451,10 @@ export default function Page() {
             />
           </div>
           {showConductor && (
-            <div className="w-[380px] shrink-0 border-l border-[var(--border)] bg-[var(--card)]">
+            <div className={cn(
+              "shrink-0 border-l border-[var(--border)] bg-[var(--card)]",
+              "w-[380px] max-w-[85vw]",
+            )}>
               <ConductorPanel />
             </div>
           )}
