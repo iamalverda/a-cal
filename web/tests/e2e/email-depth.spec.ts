@@ -41,7 +41,9 @@ test.describe("Email integration depth settings", () => {
 
     // Listen for the API call
     const apiPromise = page.waitForResponse(
-      (resp) => resp.url().includes("/api/a-cal/settings/email"),
+      (resp) =>
+        resp.url().includes("/api/a-cal/settings/email") &&
+        resp.request().method() === "POST",
       { timeout: 10_000 },
     );
 

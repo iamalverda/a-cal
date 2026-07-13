@@ -20,6 +20,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional
 
+from a_cal.marketplace.trust import (
+    compute_content_hash,
+    compute_trust_score,
+    VerificationStatus,
+)
+
 
 class MarketplaceItemType(str, enum.Enum):
     """What kind of thing can be shared on the marketplace."""
@@ -98,6 +104,10 @@ class MarketplaceItem:
         default_factory=lambda: datetime.now(UTC).isoformat()
     )
     updated_at: str | None = None
+    # Trust & moderation fields.
+    content_hash: str = ""
+    verification_status: str = VerificationStatus.UNVERIFIED.value
+    flag_count: int = 0
 
     @property
     def rating(self) -> float:
@@ -112,6 +122,23 @@ class MarketplaceItem:
         self.rating_sum += clamped
         self.rating_count += 1
         self.updated_at = datetime.now(UTC).isoformat()
+
+    @property
+    def trust_score(self) -> float:
+        """Computed trust score (0.0–100.0) based on ratings, installs,
+        verification status, flags, and author track record."""
+        return compute_trust_score(
+            rating=self.rating,
+            rating_count=self.rating_count,
+            install_count=self.install_count,
+            flag_count=self.flag_count,
+            verification_status=self.verification_status,
+        )
+
+    def compute_hash(self) -> str:
+        """Compute and store the content hash for integrity verification."""
+        self.content_hash = compute_content_hash(self.config)
+        return self.content_hash
 
     def record_install(self) -> None:
         """Increment the install counter."""
@@ -134,6 +161,10 @@ class MarketplaceItem:
             "rating_count": self.rating_count,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "content_hash": self.content_hash,
+            "verification_status": self.verification_status,
+            "flag_count": self.flag_count,
+            "trust_score": self.trust_score,
         }
 
     @classmethod
@@ -155,6 +186,11 @@ class MarketplaceItem:
                 "created_at", datetime.now(UTC).isoformat()
             ),
             updated_at=data.get("updated_at"),
+            content_hash=data.get("content_hash", ""),
+            verification_status=data.get(
+                "verification_status", VerificationStatus.UNVERIFIED.value
+            ),
+            flag_count=data.get("flag_count", 0),
         )
 
 

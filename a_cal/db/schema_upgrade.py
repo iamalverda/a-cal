@@ -21,6 +21,24 @@ _COLUMN_ADDITIONS: list[tuple[str, str, str]] = [
         "ALTER TABLE a_cal_events ADD COLUMN user_id VARCHAR(36) "
         "NOT NULL DEFAULT 'local-dev-user'",
     ),
+    (
+        "a_cal_marketplace_items",
+        "content_hash",
+        "ALTER TABLE a_cal_marketplace_items ADD COLUMN content_hash VARCHAR(16) "
+        "NOT NULL DEFAULT ''",
+    ),
+    (
+        "a_cal_marketplace_items",
+        "verification_status",
+        "ALTER TABLE a_cal_marketplace_items ADD COLUMN verification_status VARCHAR(30) "
+        "NOT NULL DEFAULT 'unverified'",
+    ),
+    (
+        "a_cal_marketplace_items",
+        "flag_count",
+        "ALTER TABLE a_cal_marketplace_items ADD COLUMN flag_count INTEGER "
+        "NOT NULL DEFAULT 0",
+    ),
 ]
 
 

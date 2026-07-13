@@ -217,6 +217,10 @@ class MarketplaceItemDB(Base):
     install_count = Column(Integer, nullable=False, default=0)
     rating = Column(String(10), nullable=False, default="0.0")
     rating_count = Column(Integer, nullable=False, default=0)
+    # Trust & moderation fields
+    content_hash = Column(String(16), nullable=False, default="")
+    verification_status = Column(String(30), nullable=False, default="unverified")
+    flag_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=True, onupdate=_utcnow)
 

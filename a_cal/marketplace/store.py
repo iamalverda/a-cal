@@ -10,6 +10,7 @@ isn't empty when a user first opens it.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional, Tuple
 
 from a_cal.marketplace.types import (
@@ -18,6 +19,11 @@ from a_cal.marketplace.types import (
     MarketplaceItemType,
     Provenance,
     RemixRecord,
+)
+from a_cal.marketplace.trust import (
+    FlagRecord,
+    VerificationStatus,
+    compute_content_hash,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +41,7 @@ class MarketplaceStore:
         self._installs: dict[str, InstallRecord] = {}  # record_id → record
         self._installs_by_user: dict[str, list[str]] = {}  # user_id → record_ids
         self._remixes: list[RemixRecord] = []
+        self._flags: list[FlagRecord] = []
         self._seeded = False
 
     # --- seeding -------------------------------------------------------------
@@ -120,8 +127,12 @@ class MarketplaceStore:
     # --- publish -------------------------------------------------------------
 
     def publish(self, item: MarketplaceItem) -> MarketplaceItem:
-        """Publish a new item to the marketplace."""
+        """Publish a new item to the marketplace.
+
+        Automatically computes a content hash for integrity verification.
+        """
         self._ensure_seeded()
+        item.compute_hash()
         self._items[item.id] = item
         logger.info("published marketplace item: %s (%s)", item.name, item.id)
         return item
@@ -301,3 +312,92 @@ class MarketplaceStore:
         """Get all items that were remixed from the given item."""
         self._ensure_seeded()
         return [i for i in self._items.values() if i.remixed_from == item_id]
+
+    def flag_item(
+        self, item_id: str, flagged_by: str, reason: str, detail: str = ""
+    ) -> FlagRecord | None:
+        """Flag a marketplace item for moderation review.
+
+        Args:
+            item_id: The item to flag.
+            flagged_by: User ID of the reporter.
+            reason: Category — spam, malicious, broken, license_violation, other.
+            detail: Optional human-readable explanation.
+
+        Returns:
+            The FlagRecord if the item exists, None otherwise.
+        """
+        self._ensure_seeded()
+        item = self._items.get(item_id)
+        if not item:
+            return None
+        flag = FlagRecord(
+            item_id=item_id,
+            flagged_by=flagged_by,
+            reason=reason,
+            detail=detail,
+        )
+        self._flags.append(flag)
+        item.flag_count = sum(
+            1 for f in self._flags if f.item_id == item_id and not f.resolved
+        )
+        if item.flag_count >= 3:
+            item.verification_status = VerificationStatus.FLAGGED.value
+        item.updated_at = datetime.now(UTC).isoformat()
+        return flag
+
+    def get_flags(self, item_id: str) -> list[FlagRecord]:
+        """Get all flags for an item."""
+        self._ensure_seeded()
+        return [f for f in self._flags if f.item_id == item_id]
+
+    def resolve_flag(
+        self, flag_id: str, resolution: str
+    ) -> FlagRecord | None:
+        """Resolve a flag (moderator action).
+
+        Args:
+            flag_id: The flag to resolve.
+            resolution: dismissed, removed, or warning_issued.
+
+        Returns:
+            The updated FlagRecord if found, None otherwise.
+        """
+        self._ensure_seeded()
+        for flag in self._flags:
+            if flag.id == flag_id:
+                flag.resolved = True
+                flag.resolution = resolution
+                flag.resolved_at = datetime.now(UTC).isoformat()
+                # Update item flag count and status
+                item = self._items.get(flag.item_id)
+                if item:
+                    item.flag_count = sum(
+                        1 for f in self._flags
+                        if f.item_id == flag.item_id and not f.resolved
+                    )
+                    if resolution == "removed":
+                        item.verification_status = VerificationStatus.REMOVED.value
+                    elif item.flag_count == 0 and item.verification_status == VerificationStatus.FLAGGED.value:
+                        item.verification_status = VerificationStatus.UNVERIFIED.value
+                    item.updated_at = datetime.now(UTC).isoformat()
+                return flag
+        return None
+
+    def verify_item(self, item_id: str, status: str = "author_verified") -> MarketplaceItem | None:
+        """Set the verification status of an item (admin/moderator action).
+
+        Args:
+            item_id: The item to verify.
+            status: One of author_verified, community_verified.
+
+        Returns:
+            The updated MarketplaceItem if found, None otherwise.
+        """
+        self._ensure_seeded()
+        item = self._items.get(item_id)
+        if not item:
+            return None
+        item.verification_status = status
+        item.updated_at = datetime.now(UTC).isoformat()
+        return item

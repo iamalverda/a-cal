@@ -444,3 +444,98 @@ def get_community_profile():
             for rec in installs
         ],
     }
+
+
+# --- Trust & Moderation (charter §9: moderation/trust model) --------------
+
+
+class FlagItemRequest(BaseModel):
+    """Request body for flagging a marketplace item."""
+
+    reason: str  # spam, malicious, broken, license_violation, other
+    detail: str = ""
+
+
+@router.post("/items/{item_id}/flag")
+def flag_item(item_id: str, body: FlagItemRequest):
+    """Flag a marketplace item for moderation review.
+
+    Users can report items that are spam, malicious, broken, or violate
+    licensing. Items with 3+ unresolved flags are automatically marked
+    as flagged and hidden from default browsing.
+    """
+    store = _get_store()
+    user_id = _current_user_id()
+    flag = store.flag_item(item_id, user_id, body.reason, body.detail)
+    if not flag:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return flag.to_dict()
+
+
+@router.get("/items/{item_id}/flags")
+def get_item_flags(item_id: str):
+    """Get all flags for a marketplace item (moderator view)."""
+    store = _get_store()
+    item = store.get_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    flags = store.get_flags(item_id)
+    return {"item_id": item_id, "flags": [f.to_dict() for f in flags]}
+
+
+class ResolveFlagRequest(BaseModel):
+    """Request body for resolving a flag (moderator action)."""
+
+    resolution: str  # dismissed, removed, warning_issued
+
+
+@router.post("/flags/{flag_id}/resolve")
+def resolve_flag(flag_id: str, body: ResolveFlagRequest):
+    """Resolve a flag (moderator action only)."""
+    store = _get_store()
+    flag = store.resolve_flag(flag_id, body.resolution)
+    if not flag:
+        raise HTTPException(status_code=404, detail="Flag not found")
+    return flag.to_dict()
+
+
+class VerifyItemRequest(BaseModel):
+    """Request body for setting verification status."""
+
+    status: str  # author_verified, community_verified
+
+
+@router.post("/items/{item_id}/verify")
+def verify_item(item_id: str, body: VerifyItemRequest):
+    """Set the verification status of an item (admin/moderator action).
+
+    Verified items get a trust boost and are more visible in browsing.
+    """
+    store = _get_store()
+    item = store.verify_item(item_id, body.status)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item.to_dict()
+
+
+@router.get("/items/{item_id}/trust")
+def get_item_trust(item_id: str):
+    """Get trust and moderation info for a marketplace item.
+
+    Returns the trust score, verification status, flag count, and
+    content hash for integrity verification.
+    """
+    store = _get_store()
+    item = store.get_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {
+        "item_id": item_id,
+        "trust_score": round(item.trust_score, 1),
+        "verification_status": item.verification_status,
+        "flag_count": item.flag_count,
+        "content_hash": item.content_hash,
+        "rating": item.rating,
+        "rating_count": item.rating_count,
+        "install_count": item.install_count,
+    }

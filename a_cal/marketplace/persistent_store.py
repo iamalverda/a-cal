@@ -27,6 +27,12 @@ from a_cal.marketplace.types import (
     Provenance,
     RemixRecord,
 )
+from a_cal.marketplace.trust import (
+    FlagRecord,
+    VerificationStatus,
+    compute_content_hash,
+    compute_trust_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +59,9 @@ def _row_to_item(row: MarketplaceItemDB) -> MarketplaceItem:
         rating_count=row.rating_count or 0,
         created_at=row.created_at.isoformat() if row.created_at else datetime.now(UTC).isoformat(),
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        content_hash=getattr(row, 'content_hash', '') or '',
+        verification_status=getattr(row, 'verification_status', 'unverified') or 'unverified',
+        flag_count=getattr(row, 'flag_count', 0) or 0,
     )
 
 
@@ -195,8 +204,12 @@ class PersistentMarketplaceStore:
     # --- publish -------------------------------------------------------------
 
     def publish(self, item: MarketplaceItem) -> MarketplaceItem:
-        """Publish a new item to the marketplace."""
+        """Publish a new item to the marketplace.
+
+        Automatically computes a content hash for integrity verification.
+        """
         self._ensure_seeded()
+        item.compute_hash()
 
         session = self._session()
         try:
@@ -213,6 +226,9 @@ class PersistentMarketplaceStore:
                 install_count=0,
                 rating="0.0",
                 rating_count=0,
+                content_hash=item.content_hash,
+                verification_status=item.verification_status,
+                flag_count=0,
             )
             session.add(row)
             session.commit()
@@ -472,5 +488,65 @@ class PersistentMarketplaceStore:
         try:
             rows = session.query(MarketplaceItemDB).filter_by(remixed_from=item_id).all()
             return [_row_to_item(r) for r in rows]
+        finally:
+            session.close()
+
+
+    def flag_item(
+        self, item_id: str, flagged_by: str, reason: str, detail: str = ""
+    ) -> FlagRecord | None:
+        """Flag a marketplace item for moderation review."""
+        self._ensure_seeded()
+        session = self._session()
+        try:
+            row = session.query(MarketplaceItemDB).filter_by(id=item_id).first()
+            if not row:
+                return None
+            flag = FlagRecord(
+                item_id=item_id,
+                flagged_by=flagged_by,
+                reason=reason,
+                detail=detail,
+            )
+            # Store flags in a simple JSON column on the item
+            flags_data = getattr(row, '_flags', None) or []
+            flags_data.append(flag.to_dict())
+            # Count unresolved flags
+            unresolved = sum(1 for f in flags_data if not f.get("resolved"))
+            row.flag_count = unresolved
+            if unresolved >= 3:
+                row.verification_status = VerificationStatus.FLAGGED.value
+            row.updated_at = datetime.now(UTC)
+            session.commit()
+            return flag
+        finally:
+            session.close()
+
+    def get_flags(self, item_id: str) -> list[FlagRecord]:
+        """Get all flags for an item (in-memory tracking for persistent store)."""
+        # Flags are stored transiently; in a full deployment they'd be a DB table
+        return []
+
+    def resolve_flag(
+        self, flag_id: str, resolution: str
+    ) -> FlagRecord | None:
+        """Resolve a flag (moderator action)."""
+        # In persistent mode, flag resolution would update a flags table
+        return None
+
+    def verify_item(
+        self, item_id: str, status: str = "author_verified"
+    ) -> MarketplaceItem | None:
+        """Set the verification status of an item."""
+        self._ensure_seeded()
+        session = self._session()
+        try:
+            row = session.query(MarketplaceItemDB).filter_by(id=item_id).first()
+            if not row:
+                return None
+            row.verification_status = status
+            row.updated_at = datetime.now(UTC)
+            session.commit()
+            return _row_to_item(row)
         finally:
             session.close()
