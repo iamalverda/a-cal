@@ -14,8 +14,19 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Base,
+    BookingDB,
     CalendarEvent,
+    EmailLabel,
+    EmailFilter,
+    EmailSnooze,
+    ScheduledEmail,
+    EmailTemplate,
     EventTypeDB,
+    Team,
+    TeamMember,
+    RoutingForm,
+    WebhookConfig,
+    WebhookDelivery,
     Negotiation,
     ProviderConnection,
     SelfModelFact,
@@ -59,7 +70,12 @@ def _serialize_sub_account(sa: SubAccount) -> dict[str, Any]:
 
 
 def _serialize_provider(p: ProviderConnection) -> dict[str, Any]:
-    """Convert a ProviderConnection ORM object to a dict."""
+    """Convert a ProviderConnection ORM object to a dict.
+
+    Note: OAuth tokens are stored in config["oauth_tokens"] but are never
+    exposed through API responses because ProviderConnectionOut does not
+    include the config field.
+    """
     return {
         "id": p.id,
         "sub_account_id": p.sub_account_id,
@@ -98,6 +114,10 @@ def _serialize_event(e: CalendarEvent) -> dict[str, Any]:
         "location": e.location,
         "source_sub_account_id": e.source_sub_account_id,
         "metadata": e.event_metadata or {},
+        "is_all_day": getattr(e, "is_all_day", False) or False,
+        "recurrence_rule": getattr(e, "recurrence_rule", None),
+        "attendees": getattr(e, "attendees", None),
+        "color": getattr(e, "color", None),
     }
 
 
@@ -114,6 +134,25 @@ def _serialize_event_type(et: EventTypeDB) -> dict[str, Any]:
         "status": et.status,
         "color": et.color,
         "metadata": et.event_metadata or {},
+        "buffer_before_minutes": et.buffer_before_minutes,
+        "buffer_after_minutes": et.buffer_after_minutes,
+        "min_notice_hours": et.min_notice_hours,
+        "max_booking_days": et.max_booking_days,
+        "recurring_pattern": et.recurring_pattern,
+        "recurring_interval": et.recurring_interval,
+        "custom_questions": et.custom_questions or [],
+        "video_provider": et.video_provider,
+        "reminder_enabled": et.reminder_enabled,
+        "reminder_minutes_before": et.reminder_minutes_before,
+        "confirmation_email_enabled": et.confirmation_email_enabled,
+        "confirmation_template": et.confirmation_template,
+        "team_id": et.team_id,
+        "assignment_strategy": et.assignment_strategy,
+        "routing_form_id": et.routing_form_id,
+        "is_paid": et.is_paid,
+        "price_cents": et.price_cents,
+        "currency": et.currency,
+        "stripe_product_id": et.stripe_product_id,
     }
 
 
@@ -595,6 +634,10 @@ class PersistentStore:
                 location=data.get("location"),
                 source_sub_account_id=data.get("source_sub_account_id"),
                 event_metadata=data.get("metadata", {}),
+                is_all_day=data.get("is_all_day", False),
+                recurrence_rule=data.get("recurrence_rule"),
+                attendees=data.get("attendees"),
+                color=data.get("color"),
             )
             db.add(evt)
             db.commit()
@@ -638,6 +681,14 @@ class PersistentStore:
                     evt.location = value
                 elif key == "metadata":
                     evt.event_metadata = value
+                elif key == "is_all_day":
+                    evt.is_all_day = value
+                elif key == "recurrence_rule":
+                    evt.recurrence_rule = value
+                elif key == "attendees":
+                    evt.attendees = value
+                elif key == "color":
+                    evt.color = value
             db.commit()
             db.refresh(evt)
             logger.info("updated event: %s (%s)", evt.provider_event_id, evt.title)
@@ -877,7 +928,8 @@ class PersistentStore:
         """Create a new event type and persist it to the database.
 
         Args:
-            data: Event type fields (title, slug, duration_minutes, etc.).
+            data: Event type fields including scheduling constraints, recurring
+                pattern, custom questions, video provider, and reminders.
 
         Returns:
             The created event type as a dict.
@@ -894,6 +946,25 @@ class PersistentStore:
                 status=data.get("status", "active"),
                 color=data.get("color", "#3B82F6"),
                 event_metadata=data.get("metadata", {}),
+                buffer_before_minutes=data.get("buffer_before_minutes", 0),
+                buffer_after_minutes=data.get("buffer_after_minutes", 0),
+                min_notice_hours=data.get("min_notice_hours", 24),
+                max_booking_days=data.get("max_booking_days", 60),
+                recurring_pattern=data.get("recurring_pattern", "none"),
+                recurring_interval=data.get("recurring_interval", 1),
+                custom_questions=data.get("custom_questions", []),
+                video_provider=data.get("video_provider", ""),
+                reminder_enabled=data.get("reminder_enabled", True),
+                reminder_minutes_before=data.get("reminder_minutes_before", 60),
+                confirmation_email_enabled=data.get("confirmation_email_enabled", True),
+                confirmation_template=data.get("confirmation_template"),
+                team_id=data.get("team_id"),
+                assignment_strategy=data.get("assignment_strategy", "collective"),
+                routing_form_id=data.get("routing_form_id"),
+                is_paid=data.get("is_paid", False),
+                price_cents=data.get("price_cents", 0),
+                currency=data.get("currency", "USD"),
+                stripe_product_id=data.get("stripe_product_id"),
             )
             db.add(et)
             db.commit()
@@ -943,3 +1014,813 @@ class PersistentStore:
         with self._session() as db:
             db.query(EventTypeDB).delete()
             db.commit()
+
+    def update_event_type(self, et_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update an event type's fields.
+
+        Args:
+            et_id: The event type UUID.
+            patch: Dict of fields to update.
+
+        Returns:
+            Updated event type dict, or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(EventTypeDB).filter(
+                EventTypeDB.id == et_id,
+                EventTypeDB.user_id == _uid(),
+            ).first()
+            if row is None:
+                return None
+            for key, val in patch.items():
+                if key == "metadata":
+                    row.event_metadata = val
+                elif hasattr(row, key):
+                    setattr(row, key, val)
+            db.commit()
+            db.refresh(row)
+            return _serialize_event_type(row)
+
+    def get_event_type_by_slug(self, slug: str) -> dict[str, Any] | None:
+        """Get an event type by its slug (for public booking pages).
+
+        Does not filter by user_id since the booking page is public.
+
+        Args:
+            slug: The URL slug of the event type.
+
+        Returns:
+            Event type dict or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(EventTypeDB).filter(
+                EventTypeDB.slug == slug,
+                EventTypeDB.status == "active",
+            ).first()
+            if row is None:
+                return None
+            return _serialize_event_type(row)
+
+    # --- Bookings ---
+
+    def create_booking(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new booking.
+
+        Args:
+            data: Booking fields (event_type_id, attendee_name, attendee_email,
+                start_time, end_time, answers, video_link, etc.).
+
+        Returns:
+            The created booking as a dict.
+        """
+        with self._session() as db:
+            # Look up the event type to get the owner's user_id.
+            et = db.query(EventTypeDB).filter(
+                EventTypeDB.id == data["event_type_id"]
+            ).first()
+            if et is None:
+                raise ValueError("Event type not found")
+
+            booking = BookingDB(
+                event_type_id=data["event_type_id"],
+                user_id=et.user_id,
+                attendee_name=data.get("attendee_name", ""),
+                attendee_email=data.get("attendee_email", ""),
+                attendee_timezone=data.get("attendee_timezone", "UTC"),
+                start_time=data.get("start_time"),
+                end_time=data.get("end_time"),
+                status=data.get("status", "confirmed"),
+                answers=data.get("answers", {}),
+                video_link=data.get("video_link"),
+                notes=data.get("notes"),
+                booking_metadata=data.get("metadata", {}),
+                payment_status=data.get("payment_status", "free"),
+                payment_intent_id=data.get("payment_intent_id"),
+                assigned_member_id=data.get("assigned_member_id"),
+            )
+            db.add(booking)
+            db.commit()
+            db.refresh(booking)
+            return self._serialize_booking(booking)
+
+    def list_bookings(self, event_type_id: str | None = None) -> list[dict[str, Any]]:
+        """List bookings for the current user.
+
+        Args:
+            event_type_id: If given, filter to bookings for that event type.
+
+        Returns:
+            List of booking dicts.
+        """
+        with self._session() as db:
+            q = db.query(BookingDB).filter(BookingDB.user_id == _uid())
+            if event_type_id:
+                q = q.filter(BookingDB.event_type_id == event_type_id)
+            rows = q.order_by(BookingDB.start_time.desc()).all()
+            return [self._serialize_booking(r) for r in rows]
+
+    def get_booking(self, booking_id: str) -> dict[str, Any] | None:
+        """Get a single booking by ID.
+
+        Args:
+            booking_id: The booking UUID.
+
+        Returns:
+            Booking dict or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(BookingDB).filter(
+                BookingDB.id == booking_id,
+                BookingDB.user_id == _uid(),
+            ).first()
+            if row is None:
+                return None
+            return self._serialize_booking(row)
+
+    def update_booking(self, booking_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update a booking (e.g. cancel, add notes).
+
+        Args:
+            booking_id: The booking UUID.
+            patch: Dict of fields to update.
+
+        Returns:
+            Updated booking dict, or None if not found.
+        """
+        with self._session() as db:
+            row = db.query(BookingDB).filter(
+                BookingDB.id == booking_id,
+                BookingDB.user_id == _uid(),
+            ).first()
+            if row is None:
+                return None
+            for key, val in patch.items():
+                if key == "metadata":
+                    row.booking_metadata = val
+                elif hasattr(row, key):
+                    setattr(row, key, val)
+            db.commit()
+            db.refresh(row)
+            return self._serialize_booking(row)
+
+    def delete_booking(self, booking_id: str) -> bool:
+        """Delete a booking by ID.
+
+        Args:
+            booking_id: The booking UUID.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        with self._session() as db:
+            row = db.query(BookingDB).filter(
+                BookingDB.id == booking_id,
+                BookingDB.user_id == _uid(),
+            ).first()
+            if row is None:
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+
+
+    # --- Email Labels (Phase 4) ---
+
+    def list_email_labels(self) -> list[dict[str, Any]]:
+        """List all custom email labels for the current user."""
+        with self._session() as db:
+            rows = db.query(EmailLabel).filter(
+                EmailLabel.user_id == _uid(),
+            ).order_by(EmailLabel.name).all()
+            return [{"id": r.id, "name": r.name, "color": r.color} for r in rows]
+
+    def create_email_label(self, name: str, color: str = "#6366f1") -> dict[str, Any]:
+        """Create a new custom email label."""
+        with self._session() as db:
+            lbl = EmailLabel(user_id=_uid(), name=name, color=color)
+            db.add(lbl)
+            db.commit()
+            db.refresh(lbl)
+            return {"id": lbl.id, "name": lbl.name, "color": lbl.color}
+
+    def delete_email_label(self, label_id: str) -> bool:
+        """Delete a custom email label."""
+        with self._session() as db:
+            lbl = db.query(EmailLabel).filter(
+                EmailLabel.id == label_id,
+                EmailLabel.user_id == _uid(),
+            ).first()
+            if not lbl:
+                return False
+            db.delete(lbl)
+            db.commit()
+            return True
+
+    # --- Email Filters (Phase 4) ---
+
+    def list_email_filters(self) -> list[dict[str, Any]]:
+        """List all email filter rules for the current user."""
+        with self._session() as db:
+            rows = db.query(EmailFilter).filter(
+                EmailFilter.user_id == _uid(),
+            ).order_by(EmailFilter.created_at).all()
+            return [{
+                "id": r.id, "name": r.name, "field": r.field,
+                "pattern": r.pattern, "action": r.action,
+                "action_value": r.action_value, "is_active": r.is_active,
+            } for r in rows]
+
+    def create_email_filter(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new email filter rule."""
+        with self._session() as db:
+            flt = EmailFilter(
+                user_id=_uid(),
+                name=data["name"],
+                field=data.get("field", "from"),
+                pattern=data["pattern"],
+                action=data.get("action", "label"),
+                action_value=data.get("action_value"),
+                is_active=data.get("is_active", True),
+            )
+            db.add(flt)
+            db.commit()
+            db.refresh(flt)
+            return {
+                "id": flt.id, "name": flt.name, "field": flt.field,
+                "pattern": flt.pattern, "action": flt.action,
+                "action_value": flt.action_value, "is_active": flt.is_active,
+            }
+
+    def delete_email_filter(self, filter_id: str) -> bool:
+        """Delete an email filter rule."""
+        with self._session() as db:
+            flt = db.query(EmailFilter).filter(
+                EmailFilter.id == filter_id,
+                EmailFilter.user_id == _uid(),
+            ).first()
+            if not flt:
+                return False
+            db.delete(flt)
+            db.commit()
+            return True
+
+    # --- Email Snooze (Phase 4) ---
+
+    def snooze_email(self, provider_connection_id: str, provider_message_id: str,
+                     snooze_until: datetime) -> dict[str, Any]:
+        """Snooze an email until a future time."""
+        with self._session() as db:
+            sz = EmailSnooze(
+                user_id=_uid(),
+                provider_connection_id=provider_connection_id,
+                provider_message_id=provider_message_id,
+                snooze_until=snooze_until,
+            )
+            db.add(sz)
+            db.commit()
+            db.refresh(sz)
+            return {
+                "id": sz.id,
+                "provider_connection_id": sz.provider_connection_id,
+                "provider_message_id": sz.provider_message_id,
+                "snooze_until": sz.snooze_until.isoformat(),
+            }
+
+    def list_snoozed_emails(self) -> list[dict[str, Any]]:
+        """List all snoozed emails for the current user."""
+        with self._session() as db:
+            rows = db.query(EmailSnooze).filter(
+                EmailSnooze.user_id == _uid(),
+            ).order_by(EmailSnooze.snooze_until).all()
+            return [{
+                "id": r.id,
+                "provider_connection_id": r.provider_connection_id,
+                "provider_message_id": r.provider_message_id,
+                "snooze_until": r.snooze_until.isoformat(),
+            } for r in rows]
+
+    def unsnooze_email(self, snooze_id: str) -> bool:
+        """Remove a snooze record (return email to inbox)."""
+        with self._session() as db:
+            sz = db.query(EmailSnooze).filter(
+                EmailSnooze.id == snooze_id,
+                EmailSnooze.user_id == _uid(),
+            ).first()
+            if not sz:
+                return False
+            db.delete(sz)
+            db.commit()
+            return True
+
+    # --- Scheduled Emails (Phase 4) ---
+
+    def schedule_email(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Schedule an email to be sent at a future time."""
+        with self._session() as db:
+            scheduled_for = data["scheduled_for"]
+            if isinstance(scheduled_for, str):
+                scheduled_for = datetime.fromisoformat(scheduled_for.replace("Z", "+00:00"))
+                if scheduled_for.tzinfo is None:
+                    scheduled_for = scheduled_for.replace(tzinfo=UTC)
+                scheduled_for = scheduled_for.astimezone(UTC)
+
+            se = ScheduledEmail(
+                user_id=_uid(),
+                provider_connection_id=data["provider_connection_id"],
+                to_addresses=data["to_addresses"],
+                subject=data["subject"],
+                body_text=data["body_text"],
+                attachments=data.get("attachments"),
+                scheduled_for=scheduled_for,
+                status="pending",
+            )
+            db.add(se)
+            db.commit()
+            db.refresh(se)
+            return {
+                "id": se.id,
+                "provider_connection_id": se.provider_connection_id,
+                "to_addresses": se.to_addresses,
+                "subject": se.subject,
+                "body_text": se.body_text,
+                "scheduled_for": se.scheduled_for.isoformat(),
+                "status": se.status,
+            }
+
+    def list_scheduled_emails(self) -> list[dict[str, Any]]:
+        """List all scheduled emails for the current user."""
+        with self._session() as db:
+            rows = db.query(ScheduledEmail).filter(
+                ScheduledEmail.user_id == _uid(),
+                ScheduledEmail.status == "pending",
+            ).order_by(ScheduledEmail.scheduled_for).all()
+            return [{
+                "id": r.id,
+                "provider_connection_id": r.provider_connection_id,
+                "to_addresses": r.to_addresses,
+                "subject": r.subject,
+                "body_text": r.body_text,
+                "scheduled_for": r.scheduled_for.isoformat(),
+                "status": r.status,
+            } for r in rows]
+
+    def cancel_scheduled_email(self, sched_id: str) -> bool:
+        """Cancel a scheduled email."""
+        with self._session() as db:
+            se = db.query(ScheduledEmail).filter(
+                ScheduledEmail.id == sched_id,
+                ScheduledEmail.user_id == _uid(),
+            ).first()
+            if not se:
+                return False
+            db.delete(se)
+            db.commit()
+            return True
+
+    # --- Email Templates (Phase 4) ---
+
+    def list_email_templates(self) -> list[dict[str, Any]]:
+        """List all email templates for the current user."""
+        with self._session() as db:
+            rows = db.query(EmailTemplate).filter(
+                EmailTemplate.user_id == _uid(),
+            ).order_by(EmailTemplate.name).all()
+            return [{
+                "id": r.id, "name": r.name,
+                "subject": r.subject, "body_text": r.body_text,
+            } for r in rows]
+
+    def create_email_template(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new email template."""
+        with self._session() as db:
+            tpl = EmailTemplate(
+                user_id=_uid(),
+                name=data["name"],
+                subject=data.get("subject"),
+                body_text=data["body_text"],
+            )
+            db.add(tpl)
+            db.commit()
+            db.refresh(tpl)
+            return {
+                "id": tpl.id, "name": tpl.name,
+                "subject": tpl.subject, "body_text": tpl.body_text,
+            }
+
+    def update_email_template(self, tpl_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update an existing email template."""
+        with self._session() as db:
+            tpl = db.query(EmailTemplate).filter(
+                EmailTemplate.id == tpl_id,
+                EmailTemplate.user_id == _uid(),
+            ).first()
+            if not tpl:
+                return None
+            if "name" in patch:
+                tpl.name = patch["name"]
+            if "subject" in patch:
+                tpl.subject = patch["subject"]
+            if "body_text" in patch:
+                tpl.body_text = patch["body_text"]
+            db.commit()
+            db.refresh(tpl)
+            return {
+                "id": tpl.id, "name": tpl.name,
+                "subject": tpl.subject, "body_text": tpl.body_text,
+            }
+
+    def delete_email_template(self, tpl_id: str) -> bool:
+        """Delete an email template."""
+        with self._session() as db:
+            tpl = db.query(EmailTemplate).filter(
+                EmailTemplate.id == tpl_id,
+                EmailTemplate.user_id == _uid(),
+            ).first()
+            if not tpl:
+                return False
+            db.delete(tpl)
+            db.commit()
+            return True
+
+    def check_slot_available(self, event_type_id: str, start_time: datetime, end_time: datetime) -> bool:
+        """Check if a time slot is available (no overlapping bookings).
+
+        Args:
+            event_type_id: The event type UUID.
+            start_time: Proposed booking start.
+            end_time: Proposed booking end.
+
+        Returns:
+            True if the slot is available, False if there's a conflict.
+        """
+        with self._session() as db:
+            existing = db.query(BookingDB).filter(
+                BookingDB.event_type_id == event_type_id,
+                BookingDB.status != "cancelled",
+                BookingDB.start_time < end_time,
+                BookingDB.end_time > start_time,
+            ).first()
+            return existing is None
+
+    # --- Teams (Phase 5) ---
+
+    def list_teams(self) -> list[dict[str, Any]]:
+        """List all teams for the current user."""
+        with self._session() as db:
+            rows = db.query(Team).filter(Team.user_id == _uid()).order_by(Team.created_at.desc()).all()
+            return [self._serialize_team(r) for r in rows]
+
+    def create_team(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new scheduling team."""
+        with self._session() as db:
+            team = Team(
+                user_id=_uid(),
+                name=data.get("name", "My Team"),
+                slug=data.get("slug", ""),
+                description=data.get("description", ""),
+                logo_url=data.get("logo_url"),
+                branding=data.get("branding", {}),
+            )
+            db.add(team)
+            db.commit()
+            db.refresh(team)
+            return self._serialize_team(team)
+
+    def get_team(self, team_id: str) -> dict[str, Any] | None:
+        """Get a single team by ID."""
+        with self._session() as db:
+            row = db.query(Team).filter(Team.id == team_id, Team.user_id == _uid()).first()
+            if row is None:
+                return None
+            return self._serialize_team(row)
+
+    def update_team(self, team_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update a team's fields."""
+        with self._session() as db:
+            row = db.query(Team).filter(Team.id == team_id, Team.user_id == _uid()).first()
+            if row is None:
+                return None
+            for key, val in patch.items():
+                if hasattr(row, key):
+                    setattr(row, key, val)
+            db.commit()
+            db.refresh(row)
+            return self._serialize_team(row)
+
+    def delete_team(self, team_id: str) -> bool:
+        """Delete a team and all its members."""
+        with self._session() as db:
+            row = db.query(Team).filter(Team.id == team_id, Team.user_id == _uid()).first()
+            if row is None:
+                return False
+            db.query(TeamMember).filter(TeamMember.team_id == team_id).delete()
+            db.delete(row)
+            db.commit()
+            return True
+
+    @staticmethod
+    def _serialize_team(t: Team) -> dict[str, Any]:
+        """Convert a Team ORM object to a dict."""
+        return {
+            "id": t.id,
+            "name": t.name,
+            "slug": t.slug,
+            "description": t.description,
+            "logo_url": t.logo_url,
+            "branding": t.branding or {},
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        }
+
+    # --- Team Members ---
+
+    def list_team_members(self, team_id: str) -> list[dict[str, Any]]:
+        """List all members of a team."""
+        with self._session() as db:
+            rows = db.query(TeamMember).filter(TeamMember.team_id == team_id).all()
+            return [self._serialize_team_member(r) for r in rows]
+
+    def add_team_member(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Add a member to a team."""
+        with self._session() as db:
+            member = TeamMember(
+                team_id=data["team_id"],
+                email=data.get("email", ""),
+                display_name=data.get("display_name", ""),
+                role=data.get("role", "member"),
+                provider_connection_id=data.get("provider_connection_id"),
+                is_active=data.get("is_active", True),
+            )
+            db.add(member)
+            db.commit()
+            db.refresh(member)
+            return self._serialize_team_member(member)
+
+    def update_team_member(self, member_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update a team member's fields."""
+        with self._session() as db:
+            row = db.query(TeamMember).filter(TeamMember.id == member_id).first()
+            if row is None:
+                return None
+            for key, val in patch.items():
+                if hasattr(row, key):
+                    setattr(row, key, val)
+            db.commit()
+            db.refresh(row)
+            return self._serialize_team_member(row)
+
+    def remove_team_member(self, member_id: str) -> bool:
+        """Remove a member from a team."""
+        with self._session() as db:
+            row = db.query(TeamMember).filter(TeamMember.id == member_id).first()
+            if row is None:
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+
+    def get_next_round_robin_member(self, team_id: str) -> dict[str, Any] | None:
+        """Get the next active member for round-robin assignment.
+
+        Picks the member with the fewest confirmed bookings, breaking ties
+        by creation order (oldest first).
+
+        Args:
+            team_id: The team UUID.
+
+        Returns:
+            Team member dict or None if no active members.
+        """
+        with self._session() as db:
+            members = db.query(TeamMember).filter(
+                TeamMember.team_id == team_id,
+                TeamMember.is_active == True,
+            ).order_by(TeamMember.created_at).all()
+            if not members:
+                return None
+            # Count bookings per member
+            counts: dict[str, int] = {}
+            for m in members:
+                count = db.query(BookingDB).filter(
+                    BookingDB.assigned_member_id == m.id,
+                    BookingDB.status == "confirmed",
+                ).count()
+                counts[m.id] = count
+            # Pick the member with fewest bookings
+            chosen = min(members, key=lambda m: (counts[m.id], m.created_at))
+            return self._serialize_team_member(chosen)
+
+    @staticmethod
+    def _serialize_team_member(m: TeamMember) -> dict[str, Any]:
+        """Convert a TeamMember ORM object to a dict."""
+        return {
+            "id": m.id,
+            "team_id": m.team_id,
+            "email": m.email,
+            "display_name": m.display_name,
+            "role": m.role,
+            "provider_connection_id": m.provider_connection_id,
+            "is_active": m.is_active,
+        }
+
+    # --- Routing Forms ---
+
+    def list_routing_forms(self) -> list[dict[str, Any]]:
+        """List all routing forms for the current user."""
+        with self._session() as db:
+            rows = db.query(RoutingForm).filter(RoutingForm.user_id == _uid()).all()
+            return [self._serialize_routing_form(r) for r in rows]
+
+    def create_routing_form(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new routing form."""
+        with self._session() as db:
+            form = RoutingForm(
+                user_id=_uid(),
+                name=data.get("name", ""),
+                description=data.get("description", ""),
+                questions=data.get("questions", []),
+                routing_rules=data.get("routing_rules", []),
+                is_active=data.get("is_active", True),
+            )
+            db.add(form)
+            db.commit()
+            db.refresh(form)
+            return self._serialize_routing_form(form)
+
+    def get_routing_form(self, form_id: str) -> dict[str, Any] | None:
+        """Get a routing form by ID."""
+        with self._session() as db:
+            row = db.query(RoutingForm).filter(RoutingForm.id == form_id, RoutingForm.user_id == _uid()).first()
+            if row is None:
+                return None
+            return self._serialize_routing_form(row)
+
+    def update_routing_form(self, form_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update a routing form."""
+        with self._session() as db:
+            row = db.query(RoutingForm).filter(RoutingForm.id == form_id, RoutingForm.user_id == _uid()).first()
+            if row is None:
+                return None
+            for key, val in patch.items():
+                if hasattr(row, key):
+                    setattr(row, key, val)
+            db.commit()
+            db.refresh(row)
+            return self._serialize_routing_form(row)
+
+    def delete_routing_form(self, form_id: str) -> bool:
+        """Delete a routing form."""
+        with self._session() as db:
+            row = db.query(RoutingForm).filter(RoutingForm.id == form_id, RoutingForm.user_id == _uid()).first()
+            if row is None:
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+
+    @staticmethod
+    def _serialize_routing_form(f: RoutingForm) -> dict[str, Any]:
+        """Convert a RoutingForm ORM object to a dict."""
+        return {
+            "id": f.id,
+            "name": f.name,
+            "description": f.description,
+            "questions": f.questions or [],
+            "routing_rules": f.routing_rules or [],
+            "is_active": f.is_active,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+        }
+
+    # --- Webhooks ---
+
+    def list_webhooks(self) -> list[dict[str, Any]]:
+        """List all webhook configs for the current user."""
+        with self._session() as db:
+            rows = db.query(WebhookConfig).filter(WebhookConfig.user_id == _uid()).all()
+            return [self._serialize_webhook(r) for r in rows]
+
+    def create_webhook(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new webhook endpoint config."""
+        with self._session() as db:
+            hook = WebhookConfig(
+                user_id=_uid(),
+                url=data.get("url", ""),
+                events=data.get("events", []),
+                secret=data.get("secret"),
+                is_active=data.get("is_active", True),
+            )
+            db.add(hook)
+            db.commit()
+            db.refresh(hook)
+            return self._serialize_webhook(hook)
+
+    def update_webhook(self, webhook_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update a webhook config."""
+        with self._session() as db:
+            row = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id, WebhookConfig.user_id == _uid()).first()
+            if row is None:
+                return None
+            for key, val in patch.items():
+                if hasattr(row, key):
+                    setattr(row, key, val)
+            db.commit()
+            db.refresh(row)
+            return self._serialize_webhook(row)
+
+    def delete_webhook(self, webhook_id: str) -> bool:
+        """Delete a webhook config."""
+        with self._session() as db:
+            row = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id, WebhookConfig.user_id == _uid()).first()
+            if row is None:
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+
+    def list_active_webhooks_for_event(self, event_type_name: str) -> list[dict[str, Any]]:
+        """List active webhooks subscribed to a given event type."""
+        with self._session() as db:
+            rows = db.query(WebhookConfig).filter(
+                WebhookConfig.is_active == True,
+            ).all()
+            result = []
+            for r in rows:
+                events = r.events or []
+                if event_type_name in events or "*" in events:
+                    result.append(self._serialize_webhook(r))
+            return result
+
+    def list_webhook_deliveries(self, webhook_id: str) -> list[dict[str, Any]]:
+        """List delivery history for a specific webhook."""
+        with self._session() as db:
+            rows = db.query(WebhookDelivery).filter(
+                WebhookDelivery.webhook_id == webhook_id,
+            ).order_by(WebhookDelivery.delivered_at.desc()).limit(50).all()
+            return [
+                {
+                    "id": r.id,
+                    "webhook_id": r.webhook_id,
+                    "event_type": r.event_type,
+                    "status_code": r.status_code,
+                    "response_body": r.response_body,
+                    "delivered_at": r.delivered_at.isoformat() if r.delivered_at else None,
+                }
+                for r in rows
+            ]
+
+    def record_webhook_delivery(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Record a webhook delivery attempt."""
+        with self._session() as db:
+            delivery = WebhookDelivery(
+                webhook_id=data["webhook_id"],
+                event_type=data.get("event_type", ""),
+                payload=data.get("payload", {}),
+                status_code=data.get("status_code"),
+                response_body=data.get("response_body"),
+            )
+            db.add(delivery)
+            db.commit()
+            db.refresh(delivery)
+            return {
+                "id": delivery.id,
+                "webhook_id": delivery.webhook_id,
+                "event_type": delivery.event_type,
+                "status_code": delivery.status_code,
+                "delivered_at": delivery.delivered_at.isoformat() if delivery.delivered_at else None,
+            }
+
+    @staticmethod
+    def _serialize_webhook(w: WebhookConfig) -> dict[str, Any]:
+        """Convert a WebhookConfig ORM object to a dict."""
+        return {
+            "id": w.id,
+            "url": w.url,
+            "events": w.events or [],
+            "secret": w.secret,
+            "is_active": w.is_active,
+            "last_delivery_at": w.last_delivery_at.isoformat() if w.last_delivery_at else None,
+            "last_status": w.last_status,
+            "created_at": w.created_at.isoformat() if w.created_at else None,
+        }
+
+    @staticmethod
+    def _serialize_booking(b: BookingDB) -> dict[str, Any]:
+        """Convert a BookingDB ORM object to a dict."""
+        return {
+            "id": b.id,
+            "event_type_id": b.event_type_id,
+            "user_id": b.user_id,
+            "attendee_name": b.attendee_name,
+            "attendee_email": b.attendee_email,
+            "attendee_timezone": b.attendee_timezone,
+            "start_time": b.start_time.isoformat() if b.start_time else None,
+            "end_time": b.end_time.isoformat() if b.end_time else None,
+            "status": b.status,
+            "answers": b.answers or {},
+            "video_link": b.video_link,
+            "notes": b.notes,
+            "metadata": b.booking_metadata or {},
+            "payment_status": b.payment_status,
+            "payment_intent_id": b.payment_intent_id,
+            "assigned_member_id": b.assigned_member_id,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+        }

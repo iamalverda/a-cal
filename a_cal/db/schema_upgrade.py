@@ -39,6 +39,158 @@ _COLUMN_ADDITIONS: list[tuple[str, str, str]] = [
         "ALTER TABLE a_cal_marketplace_items ADD COLUMN flag_count INTEGER "
         "NOT NULL DEFAULT 0",
     ),
+    # EventTypeDB scheduling extensions (Phase 2)
+    (
+        "a_cal_event_types",
+        "buffer_before_minutes",
+        "ALTER TABLE a_cal_event_types ADD COLUMN buffer_before_minutes INTEGER "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_event_types",
+        "buffer_after_minutes",
+        "ALTER TABLE a_cal_event_types ADD COLUMN buffer_after_minutes INTEGER "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_event_types",
+        "min_notice_hours",
+        "ALTER TABLE a_cal_event_types ADD COLUMN min_notice_hours INTEGER "
+        "NOT NULL DEFAULT 24",
+    ),
+    (
+        "a_cal_event_types",
+        "max_booking_days",
+        "ALTER TABLE a_cal_event_types ADD COLUMN max_booking_days INTEGER "
+        "NOT NULL DEFAULT 60",
+    ),
+    (
+        "a_cal_event_types",
+        "recurring_pattern",
+        "ALTER TABLE a_cal_event_types ADD COLUMN recurring_pattern VARCHAR(50) "
+        "NOT NULL DEFAULT 'none'",
+    ),
+    (
+        "a_cal_event_types",
+        "recurring_interval",
+        "ALTER TABLE a_cal_event_types ADD COLUMN recurring_interval INTEGER "
+        "NOT NULL DEFAULT 1",
+    ),
+    (
+        "a_cal_event_types",
+        "custom_questions",
+        "ALTER TABLE a_cal_event_types ADD COLUMN custom_questions TEXT "
+        "NOT NULL DEFAULT '[]'",
+    ),
+    (
+        "a_cal_event_types",
+        "video_provider",
+        "ALTER TABLE a_cal_event_types ADD COLUMN video_provider VARCHAR(50) "
+        "NOT NULL DEFAULT ''",
+    ),
+    (
+        "a_cal_event_types",
+        "reminder_enabled",
+        "ALTER TABLE a_cal_event_types ADD COLUMN reminder_enabled BOOLEAN "
+        "NOT NULL DEFAULT 1",
+    ),
+    (
+        "a_cal_event_types",
+        "reminder_minutes_before",
+        "ALTER TABLE a_cal_event_types ADD COLUMN reminder_minutes_before INTEGER "
+        "NOT NULL DEFAULT 60",
+    ),
+    (
+        "a_cal_event_types",
+        "confirmation_email_enabled",
+        "ALTER TABLE a_cal_event_types ADD COLUMN confirmation_email_enabled BOOLEAN "
+        "NOT NULL DEFAULT 1",
+    ),
+    (
+        "a_cal_event_types",
+        "confirmation_template",
+        "ALTER TABLE a_cal_event_types ADD COLUMN confirmation_template TEXT "
+        "NULL",
+    ),
+    # CalendarEvent Phase 3 extensions
+    (
+        "a_cal_events",
+        "is_all_day",
+        "ALTER TABLE a_cal_events ADD COLUMN is_all_day BOOLEAN "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_events",
+        "recurrence_rule",
+        "ALTER TABLE a_cal_events ADD COLUMN recurrence_rule TEXT NULL",
+    ),
+    (
+        "a_cal_events",
+        "attendees",
+        "ALTER TABLE a_cal_events ADD COLUMN attendees TEXT NULL",
+    ),
+    (
+        "a_cal_events",
+        "color",
+        "ALTER TABLE a_cal_events ADD COLUMN color VARCHAR(20) NULL",
+    ),
+    # EventTypeDB Phase 5 extensions (team + payments)
+    (
+        "a_cal_event_types",
+        "team_id",
+        "ALTER TABLE a_cal_event_types ADD COLUMN team_id VARCHAR(36) NULL",
+    ),
+    (
+        "a_cal_event_types",
+        "assignment_strategy",
+        "ALTER TABLE a_cal_event_types ADD COLUMN assignment_strategy VARCHAR(50) "
+        "NOT NULL DEFAULT 'collective'",
+    ),
+    (
+        "a_cal_event_types",
+        "routing_form_id",
+        "ALTER TABLE a_cal_event_types ADD COLUMN routing_form_id VARCHAR(36) NULL",
+    ),
+    (
+        "a_cal_event_types",
+        "is_paid",
+        "ALTER TABLE a_cal_event_types ADD COLUMN is_paid BOOLEAN "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_event_types",
+        "price_cents",
+        "ALTER TABLE a_cal_event_types ADD COLUMN price_cents INTEGER "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_event_types",
+        "currency",
+        "ALTER TABLE a_cal_event_types ADD COLUMN currency VARCHAR(3) "
+        "NOT NULL DEFAULT 'USD'",
+    ),
+    (
+        "a_cal_event_types",
+        "stripe_product_id",
+        "ALTER TABLE a_cal_event_types ADD COLUMN stripe_product_id VARCHAR(255) NULL",
+    ),
+    # BookingDB Phase 5 extensions (payment + team assignment)
+    (
+        "a_cal_bookings",
+        "payment_status",
+        "ALTER TABLE a_cal_bookings ADD COLUMN payment_status VARCHAR(50) "
+        "NOT NULL DEFAULT 'free'",
+    ),
+    (
+        "a_cal_bookings",
+        "payment_intent_id",
+        "ALTER TABLE a_cal_bookings ADD COLUMN payment_intent_id VARCHAR(255) NULL",
+    ),
+    (
+        "a_cal_bookings",
+        "assigned_member_id",
+        "ALTER TABLE a_cal_bookings ADD COLUMN assigned_member_id VARCHAR(36) NULL",
+    ),
 ]
 
 

@@ -52,6 +52,13 @@ def build_calendar_provider(connection: Any) -> CalendarProvider:
     config = connection.get("config", {}) if isinstance(connection, dict) else (connection.config or {})
     creds = _resolve_credentials(connection.get("credentials_ref") if isinstance(connection, dict) else connection.credentials_ref, config)
 
+    # Import provider modules to trigger @register_* decorators.
+    if provider_type == "google_calendar":
+        from a_cal.providers.google_provider import GoogleCalendarProvider
+        return GoogleCalendarProvider(config=config, credentials=creds)
+    if provider_type == "outlook_calendar":
+        from a_cal.providers.outlook_provider import OutlookCalendarProvider
+        return OutlookCalendarProvider(config=config, credentials=creds)
     cls = get_calendar_provider(provider_type)
     if provider_type == "caldav":
         return cls(
@@ -60,15 +67,6 @@ def build_calendar_provider(connection: Any) -> CalendarProvider:
             password=creds.get("password", ""),
             calendar_url=config.get("calendar_url"),
         )
-    if provider_type == "google_calendar":
-        # Wraps atom's existing GoogleCalendarService.
-        from a_cal.providers.google_provider import GoogleCalendarProvider
-
-        return GoogleCalendarProvider(config=config, credentials=creds)
-    if provider_type == "outlook_calendar":
-        from a_cal.providers.outlook_provider import OutlookCalendarProvider
-
-        return OutlookCalendarProvider(config=config, credentials=creds)
     # Fallback: pass config + creds as kwargs.
     return cls(**config, **creds)
 
@@ -78,8 +76,12 @@ def build_email_provider(connection: Any) -> EmailProvider:
     config = connection.get("config", {}) if isinstance(connection, dict) else (connection.config or {})
     creds = _resolve_credentials(connection.get("credentials_ref") if isinstance(connection, dict) else connection.credentials_ref, config)
 
-    cls = get_email_provider(provider_type)
+    # Import provider modules to trigger @register_* decorators.
+    if provider_type == "gmail":
+        from a_cal.providers.gmail_provider import GmailEmailProvider
+        return GmailEmailProvider(config=config, credentials=creds)
     if provider_type == "imap_smtp":
+        cls = get_email_provider(provider_type)
         return cls(
             imap_host=config["imap_host"],
             smtp_host=config["smtp_host"],
@@ -88,8 +90,5 @@ def build_email_provider(connection: Any) -> EmailProvider:
             imap_port=config.get("imap_port", 993),
             smtp_port=config.get("smtp_port", 587),
         )
-    if provider_type == "gmail":
-        from a_cal.providers.gmail_provider import GmailEmailProvider
-
-        return GmailEmailProvider(config=config, credentials=creds)
+    cls = get_email_provider(provider_type)
     return cls(**config, **creds)

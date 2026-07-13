@@ -198,20 +198,14 @@ async def oauth_callback(
         "refresh_token": tokens.get("refresh_token", ""),
         "oauth_connected": True,
     }
-    token_storage = _get_token_storage()
-    if token_storage:
-        token_storage.save_oauth_tokens(
-            user_id=get_current_user_id(),
-            provider_type=provider_type,
-            tokens=token_data,
-        )
-        # Store a reference (not the tokens themselves) in the provider config
-        _store.update_provider_config(provider_id, {
-            "token_storage": "atom",
-            "oauth_connected": True,
-        })
-    else:
-        _store.update_provider_config(provider_id, {"oauth_tokens": token_data})
+    # Always store OAuth tokens in the provider config (SQLite).
+    # Atom's encrypted ConnectionService uses a per-process SECRET_KEY that
+    # changes on restart, making encrypted tokens unrecoverable in dev.
+    # Storing in provider config is simpler and works in standalone mode.
+    # Tokens are stripped from API responses by _serialize_provider.
+    import time as _time
+    token_data["expires_at"] = _time.time() + (token_data.get("expires_in") or 3600)
+    _store.update_provider_config(provider_id, {"oauth_tokens": token_data})
     _store.update_provider_status(provider_id, "connected")
 
     logger.info("OAuth success for provider %s (%s)", provider_id, provider_type)

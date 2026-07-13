@@ -142,7 +142,7 @@ class SuggestRescheduleRequest(BaseModel):
 # --- event type endpoints (cal.com integration) ---------------------------
 
 class EventTypeRequest(BaseModel):
-    """Payload for creating/updating an event type."""
+    """Payload for creating/updating an event type with scheduling fields."""
     title: str = "30 Minute Meeting"
     slug: str = "30-min"
     duration_minutes: int = 30
@@ -151,6 +151,26 @@ class EventTypeRequest(BaseModel):
     availability: dict[str, Any] = Field(default_factory=dict)
     color: str = "#3B82F6"
     metadata: dict[str, Any] = Field(default_factory=dict)
+    buffer_before_minutes: int = 0
+    buffer_after_minutes: int = 0
+    min_notice_hours: int = 24
+    max_booking_days: int = 60
+    recurring_pattern: str = "none"
+    recurring_interval: int = 1
+    custom_questions: list[dict[str, Any]] = Field(default_factory=list)
+    video_provider: str = ""
+    reminder_enabled: bool = True
+    reminder_minutes_before: int = 60
+    confirmation_email_enabled: bool = True
+    confirmation_template: str | None = None
+    # Phase 5: Team & Payments
+    team_id: str | None = None
+    assignment_strategy: str = "collective"
+    routing_form_id: str | None = None
+    is_paid: bool = False
+    price_cents: int = 0
+    currency: str = "USD"
+    stripe_product_id: str | None = None
 
 
 @router.get("/event-types")

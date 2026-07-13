@@ -14,6 +14,12 @@ from __future__ import annotations
 
 import logging
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -25,6 +31,9 @@ from a_cal.api.developer_routes import router as developer_router
 from a_cal.api.standalone_data import router as standalone_data_router
 from a_cal.api.oauth_routes import router as oauth_router
 from a_cal.api.analytics_routes import router as analytics_router
+from a_cal.api.booking_routes import router as booking_router
+from a_cal.api.team_routes import router as team_router
+from a_cal.api.graphql_routes import router as graphql_router
 from a_cal.auth.session import (
     router as auth_router,
     AuthMiddleware,
@@ -111,6 +120,9 @@ app.include_router(developer_router)
 app.include_router(standalone_data_router)
 app.include_router(oauth_router)
 app.include_router(analytics_router)
+app.include_router(booking_router)
+app.include_router(team_router)
+app.include_router(graphql_router)
 app.include_router(auth_router)
 
 
