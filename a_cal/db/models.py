@@ -145,6 +145,7 @@ class CalendarEvent(Base):
     __tablename__ = "a_cal_events"
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
     provider_event_id = Column(String(255), nullable=False)
     provider_type = Column(String(50), nullable=False)
     title = Column(String(500), nullable=False)
@@ -257,6 +258,7 @@ class EventTypeDB(Base):
     __tablename__ = "a_cal_event_types"
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
     title = Column(String(255), nullable=False, default="30 Minute Meeting")
     slug = Column(String(255), nullable=False, default="30-min")
     duration_minutes = Column(Integer, nullable=False, default=30)

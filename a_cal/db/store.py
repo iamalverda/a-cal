@@ -345,9 +345,11 @@ class PersistentStore:
     # --- Sub-accounts -------------------------------------------------------
 
     def list_sub_accounts(self) -> list[dict[str, Any]]:
-        """List all sub accounts."""
+        """List all sub-accounts for the current user."""
         with self._session() as db:
-            rows = db.query(SubAccount).all()
+            rows = db.query(SubAccount).filter(
+                SubAccount.user_id == _uid()
+            ).all()
             return [_serialize_sub_account(r) for r in rows]
 
     def create_sub_account(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -370,9 +372,12 @@ class PersistentStore:
             return _serialize_sub_account(sa)
 
     def update_sub_account(self, sub_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-        """Update a sub-account by ID."""
+        """Update a sub-account by ID (must belong to current user)."""
         with self._session() as db:
-            sa = db.query(SubAccount).filter(SubAccount.id == sub_id).first()
+            sa = db.query(SubAccount).filter(
+                SubAccount.id == sub_id,
+                SubAccount.user_id == _uid(),
+            ).first()
             if not sa:
                 return None
             for key, val in patch.items():
@@ -383,9 +388,15 @@ class PersistentStore:
             return _serialize_sub_account(sa)
 
     def delete_sub_account(self, sub_id: str) -> bool:
-        """Delete a sub-account and its associated providers and rules."""
+        """Delete a sub-account and its associated providers and rules.
+
+        Only deletes if the sub-account belongs to the current user.
+        """
         with self._session() as db:
-            sa = db.query(SubAccount).filter(SubAccount.id == sub_id).first()
+            sa = db.query(SubAccount).filter(
+                SubAccount.id == sub_id,
+                SubAccount.user_id == _uid(),
+            ).first()
             if not sa:
                 return False
             db.query(ProviderConnection).filter(ProviderConnection.sub_account_id == sub_id).delete()
@@ -397,9 +408,18 @@ class PersistentStore:
     # --- Providers ----------------------------------------------------------
 
     def list_providers(self, sub_account_id: str | None = None) -> list[dict[str, Any]]:
-        """List provider connections, optionally filtered by sub-account."""
+        """List provider connections for the current user.
+
+        Filters through the SubAccount join to ensure only the current
+        user's providers are returned. Optionally narrowed by sub-account.
+        """
         with self._session() as db:
-            q = db.query(ProviderConnection)
+            user_sub_ids = [s.id for s in db.query(SubAccount.id).filter(
+                SubAccount.user_id == _uid()
+            ).all()]
+            q = db.query(ProviderConnection).filter(
+                ProviderConnection.sub_account_id.in_(user_sub_ids)
+            )
             if sub_account_id:
                 q = q.filter(ProviderConnection.sub_account_id == sub_account_id)
             rows = q.all()
@@ -515,22 +535,24 @@ class PersistentStore:
     # --- Calendar events ----------------------------------------------------
 
     def get_unified_calendar(self, days: int = 7) -> list[dict[str, Any]]:
-        """Get events from all sub-accounts within the next N days."""
+        """Get events for the current user within the next N days."""
         now = datetime.now(UTC)
         end = now + timedelta(days=days)
         with self._session() as db:
             rows = db.query(CalendarEvent).filter(
+                CalendarEvent.user_id == _uid(),
                 CalendarEvent.start >= now,
                 CalendarEvent.start <= end,
             ).order_by(CalendarEvent.start).all()
             return [_serialize_event(r) for r in rows]
 
     def get_all_events(self, days: int = 30) -> list[dict[str, Any]]:
-        """Get all events within the next N days (wider window for agent queries)."""
+        """Get all events for the current user within the next N days."""
         now = datetime.now(UTC)
         end = now + timedelta(days=days)
         with self._session() as db:
             rows = db.query(CalendarEvent).filter(
+                CalendarEvent.user_id == _uid(),
                 CalendarEvent.start >= now,
                 CalendarEvent.start <= end,
             ).order_by(CalendarEvent.start).all()
@@ -563,6 +585,7 @@ class PersistentStore:
 
         with self._session() as db:
             evt = CalendarEvent(
+                user_id=_uid(),
                 provider_event_id=data.get("provider_event_id", str(_uuid.uuid4())),
                 provider_type=data.get("provider_type", "local"),
                 title=data["title"],
@@ -580,18 +603,19 @@ class PersistentStore:
             return _serialize_event(evt)
 
     def update_event(self, event_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-        """Update an existing calendar event.
+        """Update an existing calendar event (must belong to current user).
 
         Args:
             event_id: The provider_event_id of the event to update.
             patch: Dict of fields to update (title, start, end, etc.).
 
         Returns:
-            The updated event as a dict, or None if not found.
+            The updated event as a dict, or None if not found or not owned.
         """
         with self._session() as db:
             evt = db.query(CalendarEvent).filter(
                 CalendarEvent.provider_event_id == event_id,
+                CalendarEvent.user_id == _uid(),
             ).first()
             if not evt:
                 return None
@@ -620,17 +644,18 @@ class PersistentStore:
             return _serialize_event(evt)
 
     def delete_event(self, event_id: str) -> bool:
-        """Delete a calendar event by provider_event_id.
+        """Delete a calendar event by provider_event_id (must belong to current user).
 
         Args:
             event_id: The provider_event_id of the event to delete.
 
         Returns:
-            True if deleted, False if not found.
+            True if deleted, False if not found or not owned.
         """
         with self._session() as db:
             evt = db.query(CalendarEvent).filter(
                 CalendarEvent.provider_event_id == event_id,
+                CalendarEvent.user_id == _uid(),
             ).first()
             if not evt:
                 return False
@@ -640,19 +665,25 @@ class PersistentStore:
             return True
 
     def find_event_by_title(self, title_fragment: str) -> dict[str, Any] | None:
-        """Find an event by partial title match (for agent rescheduling)."""
+        """Find an event by partial title match for the current user."""
         with self._session() as db:
             evt = db.query(CalendarEvent).filter(
                 CalendarEvent.title.ilike(f"%{title_fragment}%"),
+                CalendarEvent.user_id == _uid(),
             ).order_by(CalendarEvent.start).first()
             return _serialize_event(evt) if evt else None
 
     # --- Sync rules ---------------------------------------------------------
 
     def list_sync_rules(self, sub_account_id: str | None = None) -> list[dict[str, Any]]:
-        """List sync rules, optionally filtered by sub-account."""
+        """List sync rules for the current user, optionally by sub-account."""
         with self._session() as db:
-            q = db.query(SyncRule)
+            user_sub_ids = [s.id for s in db.query(SubAccount.id).filter(
+                SubAccount.user_id == _uid()
+            ).all()]
+            q = db.query(SyncRule).filter(
+                SyncRule.sub_account_id.in_(user_sub_ids)
+            )
             if sub_account_id:
                 q = q.filter(SyncRule.sub_account_id == sub_account_id)
             rows = q.all()
@@ -736,9 +767,12 @@ class PersistentStore:
     # --- Self-model facts ---------------------------------------------------
 
     def list_self_model_facts(self, category: str | None = None) -> list[dict[str, Any]]:
-        """List self-model facts, optionally filtered by category."""
+        """List self-model facts for the current user, optionally by category."""
         with self._session() as db:
-            q = db.query(SelfModelFact).filter(SelfModelFact.status == "active")
+            q = db.query(SelfModelFact).filter(
+                SelfModelFact.status == "active",
+                SelfModelFact.user_id == _uid(),
+            )
             if category:
                 q = q.filter(SelfModelFact.category == category)
             rows = q.all()
@@ -793,9 +827,11 @@ class PersistentStore:
     # --- Negotiations -------------------------------------------------------
 
     def list_negotiations(self) -> list[dict[str, Any]]:
-        """List all negotiations."""
+        """List all negotiations for the current user."""
         with self._session() as db:
-            rows = db.query(Negotiation).order_by(Negotiation.created_at.desc()).all()
+            rows = db.query(Negotiation).filter(
+                Negotiation.user_id == _uid()
+            ).order_by(Negotiation.created_at.desc()).all()
             return [
                 {
                     "id": r.id,
@@ -826,13 +862,15 @@ class PersistentStore:
     # --- Event types (cal.com integration) ---------------------------------
 
     def list_event_types(self) -> list[dict[str, Any]]:
-        """List all event types persisted in the database.
+        """List all event types for the current user.
 
         Returns:
             List of event type dicts (serialized via EventType.to_dict).
         """
         with self._session() as db:
-            rows = db.query(EventTypeDB).order_by(EventTypeDB.created_at).all()
+            rows = db.query(EventTypeDB).filter(
+                EventTypeDB.user_id == _uid()
+            ).order_by(EventTypeDB.created_at).all()
             return [_serialize_event_type(r) for r in rows]
 
     def create_event_type(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -846,6 +884,7 @@ class PersistentStore:
         """
         with self._session() as db:
             et = EventTypeDB(
+                user_id=_uid(),
                 title=data.get("title", "30 Minute Meeting"),
                 slug=data.get("slug", "30-min"),
                 duration_minutes=data.get("duration_minutes", 30),
@@ -862,31 +901,37 @@ class PersistentStore:
             return _serialize_event_type(et)
 
     def get_event_type(self, et_id: str) -> dict[str, Any] | None:
-        """Get a single event type by ID.
+        """Get a single event type by ID (must belong to current user).
 
         Args:
             et_id: The event type UUID.
 
         Returns:
-            Event type dict or None if not found.
+            Event type dict or None if not found or not owned.
         """
         with self._session() as db:
-            row = db.query(EventTypeDB).filter(EventTypeDB.id == et_id).first()
+            row = db.query(EventTypeDB).filter(
+                EventTypeDB.id == et_id,
+                EventTypeDB.user_id == _uid(),
+            ).first()
             if row is None:
                 return None
             return _serialize_event_type(row)
 
     def delete_event_type(self, et_id: str) -> bool:
-        """Delete an event type by ID.
+        """Delete an event type by ID (must belong to current user).
 
         Args:
             et_id: The event type UUID.
 
         Returns:
-            True if deleted, False if not found.
+            True if deleted, False if not found or not owned.
         """
         with self._session() as db:
-            row = db.query(EventTypeDB).filter(EventTypeDB.id == et_id).first()
+            row = db.query(EventTypeDB).filter(
+                EventTypeDB.id == et_id,
+                EventTypeDB.user_id == _uid(),
+            ).first()
             if row is None:
                 return False
             db.delete(row)
