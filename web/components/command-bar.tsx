@@ -22,7 +22,11 @@ import {
   Loader2,
   Bot,
   X,
+  Mic,
+  MicOff,
 } from "lucide-react";
+import { useVoiceInput } from "@/lib/use-voice-input";
+import { cn } from "@/lib/utils";
 
 interface QuickAction {
   id: string;
@@ -63,6 +67,13 @@ export function CommandBar({
   const [isAgentMode, setIsAgentMode] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const { state: voiceState, startListening, stopListening } = useVoiceInput({
+    onTranscript: (text) => {
+      setQuery(text);
+      setIsAgentMode(true);
+    },
+  });
 
   const quickActions: QuickAction[] = [
     {
@@ -269,7 +280,7 @@ export function CommandBar({
           <Search size={18} className="text-[var(--muted-foreground)] shrink-0" />
           <input
             ref={inputRef}
-            value={query}
+            value={voiceState.listening ? (voiceState.interimTranscript || query) : query}
             onChange={(e) => {
               setQuery(e.target.value);
               if (isAgentMode) {
@@ -279,9 +290,32 @@ export function CommandBar({
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            placeholder={isAgentMode ? "Ask the conductor..." : "Type a command or ask anything..."}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--muted-foreground)]"
+            placeholder={voiceState.listening ? "Listening..." : isAgentMode ? "Ask the conductor..." : "Type a command or ask anything..."}
+            className={cn(
+              "flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--muted-foreground)]",
+              voiceState.listening && "text-[var(--primary)]",
+            )}
           />
+          {voiceState.supported && (
+            <button
+              onClick={() => {
+                if (voiceState.listening) {
+                  stopListening();
+                } else {
+                  startListening();
+                }
+              }}
+              title={voiceState.listening ? "Stop listening" : "Voice input"}
+              className={cn(
+                "shrink-0 p-1.5 rounded-md transition-colors",
+                voiceState.listening
+                  ? "text-[var(--primary)] bg-[var(--primary)]/10 animate-pulse"
+                  : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]",
+              )}
+            >
+              {voiceState.listening ? <MicOff size={16} /> : <Mic size={16} />}
+            </button>
+          )}
           {loading && <Loader2 size={16} className="animate-spin text-[var(--primary)]" />}
           <kbd className="text-xs text-[var(--muted-foreground)] border border-[var(--border)] rounded px-1.5 py-0.5 shrink-0">
             ESC

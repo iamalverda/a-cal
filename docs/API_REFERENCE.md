@@ -263,29 +263,43 @@ user's calendar to find conflicts, and returns actionable suggestions.
 Privacy: email content is processed locally. LLM analysis (if enabled) uses
 privacy-tiered routing to force email processing to local models.
 
+The depth of agent integration depends on the user's email integration depth
+setting (`POST /settings/email`):
+
+- `sync_notify` — read-only detect + suggest (no draft replies, no auto-actions)
+- `agent_mediated` — suggestions include `draft_reply` text for user approval
+- `full_two_way` — suggestions are marked `auto_action: true` (autonomous)
+
 Response:
 ```json
 {
+  "detections": [...],
   "suggestions": [
     {
       "type": "create_event",
-      "email_id": "abc123",
-      "proposed_time": "2026-07-13T15:00:00Z",
-      "title": "Meeting with Sarah",
-      "conflicts": []
-    },
-    {
-      "type": "conflict_warning",
-      "email_id": "def456",
-      "proposed_time": "2026-07-14T10:00:00Z",
-      "conflicts": [{ "title": "Standup", "start": "..." }]
+      "email_subject": "Let's meet",
+      "email_from": "colleague@work.com",
+      "proposed_time": { "date_text": "Friday", "time_text": "2pm", ... },
+      "conflict_with": null,
+      "confidence": 0.7,
+      "message": "Ready to create...",
+      "draft_reply": "Hi colleague,\n\nThat works for me...",
+      "auto_action": false
     }
   ],
-  "detection": {
-    "meeting_proposals": 3,
-    "invites": 1,
-    "reschedule_requests": 1
-  }
+  "summary": "Found 2 scheduling-related emails...",
+  "stats": {
+    "total_scanned": 50,
+    "scheduling_related": 2,
+    "meeting_proposals": 1,
+    "conflicts": 0,
+    "create_ready": 1,
+    "draft_replies": 1,
+    "auto_actions": 0
+  },
+  "depth": "agent_mediated",
+  "agent_actions_enabled": true,
+  "autonomous_enabled": false
 }
 ```
 
@@ -389,6 +403,82 @@ Body (POST):
   "feed_into_agents": true
 }
 ```
+
+### Email Integration Depth
+```
+GET /settings/email
+POST /settings/email
+```
+Body (POST):
+```json
+{
+  "depth": "sync_notify" | "agent_mediated" | "full_two_way",
+  "per_provider": { "gmail": "full_two_way", "outlook": "sync_notify" },
+  "auto_scan_enabled": false
+}
+```
+
+Controls how deeply agents integrate with email (charter §5):
+- `sync_notify` — read inbox, send notifications, no agent actions
+- `agent_mediated` — parse emails, draft replies for approval
+- `full_two_way` — send/decline/renegotiate autonomously
+
+Per-provider overrides let the user set different depths for different providers.
+
+### Agent Autonomy
+```
+GET /settings/autonomy
+POST /settings/autonomy
+```
+Body (POST):
+```json
+{
+  "default_level": "suggest_only" | "confirm" | "full_auto",
+  "per_sub_account": { "sub-123": "confirm" }
+}
+```
+
+Controls whether the conductor executes actions automatically (`full_auto`),
+asks for confirmation (`confirm`), or only suggests (`suggest_only`).
+Per-sub-account overrides are supported.
+
+### Timezone
+```
+GET /settings/timezone
+POST /settings/timezone
+```
+Body (POST): `{ "timezone": "America/Chicago" }`
+
+Accepts any IANA timezone name. The conductor uses this to interpret relative
+time expressions like "today" and "tomorrow".
+
+### Preload Model
+```
+POST /settings/preload-model
+```
+
+Triggers a background warmup of the configured LLM model (Ollama only).
+Call this on page load so the first chat message is fast. Returns immediately.
+
+### Community Profile
+```
+GET /community/profile
+```
+Response:
+```json
+{
+  "author_id": "local-dev-user",
+  "total_items": 5,
+  "originals": 3,
+  "remixes": 2,
+  "total_installs": 42,
+  "items": [...]
+}
+```
+
+Aggregates the user's authored marketplace items, originals vs remixes,
+install counts, and summary stats. Used by the "My Profile" panel in the
+community section.
 
 ---
 

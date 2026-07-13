@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Bot,
   Clock,
+  Mic,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -547,6 +548,27 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
                         Current: {timezone}
                       </p>
                     )}
+                  </div>
+
+                  {/* Voice interaction (charter §6) */}
+                  <div>
+                    <label className="text-sm font-medium flex items-center gap-1.5">
+                      <Mic size={14} />
+                      Voice Interaction
+                    </label>
+                    <p className="text-xs text-[var(--muted-foreground)] mt-0.5 mb-2">
+                      Talk to the conductor instead of typing. Uses your browser's
+                      built-in speech recognition. Available in the conductor panel
+                      and command bar.
+                    </p>
+                    <div className="rounded-lg border border-[var(--border)] p-3 space-y-2 bg-[var(--card)]/50">
+                      <div className="text-xs text-[var(--muted-foreground)]">
+                        Voice input is always available when the browser supports it.
+                        Click the microphone icon in the conductor panel or command bar
+                        to start speaking. Your speech is transcribed locally by the browser
+                        — no audio is sent to any server.
+                      </div>
+                    </div>
                   </div>
                 </div>
               </Section>

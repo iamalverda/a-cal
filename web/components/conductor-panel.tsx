@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Sparkles, Bot, User, Loader2, Zap, ChevronDown, ChevronRight, Brain, Activity } from "lucide-react";
+import { Send, Sparkles, Bot, User, Loader2, Zap, ChevronDown, ChevronRight, Brain, Activity, Mic, MicOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { mockConductorResponse } from "@/lib/mock-data";
+import { useVoiceInput } from "@/lib/use-voice-input";
 import type { ConductorResponse, RoutingTrace } from "@/types";
 
 interface Message {
@@ -54,12 +55,29 @@ export function ConductorPanel() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+
+  const { state: voiceState, startListening, stopListening } = useVoiceInput({
+    onTranscript: (text) => {
+      setInput(text);
+    },
+  });
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // When voice finishes and sets input, auto-send after a short pause
+  useEffect(() => {
+    if (voiceEnabled && !voiceState.listening && voiceState.transcript) {
+      const timer = setTimeout(() => {
+        if (input.trim()) send();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [voiceState.listening, voiceState.transcript, voiceEnabled]);
 
   // Listen for proactive suggestion "Tell agent" events
   useEffect(() => {
@@ -208,18 +226,41 @@ export function ConductorPanel() {
       )}
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-[var(--border)] flex gap-2">
+      <div className="px-4 py-3 border-t border-[var(--border)] flex gap-2 items-center">
         <Input
-          value={input}
+          value={voiceState.listening ? (voiceState.interimTranscript || input) : input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder="Ask the conductor anything..."
+          placeholder={voiceState.listening ? "Listening..." : "Ask the conductor anything..."}
           disabled={loading}
+          className={cn(voiceState.listening && "border-[var(--primary)]/50")}
         />
+        {voiceState.supported && (
+          <Button
+            size="icon"
+            variant={voiceState.listening ? "default" : "ghost"}
+            onClick={() => {
+              if (voiceState.listening) {
+                stopListening();
+              } else {
+                setVoiceEnabled(true);
+                startListening();
+              }
+            }}
+            disabled={loading}
+            title={voiceState.listening ? "Stop listening" : "Voice input"}
+            className={cn(voiceState.listening && "animate-pulse")}
+          >
+            {voiceState.listening ? <MicOff size={16} /> : <Mic size={16} />}
+          </Button>
+        )}
         <Button size="icon" onClick={send} disabled={loading || !input.trim()}>
           <Send size={16} />
         </Button>
       </div>
+      {voiceState.error && (
+        <div className="px-4 pb-2 text-xs text-red-400">{voiceState.error}</div>
+      )}
     </div>
   );
 }
