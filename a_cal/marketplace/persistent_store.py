@@ -419,6 +419,16 @@ class PersistentMarketplaceStore:
 
     # --- user installs -------------------------------------------------------
 
+    def get_items_by_author(self, author: str) -> List[MarketplaceItem]:
+        """Get all items authored by a user (includes their remixes)."""
+        self._ensure_seeded()
+        session = self._session()
+        try:
+            rows = session.query(MarketplaceItemDB).filter_by(author=author).all()
+            return [_row_to_item(r) for r in rows]
+        finally:
+            session.close()
+
     def get_user_installs(self, user_id: str) -> List[InstallRecord]:
         """Get all items a user has installed."""
         self._ensure_seeded()

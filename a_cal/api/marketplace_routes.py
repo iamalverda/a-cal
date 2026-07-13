@@ -389,3 +389,57 @@ def pull_from_remote_registry(body: PullItemRequest):
         "published": True,
         "item": published.to_dict(),
     }
+
+
+# --- community profile / showcase ------------------------------------------
+
+@router.get("/community/profile")
+def get_community_profile():
+    """Get the current user's community profile / showcase.
+
+    Aggregates the user's authored marketplace items, remixes, installs,
+    and stats into a shareable profile view (charter §9: profiles,
+    showcases).
+    """
+    store = _get_store()
+    user_id = _current_user_id()
+
+    authored = store.get_items_by_author(user_id)
+    installs = store.get_user_installs(user_id)
+
+    # Separate original items from remixes
+    original_items = [i for i in authored if not i.remixed_from]
+    remix_items = [i for i in authored if i.remixed_from]
+
+    # Total installs across all authored items
+    total_installs_of_authored = sum(i.install_count for i in authored)
+    total_remixes_of_authored = sum(
+        len(store.get_remixes_of(i.id)) for i in authored
+    )
+
+    # Average rating across authored items with ratings
+    rated = [i.rating for i in authored if i.rating > 0]
+    avg_rating = sum(rated) / len(rated) if rated else 0.0
+
+    return {
+        "user_id": user_id,
+        "stats": {
+            "total_authored": len(authored),
+            "total_originals": len(original_items),
+            "total_remixes": len(remix_items),
+            "total_installed": len(installs),
+            "total_installs_of_authored": total_installs_of_authored,
+            "total_remixes_of_authored": total_remixes_of_authored,
+            "avg_rating": round(avg_rating, 2),
+        },
+        "authored": [i.to_dict() for i in authored],
+        "originals": [i.to_dict() for i in original_items],
+        "remixes": [i.to_dict() for i in remix_items],
+        "installed": [
+            {
+                "item_id": rec.item_id,
+                "installed_at": rec.installed_at,
+            }
+            for rec in installs
+        ],
+    }

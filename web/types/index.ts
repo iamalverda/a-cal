@@ -102,6 +102,24 @@ export interface AutonomyConfig {
 /** Email integration depth — how deeply agents integrate with email (charter §5). */
 export type EmailDepth = "sync_notify" | "agent_mediated" | "full_two_way";
 
+/** Community profile / showcase — the user's authored items, remixes, and stats. */
+export interface CommunityProfile {
+  user_id: string;
+  stats: {
+    total_authored: number;
+    total_originals: number;
+    total_remixes: number;
+    total_installed: number;
+    total_installs_of_authored: number;
+    total_remixes_of_authored: number;
+    avg_rating: number;
+  };
+  authored: MarketplaceItem[];
+  originals: MarketplaceItem[];
+  remixes: MarketplaceItem[];
+  installed: { item_id: string; installed_at: string }[];
+}
+
 export interface EmailIntegrationConfig {
   depth: EmailDepth;
   per_provider: Record<string, EmailDepth>;

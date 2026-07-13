@@ -39,6 +39,7 @@ import type {
   RuleField,
   AutonomyConfig,
   EmailIntegrationConfig,
+  CommunityProfile,
   AnalyticsSummary,
   BusyTimesAnalysis,
   MeetingStats,
@@ -293,6 +294,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(config),
     });
+  },
+
+  async getCommunityProfile(): Promise<CommunityProfile> {
+    return fetchJson(`${API_BASE}/marketplace/community/profile`);
   },
 
   async getSelfModelSettings(): Promise<SelfModelDepth> {

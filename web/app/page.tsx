@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
-import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3 } from "lucide-react";
+import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, User } from "lucide-react";
 import { Network, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import { SubAccountSidebar } from "@/components/sub-account-sidebar";
 import { ConductorPanel } from "@/components/conductor-panel";
 import { SettingsPanel } from "@/components/settings-panel";
 import { MarketplacePanel } from "@/components/marketplace-panel";
+import { CommunityProfilePanel } from "@/components/community-profile-panel";
 import { SwarmPanel } from "@/components/swarm-panel";
 import { DeveloperPanel } from "@/components/developer-panel";
 import { WorkflowBuilder } from "@/components/workflow-builder";
@@ -45,6 +46,7 @@ export default function Page() {
   const [showConductor, setShowConductor] = useState(true);
   const [showAgents, setShowAgents] = useState(false);
   const [showMarketplace, setShowMarketplace] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [showSwarm, setShowSwarm] = useState(false);
   const [showDeveloper, setShowDeveloper] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
@@ -271,6 +273,15 @@ export default function Page() {
           </button>
           {mode !== "simple" && (
             <button
+              onClick={() => setShowProfile(true)}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+            >
+              <User size={15} className="text-[var(--muted-foreground)]" />
+              <span>My Profile</span>
+            </button>
+          )}
+          {mode !== "simple" && (
+            <button
               onClick={() => setShowSwarm(true)}
               className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
             >
@@ -451,6 +462,13 @@ export default function Page() {
       {showMarketplace && (
         <SlideInOverlay title="Marketplace" icon={<Store size={18} className="text-[var(--primary)]" />} onClose={() => setShowMarketplace(false)}>
           <MarketplacePanel mode={mode} />
+        </SlideInOverlay>
+      )}
+
+      {/* Community profile overlay */}
+      {showProfile && (
+        <SlideInOverlay title="My Profile" icon={<User size={18} className="text-[var(--primary)]" />} onClose={() => setShowProfile(false)}>
+          <CommunityProfilePanel />
         </SlideInOverlay>
       )}
 

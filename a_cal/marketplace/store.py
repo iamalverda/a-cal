@@ -266,6 +266,11 @@ class MarketplaceStore:
 
     # --- user installs -------------------------------------------------------
 
+    def get_items_by_author(self, author: str) -> List[MarketplaceItem]:
+        """Get all items authored by a user (includes their remixes)."""
+        self._ensure_seeded()
+        return [i for i in self._items.values() if i.author == author]
+
     def get_user_installs(self, user_id: str) -> List[InstallRecord]:
         """Get all items a user has installed."""
         self._ensure_seeded()
