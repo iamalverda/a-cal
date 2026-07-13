@@ -678,6 +678,67 @@ POST /marketplace/items/{item_id}/rate
 ```
 Body: `{ "stars": 1-5 }`
 
+### Trust & Moderation
+
+Content hashing, trust scoring, flagging, and verification for shared
+marketplace items. Every published item gets a deterministic SHA-256
+content hash over its config, enabling tamper detection. Trust scores
+(0-100) are computed from ratings, verification status, and flag count.
+
+#### Flag Item
+```
+POST /marketplace/items/{item_id}/flag
+```
+Body: `{ "reason": "string" }`
+
+Submits a moderation flag for the item. When an item accumulates 3 or
+more unresolved flags, its verification status automatically changes to
+`flagged`.
+
+Response: `FlagRecord`
+
+#### Get Flags for Item
+```
+GET /marketplace/items/{item_id}/flags
+```
+Returns all flag records for the item (both resolved and unresolved).
+
+Response: `FlagRecord[]`
+
+#### Resolve Flag
+```
+POST /marketplace/flags/{flag_id}/resolve
+```
+Marks a flag as resolved and decrements the item's unresolved flag count.
+
+Response: `FlagRecord`
+
+#### Verify Item
+```
+POST /marketplace/items/{item_id}/verify
+```
+Sets the item's verification status to `verified`. Verified items
+receive a trust score boost and display a verification badge in the UI.
+
+Response: `MarketplaceItem` (updated)
+
+#### Get Trust Info
+```
+GET /marketplace/items/{item_id}/trust
+```
+Returns the trust summary for an item.
+
+Response:
+```json
+{
+  "item_id": "uuid",
+  "trust_score": 75,
+  "verification_status": "unverified",
+  "flag_count": 0,
+  "content_hash": "sha256hex..."
+}
+```
+
 ---
 
 ## Developer

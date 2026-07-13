@@ -113,6 +113,7 @@ class PersistentMarketplaceStore:
                 return
 
             for item in self._builtin_items():
+                item.compute_hash()
                 row = MarketplaceItemDB(
                     id=item.id,
                     name=item.name,
@@ -126,6 +127,7 @@ class PersistentMarketplaceStore:
                     install_count=item.install_count,
                     rating=str(item.rating_sum),
                     rating_count=item.rating_count,
+                    content_hash=item.content_hash,
                 )
                 session.add(row)
             session.commit()
