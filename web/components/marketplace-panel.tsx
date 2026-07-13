@@ -15,7 +15,7 @@ import type { MarketplaceItem, SkillMode } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Download, Upload, Globe, Loader2, AlertCircle, CheckCircle2, ArrowDownToLine } from "lucide-react";
+import { Download, Upload, Globe, Loader2, AlertCircle, CheckCircle2, ArrowDownToLine, GitFork, Sparkles } from "lucide-react";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
   agent_spec: "Agent",
@@ -35,6 +35,12 @@ const TABS_BY_MODE: Record<SkillMode, Tab[]> = {
   simple: ["browse"],
   pro: ["browse", "share", "remote"],
   developer: ["browse", "share", "remote"],
+};
+
+/** Preview hint shown at the bottom of Browse — what the next tier unlocks. */
+const TIER_PREVIEW: Partial<Record<SkillMode, string>> = {
+  simple: "Pro mode unlocks plugins, recipes, sharing, and remote registries.",
+  pro: "Developer mode unlocks raw SDK packages, agent spec source, and per-item config details.",
 };
 
 interface ManifestSummary {
@@ -75,6 +81,15 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
   const [remoteMsg, setRemoteMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [pullingId, setPullingId] = useState<string | null>(null);
 
+  // Remix form state
+  const [remixingId, setRemixingId] = useState<string | null>(null);
+  const [remixName, setRemixName] = useState("");
+  const [remixDesc, setRemixDesc] = useState("");
+  const [remixChanges, setRemixChanges] = useState("");
+  const [remixConfig, setRemixConfig] = useState("");
+  const [remixing, setRemixing] = useState(false);
+  const [remixMsg, setRemixMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
   const visibleTabs = TABS_BY_MODE[mode];
   const isSimple = mode === "simple";
   const isDeveloper = mode === "developer";
@@ -111,6 +126,38 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
       setInstalledIds((prev) => new Set(prev).add(itemId));
     } catch (e) {
       console.error("install failed", e);
+    }
+  };
+
+  const handleRemix = async (itemId: string) => {
+    if (!remixName.trim()) return;
+    setRemixing(true);
+    setRemixMsg(null);
+    let overrides: Record<string, unknown> = {};
+    if (remixConfig.trim()) {
+      try {
+        overrides = JSON.parse(remixConfig.trim());
+      } catch {
+        setRemixMsg({ type: "err", text: "Config overrides must be valid JSON." });
+        setRemixing(false);
+        return;
+      }
+    }
+    try {
+      const child = await marketplaceApi.remix(itemId, {
+        name: remixName.trim(),
+        description: remixDesc.trim(),
+        changes_summary: remixChanges.trim(),
+        config_overrides: overrides,
+      });
+      setRemixMsg({ type: "ok", text: `Remixed as "${child.name}".` });
+      setRemixingId(null);
+      setRemixName(""); setRemixDesc(""); setRemixChanges(""); setRemixConfig("");
+      loadItems();
+    } catch (e) {
+      setRemixMsg({ type: "err", text: `Remix failed: ${e}` });
+    } finally {
+      setRemixing(false);
     }
   };
 
@@ -281,7 +328,7 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
                   </details>
                 )}
 
-                <div className="flex items-center gap-2 pt-1">
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
                   {installedIds.has(item.id) ? (
                     <Badge variant="secondary">Installed</Badge>
                   ) : (
@@ -289,14 +336,90 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
                       Install
                     </Button>
                   )}
+                  {!isSimple && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (remixingId === item.id) {
+                          setRemixingId(null);
+                        } else {
+                          setRemixingId(item.id);
+                          setRemixName(`${item.name} (remix)`);
+                          setRemixDesc("");
+                          setRemixChanges("");
+                          setRemixConfig("");
+                          setRemixMsg(null);
+                        }
+                      }}
+                    >
+                      <GitFork size={14} />
+                      Remix
+                    </Button>
+                  )}
                   <span className="text-xs text-muted-foreground">by {item.author}</span>
                   {item.remixed_from && !isSimple && (
                     <Badge variant="outline" className="text-xs">Remix</Badge>
                   )}
                 </div>
+
+                {remixingId === item.id && !isSimple && (
+                  <div className="mt-2 rounded-md border border-border p-3 flex flex-col gap-2 bg-[var(--muted)]/30">
+                    <Input
+                      placeholder="Remix name"
+                      value={remixName}
+                      onChange={(e) => setRemixName(e.target.value)}
+                      className="text-sm"
+                    />
+                    <Input
+                      placeholder="Description (optional)"
+                      value={remixDesc}
+                      onChange={(e) => setRemixDesc(e.target.value)}
+                      className="text-sm"
+                    />
+                    <Input
+                      placeholder="What changed? (optional)"
+                      value={remixChanges}
+                      onChange={(e) => setRemixChanges(e.target.value)}
+                      className="text-sm"
+                    />
+                    <textarea
+                      placeholder='Config overrides JSON, e.g. {"key":"value"}'
+                      value={remixConfig}
+                      onChange={(e) => setRemixConfig(e.target.value)}
+                      className="w-full min-h-[60px] rounded-md border border-border bg-transparent p-2 text-xs font-mono resize-y focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                    />
+                    {remixMsg && remixingId === item.id && (
+                      <div className={`flex items-center gap-2 text-xs ${remixMsg.type === "ok" ? "text-green-600" : "text-red-500"}`}>
+                        {remixMsg.type === "ok" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                        {remixMsg.text}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleRemix(item.id)}
+                        disabled={remixing || !remixName.trim()}
+                      >
+                        {remixing ? <Loader2 size={14} className="animate-spin" /> : <GitFork size={14} />}
+                        Fork &amp; Publish
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setRemixingId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
+
+          {TIER_PREVIEW[mode] && (
+            <div className="mt-2 flex items-start gap-2 rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+              <Sparkles size={14} className="text-[var(--primary)] shrink-0 mt-0.5" />
+              <span>{TIER_PREVIEW[mode]}</span>
+            </div>
+          )}
         </>
       )}
 

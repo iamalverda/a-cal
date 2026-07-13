@@ -73,7 +73,8 @@ class PublishItemRequest(BaseModel):
 
 
 class RemixRequest(BaseModel):
-    parent_item_id: str
+    # parent_item_id is redundant with the path param but kept for SDK compat.
+    parent_item_id: str = ""
     name: str
     description: str = ""
     config_overrides: Dict[str, Any] = Field(default_factory=dict)

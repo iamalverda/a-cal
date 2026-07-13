@@ -50,4 +50,32 @@ test.describe("Mode-tiered marketplace discovery", () => {
     const details = page.getByText("Config & provenance").first();
     await expect(details).toBeVisible({ timeout: 10_000 });
   });
+
+  test("tier-preview banner shows what the next mode unlocks", async ({ page }) => {
+    // Simple mode — preview should mention Pro
+    await page.goto("/");
+    await page.getByRole("button", { name: "simple", exact: true }).click();
+    await page.getByRole("button", { name: "Marketplace" }).click();
+    await expect(page.getByText("Marketplace").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/Pro mode unlocks/)).toBeVisible({ timeout: 5_000 });
+
+    // Close the overlay so we can reach the sidebar mode switcher
+    await page.locator("button", { hasText: String.fromCharCode(0xd7) }).click();
+    await expect(page.getByRole("button", { name: "pro", exact: true })).toBeVisible({ timeout: 5_000 });
+
+    // Pro mode — preview should mention Developer
+    await page.getByRole("button", { name: "pro", exact: true }).click();
+    await page.getByRole("button", { name: "Marketplace" }).click();
+    await expect(page.getByText("Marketplace").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/Developer mode unlocks/)).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("Developer mode shows no tier-preview banner (top tier)", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "developer", exact: true }).click();
+    await page.getByRole("button", { name: "Marketplace" }).click();
+    await expect(page.getByText("Marketplace").first()).toBeVisible({ timeout: 5_000 });
+    // Developer is the top tier — no preview banner
+    await expect(page.getByText(/mode unlocks/)).not.toBeVisible();
+  });
 });
