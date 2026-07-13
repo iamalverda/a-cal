@@ -48,6 +48,8 @@ import type {
   CalendarTool,
   ApiRouteInfo,
   AuthUser,
+  FlagRecord,
+  VerificationStatus,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -646,6 +648,46 @@ export const marketplaceApi = {
       method: "POST",
       body: JSON.stringify({ registry_url: registryUrl, item_id: itemId }),
     });
+  },
+
+  // --- Trust & Moderation ---------------------------------------------------
+
+  /** Flag a marketplace item for moderation. */
+  async flagItem(itemId: string, reason: string): Promise<FlagRecord> {
+    return fetchJson(`${API_BASE}/marketplace/items/${itemId}/flag`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  /** Get all flags for a marketplace item. */
+  async getFlags(itemId: string): Promise<FlagRecord[]> {
+    return fetchJson(`${API_BASE}/marketplace/items/${itemId}/flags`);
+  },
+
+  /** Resolve a flag (moderator action). */
+  async resolveFlag(flagId: string): Promise<FlagRecord> {
+    return fetchJson(`${API_BASE}/marketplace/flags/${flagId}/resolve`, {
+      method: "POST",
+    });
+  },
+
+  /** Verify a marketplace item (moderator/admin action). */
+  async verifyItem(itemId: string): Promise<MarketplaceItem> {
+    return fetchJson(`${API_BASE}/marketplace/items/${itemId}/verify`, {
+      method: "POST",
+    });
+  },
+
+  /** Get trust info (score, verification status, flag count) for an item. */
+  async getTrustInfo(itemId: string): Promise<{
+    item_id: string;
+    trust_score: number;
+    verification_status: VerificationStatus;
+    flag_count: number;
+    content_hash: string;
+  }> {
+    return fetchJson(`${API_BASE}/marketplace/items/${itemId}/trust`);
   },
 };
 

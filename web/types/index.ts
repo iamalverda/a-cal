@@ -264,6 +264,21 @@ export interface NegotiationResult {
 
 export type MarketplaceItemType = "agent_spec" | "sync_rule_pack" | "negotiation_strategy" | "ui_theme" | "plugin_config";
 
+/** Verification status for a marketplace item (trust & moderation). */
+export type VerificationStatus = "unverified" | "verified" | "flagged";
+
+/** A moderation flag record on a marketplace item. */
+export interface FlagRecord {
+  id: string;
+  item_id: string;
+  flagged_by: string;
+  reason: string;
+  created_at: string;
+  resolved: boolean;
+  resolved_by: string | null;
+  resolved_at: string | null;
+}
+
 export interface Provenance {
   summary: string;
   what_it_does: string;
@@ -288,6 +303,11 @@ export interface MarketplaceItem {
   rating_count: number;
   created_at: string;
   updated_at: string | null;
+  // Trust & moderation fields
+  content_hash: string;
+  verification_status: VerificationStatus;
+  flag_count: number;
+  trust_score: number;
 }
 
 export interface InstallRecord {

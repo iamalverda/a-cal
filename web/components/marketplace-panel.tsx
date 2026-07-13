@@ -15,7 +15,7 @@ import type { MarketplaceItem, SkillMode } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Download, Upload, Globe, Loader2, AlertCircle, CheckCircle2, ArrowDownToLine, GitFork, Sparkles } from "lucide-react";
+import { Download, Upload, Globe, Loader2, AlertCircle, CheckCircle2, ArrowDownToLine, GitFork, Sparkles, Flag, ShieldCheck, AlertTriangle } from "lucide-react";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
   agent_spec: "Agent",
@@ -89,6 +89,12 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
   const [remixConfig, setRemixConfig] = useState("");
   const [remixing, setRemixing] = useState(false);
   const [remixMsg, setRemixMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  // Trust & moderation state
+  const [flaggingId, setFlaggingId] = useState<string | null>(null);
+  const [flagReason, setFlagReason] = useState("");
+  const [flagging, setFlagging] = useState(false);
+  const [flagMsg, setFlagMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const visibleTabs = TABS_BY_MODE[mode];
   const isSimple = mode === "simple";
@@ -235,6 +241,24 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
     }
   };
 
+  /** Flag a marketplace item for moderation. */
+  const handleFlag = async (itemId: string) => {
+    if (!flagReason.trim()) return;
+    setFlagging(true);
+    setFlagMsg(null);
+    try {
+      await marketplaceApi.flagItem(itemId, flagReason.trim());
+      setFlagMsg({ type: "ok", text: "Item flagged for review." });
+      setFlaggingId(null);
+      setFlagReason("");
+      loadItems();
+    } catch (e) {
+      setFlagMsg({ type: "err", text: `Flag failed: ${e}` });
+    } finally {
+      setFlagging(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4 p-4">
       {/* Tab switcher */}
@@ -253,6 +277,14 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
           </button>
         ))}
       </div>
+
+      {/* Global flag/moderation message */}
+      {flagMsg && (
+        <div className={`flex items-center gap-2 text-xs ${flagMsg.type === "ok" ? "text-green-600" : "text-red-500"}`}>
+          {flagMsg.type === "ok" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+          {flagMsg.text}
+        </div>
+      )}
 
       {/* --- Browse tab --- */}
       {tab === "browse" && (
@@ -298,6 +330,22 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
                     {item.rating > 0 && (
                       <span className="text-xs text-muted-foreground">
                         {item.rating.toFixed(1)} / 5
+                      </span>
+                    )}
+                    {/* Trust score badge */}
+                    {item.verification_status === "verified" ? (
+                      <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                        <ShieldCheck size={12} />
+                        Verified
+                      </span>
+                    ) : item.verification_status === "flagged" ? (
+                      <span className="flex items-center gap-1 text-xs text-red-500 font-medium">
+                        <AlertTriangle size={12} />
+                        Flagged
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Trust: {item.trust_score?.toFixed(0) ?? "—"}
                       </span>
                     )}
                   </div>
@@ -361,7 +409,55 @@ export function MarketplacePanel({ mode = "pro" }: { mode?: SkillMode }) {
                   {item.remixed_from && !isSimple && (
                     <Badge variant="outline" className="text-xs">Remix</Badge>
                   )}
+                  {!isSimple && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-xs text-muted-foreground px-2"
+                      onClick={() => {
+                        if (flaggingId === item.id) {
+                          setFlaggingId(null);
+                        } else {
+                          setFlaggingId(item.id);
+                          setFlagReason("");
+                          setFlagMsg(null);
+                        }
+                      }}
+                    >
+                      <Flag size={12} />
+                      Flag
+                    </Button>
+                  )}
                 </div>
+
+                {/* Flag form */}
+                {flaggingId === item.id && !isSimple && (
+                  <div className="mt-2 rounded-md border border-border p-3 flex flex-col gap-2 bg-[var(--muted)]/30">
+                    <Input
+                      placeholder="Reason for flagging (e.g. spam, malicious, broken)"
+                      value={flagReason}
+                      onChange={(e) => setFlagReason(e.target.value)}
+                      className="text-sm"
+                    />
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleFlag(item.id)}
+                        disabled={flagging || !flagReason.trim()}
+                      >
+                        {flagging ? <Loader2 size={14} className="animate-spin" /> : <Flag size={14} />}
+                        Submit Flag
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => { setFlaggingId(null); setFlagReason(""); setFlagMsg(null); }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {remixingId === item.id && !isSimple && (
                   <div className="mt-2 rounded-md border border-border p-3 flex flex-col gap-2 bg-[var(--muted)]/30">

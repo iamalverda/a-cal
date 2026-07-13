@@ -116,6 +116,7 @@ class MarketplaceStore:
         ]
 
         for item in builtins:
+            item.compute_hash()
             self._items[item.id] = item
 
         logger.info("marketplace seeded with %d built-in items", len(builtins))
