@@ -366,6 +366,12 @@ def create_engine_and_session(db_path: str | None = None):
             cursor.close()
 
     Base.metadata.create_all(engine)
+
+    # Handle incremental schema changes on existing databases.
+    # create_all only creates missing tables, not missing columns.
+    from a_cal.db.schema_upgrade import upgrade_schema
+    upgrade_schema(engine)
+
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
     return engine, SessionLocal
 

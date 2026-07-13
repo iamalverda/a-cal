@@ -23,6 +23,8 @@ test.describe("Voice interaction", () => {
 
   test("settings General section mentions voice interaction", async ({ page }) => {
     await page.goto("/");
+    // Wait for the app to load (auth gate auto-logins via demo-login)
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     // Open settings via cmd+k
     await page.keyboard.press("Meta+k");
     await expect(page.getByText("Open settings")).toBeVisible({ timeout: 5_000 });
@@ -37,6 +39,8 @@ test.describe("Voice interaction", () => {
 
   test("settings voice section mentions local transcription privacy", async ({ page }) => {
     await page.goto("/");
+    // Wait for the app to load (auth gate auto-logins via demo-login)
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Meta+k");
     await expect(page.getByText("Open settings")).toBeVisible({ timeout: 5_000 });
     await page.getByText("Open settings").click();
@@ -50,6 +54,7 @@ test.describe("Voice interaction", () => {
 
   test("command bar opens with cmd+k and has input field", async ({ page }) => {
     await page.goto("/");
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Meta+k");
     // The command bar should appear
     await expect(page.getByPlaceholder("Type a command or ask anything...")).toBeVisible({ timeout: 5_000 });

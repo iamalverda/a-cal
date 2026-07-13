@@ -28,6 +28,8 @@ test.describe("Email integration depth settings", () => {
 
   test("selecting Agent-Mediated Inbox calls the API and marks it active", async ({ page }) => {
     await page.goto("/");
+    // Wait for the app to load (auth gate auto-logins via demo-login)
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     // Open settings via the command bar (cmd+k)
     await page.keyboard.press("Meta+k");
     await expect(page.getByText("Open settings")).toBeVisible({ timeout: 5_000 });
@@ -57,6 +59,7 @@ test.describe("Email integration depth settings", () => {
 
   test("auto-scan toggle is visible and defaults to off", async ({ page }) => {
     await page.goto("/");
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     // Open settings via the command bar (cmd+k)
     await page.keyboard.press("Meta+k");
     await expect(page.getByText("Open settings")).toBeVisible({ timeout: 5_000 });

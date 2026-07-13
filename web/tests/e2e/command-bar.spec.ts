@@ -7,6 +7,9 @@ test.describe("Command Bar", () => {
   test("opens with cmd+k and shows quick actions", async ({ page }) => {
     await page.goto("/");
 
+    // Wait for the app to load (auth gate auto-logins via demo-login)
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
+
     // Open command bar with cmd+k
     await page.keyboard.press("Meta+k");
 
@@ -23,6 +26,8 @@ test.describe("Command Bar", () => {
 
   test("typing filters quick actions", async ({ page }) => {
     await page.goto("/");
+    // Wait for the app to load (auth gate auto-logins via demo-login)
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Meta+k");
     await expect(page.getByPlaceholder(/Type a command or ask anything/)).toBeVisible({
       timeout: 5_000,
@@ -40,6 +45,8 @@ test.describe("Command Bar", () => {
 
   test("escape closes the command bar", async ({ page }) => {
     await page.goto("/");
+    // Wait for the app to load (auth gate auto-logins via demo-login)
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Meta+k");
     await expect(page.getByPlaceholder(/Type a command or ask anything/)).toBeVisible({
       timeout: 5_000,
@@ -56,6 +63,8 @@ test.describe("Command Bar", () => {
 
   test("selecting 'Open settings' opens the settings panel", async ({ page }) => {
     await page.goto("/");
+    // Wait for the app to load (auth gate auto-logins via demo-login)
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Meta+k");
     await expect(page.getByPlaceholder(/Type a command or ask anything/)).toBeVisible({
       timeout: 5_000,
@@ -70,6 +79,8 @@ test.describe("Command Bar", () => {
 
   test("arrow keys navigate the action list", async ({ page }) => {
     await page.goto("/");
+    // Wait for the app to load (auth gate auto-logins via demo-login)
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Meta+k");
     await expect(page.getByPlaceholder(/Type a command or ask anything/)).toBeVisible({
       timeout: 5_000,
