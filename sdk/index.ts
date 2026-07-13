@@ -411,9 +411,9 @@ export class ACalClient {
     };
   }
 
-  /** Check server health. */
-  async health(): Promise<{ status: string; version: string }> {
+  /** Check server health, including database backend type. */
+  async health(): Promise<{ status: string; mode: string; version: string; database: string }> {
     const res = await this.fetchFn(`${this.baseUrl.replace("/api/a-cal", "")}/health`);
-    return res.json() as Promise<{ status: string; version: string }>;
+    return res.json() as Promise<{ status: string; mode: string; version: string; database: string }>;
   }
 }
