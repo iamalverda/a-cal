@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import textwrap
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 from fastapi.testclient import TestClient
@@ -179,7 +179,7 @@ class TestDataApiPluginIntegration:
         client = TestClient(app)
 
         # Create an event
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = client.post("/api/a-cal/calendar/events", json={
             "title": "Plugin Test Meeting",
             "start": now.isoformat(),
@@ -211,7 +211,7 @@ class TestDataApiPluginIntegration:
         assert runtime.list_loaded() == []
 
         client = TestClient(app)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = client.post("/api/a-cal/calendar/events", json={
             "title": "No Plugin Event",
             "start": now.isoformat(),

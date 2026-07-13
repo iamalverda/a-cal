@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Directories to search for atom's backend/ folder, relative to common
 # locations. The first match that contains core/llm_service.py wins.
-_ATOM_SEARCH_PATHS: List[str] = [
+_ATOM_SEARCH_PATHS: list[str] = [
     # Sibling directory (A-Cal and atom in the same parent folder)
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "atom", "backend"),
     # A-Cal project root / atom
@@ -48,7 +48,7 @@ _ATOM_SEARCH_PATHS: List[str] = [
 ]
 
 
-def _find_atom_backend() -> Optional[str]:
+def _find_atom_backend() -> str | None:
     """Search known locations for atom's backend directory.
 
     Returns the absolute path to atom's ``backend/`` folder if found,
@@ -63,7 +63,7 @@ def _find_atom_backend() -> Optional[str]:
     return None
 
 
-def _ensure_atom_on_path() -> Optional[str]:
+def _ensure_atom_on_path() -> str | None:
     """Add atom's backend to sys.path if found and not already present.
 
     Returns the path that was added (or was already present), or None
@@ -128,7 +128,7 @@ def _init_atom_db() -> None:
         logger.debug("atom DB init skipped: %s", exc)
 
 
-def get_atom_status() -> Dict[str, Any]:
+def get_atom_status() -> dict[str, Any]:
     """Return a status dict describing atom availability for the frontend.
 
     Returns:
@@ -220,7 +220,7 @@ class AtomTokenStorage:
         return f"a_cal_{provider_type}"
 
     def save_oauth_tokens(
-        self, user_id: str, provider_type: str, tokens: Dict[str, Any],
+        self, user_id: str, provider_type: str, tokens: dict[str, Any],
     ) -> str:
         """Store encrypted OAuth tokens for a provider connection.
 
@@ -245,7 +245,7 @@ class AtomTokenStorage:
 
     async def get_oauth_tokens(
         self, user_id: str, provider_type: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Retrieve and decrypt OAuth tokens for a provider.
 
         Looks up the connection by integration_id, then fetches credentials.
@@ -375,7 +375,7 @@ class AtomIntentClassifier:
         self._classifier = IntentClassifier(workspace_id=workspace_id)
         logger.info("AtomIntentClassifier initialized with atom IntentClassifier")
 
-    async def classify(self, message: str) -> Optional[Dict[str, Any]]:
+    async def classify(self, message: str) -> dict[str, Any] | None:
         """Classify a user message using atom's LLM-powered classifier.
 
         Args:
@@ -404,7 +404,7 @@ class AtomIntentClassifier:
 
 def get_atom_adapters(
     workspace_id: str = "default",
-) -> Tuple[Optional[AtomTokenStorage], Optional[Any], Optional[AtomIntentClassifier]]:
+) -> tuple[AtomTokenStorage | None, Any | None, AtomIntentClassifier | None]:
     """Get atom-backed adapters, or (None, None, None) if atom isn't available.
 
     This is the main entry point. Callers check whether the returned values
@@ -423,9 +423,9 @@ def get_atom_adapters(
     # Ensure atom's database tables exist (needed for ConnectionService).
     _init_atom_db()
 
-    token_storage: Optional[AtomTokenStorage] = None
-    llm_service: Optional[Any] = None
-    intent_classifier: Optional[AtomIntentClassifier] = None
+    token_storage: AtomTokenStorage | None = None
+    llm_service: Any | None = None
+    intent_classifier: AtomIntentClassifier | None = None
 
     try:
         token_storage = AtomTokenStorage()
@@ -451,7 +451,7 @@ def get_atom_adapters(
     return token_storage, llm_service, intent_classifier
 
 
-def get_atom_token_storage() -> Optional[AtomTokenStorage]:
+def get_atom_token_storage() -> AtomTokenStorage | None:
     """Convenience: return just the token storage adapter, or None.
 
     Used by oauth_routes.py to avoid initializing the LLM service

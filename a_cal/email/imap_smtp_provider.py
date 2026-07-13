@@ -66,8 +66,8 @@ class IMAPSMTPProvider(EmailProvider):
         return conn
 
     async def list_messages(
-        self, since_cursor: Optional[str], folder: str = "INBOX", limit: int = 50
-    ) -> Tuple[List[EmailMessageDTO], Optional[str]]:
+        self, since_cursor: str | None, folder: str = "INBOX", limit: int = 50
+    ) -> tuple[list[EmailMessageDTO], str | None]:
         """Fetch new messages since the cursor.
 
         Cursor format: ``<uidvalidity>:<last_uid>``. On first run (no cursor)
@@ -77,8 +77,8 @@ class IMAPSMTPProvider(EmailProvider):
         try:
             conn.select(folder, readonly=True)
             uidvalidity = conn.response("UIDVALIDITY")[1] or conn.status(folder, "(UIDVALIDITY)")[1]
-            cursor_uidvalidity: Optional[str] = None
-            last_uid: Optional[int] = None
+            cursor_uidvalidity: str | None = None
+            last_uid: int | None = None
             if since_cursor and ":" in since_cursor:
                 cursor_uidvalidity, last_str = since_cursor.split(":", 1)
                 last_uid = int(last_str) if last_str.isdigit() else None
@@ -88,7 +88,7 @@ class IMAPSMTPProvider(EmailProvider):
             _, uids = conn.uid("search", None, f"UID {search_since}:*")
             uid_list = (uids[0].split() if uids and uids[0] else [])[-limit:]
 
-            messages: List[EmailMessageDTO] = []
+            messages: list[EmailMessageDTO] = []
             max_uid = last_uid or 0
             for uid in uid_list:
                 uid_s = uid.decode() if isinstance(uid, bytes) else str(uid)
@@ -152,8 +152,8 @@ class IMAPSMTPProvider(EmailProvider):
     # --- sending ------------------------------------------------------------
 
     async def send_message(
-        self, to: List[str], subject: str, body_text: str,
-        in_reply_to: Optional[str] = None, thread_id: Optional[str] = None,
+        self, to: list[str], subject: str, body_text: str,
+        in_reply_to: str | None = None, thread_id: str | None = None,
     ) -> str:
         msg = MIMEMultipart("alternative")
         msg["From"] = self.username

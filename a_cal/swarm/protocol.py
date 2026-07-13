@@ -40,7 +40,7 @@ from __future__ import annotations
 import enum
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional
 
 
@@ -101,7 +101,7 @@ class SubAccountPriority(str, enum.Enum):
     DEFERRED = "deferred"     # can be moved freely (focus block, buffer time)
 
     @classmethod
-    def rank(cls, priority: "SubAccountPriority") -> int:
+    def rank(cls, priority: SubAccountPriority) -> int:
         """Numeric rank for comparison (higher = more important)."""
         order = {
             cls.CRITICAL: 5,
@@ -112,10 +112,10 @@ class SubAccountPriority(str, enum.Enum):
         }
         return order.get(priority, 3)
 
-    def __gt__(self, other: "SubAccountPriority") -> bool:
+    def __gt__(self, other: SubAccountPriority) -> bool:
         return self.rank(self) > self.rank(other)
 
-    def __lt__(self, other: "SubAccountPriority") -> bool:
+    def __lt__(self, other: SubAccountPriority) -> bool:
         return self.rank(self) < self.rank(other)
 
 
@@ -131,9 +131,9 @@ class SlotProposal:
     proposed_start: datetime
     proposed_end: datetime
     reason: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "sub_account_id": self.sub_account_id,
             "proposed_start": self.proposed_start.isoformat(),
@@ -157,13 +157,13 @@ class NegotiationMessage:
     from_sub_account_id: str
     to_sub_account_id: str
     message_type: NegotiationMessageType
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    priority: Optional[SubAccountPriority] = None
-    proposal: Optional[SlotProposal] = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    priority: SubAccountPriority | None = None
+    proposal: SlotProposal | None = None
     reasoning: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "negotiation_id": self.negotiation_id,
@@ -195,7 +195,7 @@ class ConflictClaim:
     can_move: bool = True
     reasoning: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "sub_account_id": self.sub_account_id,
             "event_id": self.event_id,
@@ -223,17 +223,17 @@ class SwarmNegotiation:
     """
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    conflict_start: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    conflict_start: datetime = field(default_factory=lambda: datetime.now(UTC))
     state: NegotiationState = NegotiationState.INITIATED
-    status: Optional[NegotiationStatus] = None
-    claims: List[ConflictClaim] = field(default_factory=list)
-    messages: List[NegotiationMessage] = field(default_factory=list)
-    winner_sub_account_id: Optional[str] = None
+    status: NegotiationStatus | None = None
+    claims: list[ConflictClaim] = field(default_factory=list)
+    messages: list[NegotiationMessage] = field(default_factory=list)
+    winner_sub_account_id: str | None = None
     resolution_reason: str = ""
-    resolved_at: Optional[datetime] = None
+    resolved_at: datetime | None = None
     max_rounds: int = 5
     current_round: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_terminal(self) -> bool:
@@ -244,12 +244,12 @@ class SwarmNegotiation:
         )
 
     @property
-    def claim_a(self) -> Optional[ConflictClaim]:
+    def claim_a(self) -> ConflictClaim | None:
         """The first claim (by convention, the initiator)."""
         return self.claims[0] if self.claims else None
 
     @property
-    def claim_b(self) -> Optional[ConflictClaim]:
+    def claim_b(self) -> ConflictClaim | None:
         """The second claim (the responder)."""
         return self.claims[1] if len(self.claims) > 1 else None
 
@@ -267,16 +267,16 @@ class SwarmNegotiation:
         self.status = NegotiationStatus.RESOLVED
         self.winner_sub_account_id = winner_id
         self.resolution_reason = reason
-        self.resolved_at = datetime.now(timezone.utc)
+        self.resolved_at = datetime.now(UTC)
 
     def escalate(self, reason: str) -> None:
         """Mark the negotiation as escalated (needs conductor or user)."""
         self.state = NegotiationState.ESCALATED
         self.status = NegotiationStatus.ESCALATED
         self.resolution_reason = reason
-        self.resolved_at = datetime.now(timezone.utc)
+        self.resolved_at = datetime.now(UTC)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "conflict_start": self.conflict_start.isoformat(),

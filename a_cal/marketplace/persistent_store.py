@@ -11,7 +11,7 @@ as atom's PostgreSQL instance — only the connection string changes.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional, Tuple
 
 from a_cal.db.models import (
@@ -49,7 +49,7 @@ def _row_to_item(row: MarketplaceItemDB) -> MarketplaceItem:
         install_count=row.install_count or 0,
         rating_sum=rating_sum,
         rating_count=row.rating_count or 0,
-        created_at=row.created_at.isoformat() if row.created_at else datetime.now(timezone.utc).isoformat(),
+        created_at=row.created_at.isoformat() if row.created_at else datetime.now(UTC).isoformat(),
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
     )
 
@@ -60,7 +60,7 @@ def _row_to_install(row: InstallRecordDB) -> InstallRecord:
         id=row.id,
         user_id=row.user_id,
         item_id=row.item_id,
-        installed_at=row.created_at.isoformat() if row.created_at else datetime.now(timezone.utc).isoformat(),
+        installed_at=row.created_at.isoformat() if row.created_at else datetime.now(UTC).isoformat(),
         installed_config=row.installed_config or {},
     )
 
@@ -125,7 +125,7 @@ class PersistentMarketplaceStore:
         finally:
             session.close()
 
-    def _builtin_items(self) -> List[MarketplaceItem]:
+    def _builtin_items(self) -> list[MarketplaceItem]:
         """Return the built-in marketplace items for first-run seeding."""
         return [
             MarketplaceItem(
@@ -216,7 +216,7 @@ class PersistentMarketplaceStore:
             session.commit()
             logger.info("Published marketplace item: %s by %s", item.name, item.author)
             return item
-        except Exception as e:
+        except Exception:
             session.rollback()
             raise
         finally:
@@ -234,7 +234,7 @@ class PersistentMarketplaceStore:
                 raise KeyError(f"marketplace item not found: {item_id}")
 
             row.install_count = (row.install_count or 0) + 1
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
 
             record = InstallRecord(
                 user_id=user_id,
@@ -252,7 +252,7 @@ class PersistentMarketplaceStore:
             return record
         except KeyError:
             raise
-        except Exception as e:
+        except Exception:
             session.rollback()
             raise
         finally:
@@ -266,7 +266,7 @@ class PersistentMarketplaceStore:
         parent_item_id: str,
         name: str,
         description: str,
-        config_overrides: Dict[str, Any],
+        config_overrides: dict[str, Any],
         changes_summary: str = "",
     ) -> MarketplaceItem:
         """Remix an existing item: copy config, apply overrides, publish."""
@@ -317,7 +317,7 @@ class PersistentMarketplaceStore:
             return child
         except KeyError:
             raise
-        except Exception as e:
+        except Exception:
             session.rollback()
             raise
         finally:
@@ -327,10 +327,10 @@ class PersistentMarketplaceStore:
 
     def list_items(
         self,
-        item_type: Optional[str] = None,
-        tag: Optional[str] = None,
+        item_type: str | None = None,
+        tag: str | None = None,
         limit: int = 50,
-    ) -> List[MarketplaceItem]:
+    ) -> list[MarketplaceItem]:
         """Browse marketplace items, optionally filtered."""
         self._ensure_seeded()
         session = self._session()
@@ -349,7 +349,7 @@ class PersistentMarketplaceStore:
         finally:
             session.close()
 
-    def get_item(self, item_id: str) -> Optional[MarketplaceItem]:
+    def get_item(self, item_id: str) -> MarketplaceItem | None:
         """Get a single marketplace item by ID."""
         self._ensure_seeded()
         session = self._session()
@@ -359,14 +359,14 @@ class PersistentMarketplaceStore:
         finally:
             session.close()
 
-    def search(self, query: str, limit: int = 20) -> List[MarketplaceItem]:
+    def search(self, query: str, limit: int = 20) -> list[MarketplaceItem]:
         """Search items by name, description, tags, or author."""
         self._ensure_seeded()
         session = self._session()
         try:
             rows = session.query(MarketplaceItemDB).all()
             q = query.lower()
-            scored: List[Tuple[float, MarketplaceItem]] = []
+            scored: list[tuple[float, MarketplaceItem]] = []
 
             for row in rows:
                 item = _row_to_item(row)
@@ -405,7 +405,7 @@ class PersistentMarketplaceStore:
 
             row.rating = str(new_sum)
             row.rating_count = new_count
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             session.commit()
 
             return _row_to_item(row)
@@ -419,7 +419,7 @@ class PersistentMarketplaceStore:
 
     # --- user installs -------------------------------------------------------
 
-    def get_items_by_author(self, author: str) -> List[MarketplaceItem]:
+    def get_items_by_author(self, author: str) -> list[MarketplaceItem]:
         """Get all items authored by a user (includes their remixes)."""
         self._ensure_seeded()
         session = self._session()
@@ -429,7 +429,7 @@ class PersistentMarketplaceStore:
         finally:
             session.close()
 
-    def get_user_installs(self, user_id: str) -> List[InstallRecord]:
+    def get_user_installs(self, user_id: str) -> list[InstallRecord]:
         """Get all items a user has installed."""
         self._ensure_seeded()
         session = self._session()
@@ -441,12 +441,12 @@ class PersistentMarketplaceStore:
 
     # --- remix history -------------------------------------------------------
 
-    def get_remix_chain(self, item_id: str) -> List[Dict[str, Any]]:
+    def get_remix_chain(self, item_id: str) -> list[dict[str, Any]]:
         """Trace the remix ancestry of an item."""
         self._ensure_seeded()
         session = self._session()
         try:
-            chain: List[Dict[str, Any]] = []
+            chain: list[dict[str, Any]] = []
             current = session.query(MarketplaceItemDB).filter_by(id=item_id).first()
             while current and current.remixed_from:
                 parent = session.query(MarketplaceItemDB).filter_by(id=current.remixed_from).first()
@@ -463,7 +463,7 @@ class PersistentMarketplaceStore:
         finally:
             session.close()
 
-    def get_remixes_of(self, item_id: str) -> List[MarketplaceItem]:
+    def get_remixes_of(self, item_id: str) -> list[MarketplaceItem]:
         """Get all items that were remixed from the given item."""
         self._ensure_seeded()
         session = self._session()

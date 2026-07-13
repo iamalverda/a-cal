@@ -47,9 +47,9 @@ class LLMResponse:
     provider: str
     model: str
     forced_local: bool = False
-    error: Optional[str] = None
+    error: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text,
             "provider": self.provider,
@@ -74,7 +74,7 @@ class StandaloneLLMService:
     _ollama_url: str = "http://localhost:11434"
 
     # Cloud provider base URLs.
-    _CLOUD_URLS: Dict[str, str] = {
+    _CLOUD_URLS: dict[str, str] = {
         ModelProvider.OPENAI.value: "https://api.openai.com/v1",
         ModelProvider.GROQ.value: "https://api.groq.com/openai/v1",
         ModelProvider.OPENROUTER.value: "https://openrouter.ai/api/v1",
@@ -95,9 +95,9 @@ class StandaloneLLMService:
 
     def __init__(
         self,
-        routing: Optional[ModelRoutingConfig] = None,
-        api_keys: Optional[Dict[str, str]] = None,
-        ollama_url: Optional[str] = None,
+        routing: ModelRoutingConfig | None = None,
+        api_keys: dict[str, str] | None = None,
+        ollama_url: str | None = None,
     ) -> None:
         """Initialize with routing config and API keys.
 

@@ -38,13 +38,13 @@ class AutonomyConfig:
 
     default_level: str = AutonomyLevel.CONFIRM.value
     # Per-sub-account overrides: sub_account_id -> level
-    per_sub_account: Dict[str, str] = None
+    per_sub_account: dict[str, str] = None
 
     def __post_init__(self):
         if self.per_sub_account is None:
             self.per_sub_account = {}
 
-    def resolve(self, sub_account_id: Optional[str] = None) -> AutonomyLevel:
+    def resolve(self, sub_account_id: str | None = None) -> AutonomyLevel:
         """Resolve the effective autonomy level for a sub-account.
 
         Per-sub-account override takes precedence; falls back to the
@@ -60,28 +60,28 @@ class AutonomyConfig:
         except ValueError:
             return AutonomyLevel.CONFIRM
 
-    def should_execute(self, sub_account_id: Optional[str] = None) -> bool:
+    def should_execute(self, sub_account_id: str | None = None) -> bool:
         """Whether the agent should execute actions without asking.
 
         True for FULL_AUTO, False for SUGGEST_ONLY and CONFIRM.
         """
         return self.resolve(sub_account_id) == AutonomyLevel.FULL_AUTO
 
-    def should_confirm(self, sub_account_id: Optional[str] = None) -> bool:
+    def should_confirm(self, sub_account_id: str | None = None) -> bool:
         """Whether the agent should ask for confirmation before executing.
 
         True for CONFIRM, False for SUGGEST_ONLY and FULL_AUTO.
         """
         return self.resolve(sub_account_id) == AutonomyLevel.CONFIRM
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "default_level": self.default_level,
             "per_sub_account": dict(self.per_sub_account),
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AutonomyConfig":
+    def from_dict(cls, data: dict[str, Any]) -> AutonomyConfig:
         return cls(
             default_level=data.get("default_level", AutonomyLevel.CONFIRM.value),
             per_sub_account=dict(data.get("per_sub_account", {})),

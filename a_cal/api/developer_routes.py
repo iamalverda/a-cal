@@ -28,8 +28,8 @@ router = APIRouter(prefix="/api/a-cal/developer", tags=["a-cal-developer"])
 
 # --- per-user stores (standalone mode) --------------------------------------
 
-_plugin_registries: Dict[str, PluginRegistry] = {}
-_agent_stores: Dict[str, AgentSpecStore] = {}
+_plugin_registries: dict[str, PluginRegistry] = {}
+_agent_stores: dict[str, AgentSpecStore] = {}
 
 
 def _get_plugin_registry(user_id: str) -> PluginRegistry:
@@ -57,13 +57,13 @@ class PluginInput(BaseModel):
     plugin_type: str  # PluginType value
     version: str = "0.1.0"
     description: str = ""
-    config_schema: Dict[str, Any] = Field(default_factory=dict)
-    default_config: Dict[str, Any] = Field(default_factory=dict)
+    config_schema: dict[str, Any] = Field(default_factory=dict)
+    default_config: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
 
 
 class PluginConfigUpdate(BaseModel):
-    config: Dict[str, Any]
+    config: dict[str, Any]
 
 
 class AgentSpecInput(BaseModel):
@@ -71,22 +71,22 @@ class AgentSpecInput(BaseModel):
     display_name: str = ""
     description: str = ""
     system_prompt: str = ""
-    tools: List[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
     default_tier: str = "standard"
     can_negotiate: bool = False
     privacy_force_local: bool = False
-    capabilities: List[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
 
 
 class AgentSpecUpdate(BaseModel):
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    system_prompt: Optional[str] = None
-    tools: Optional[List[str]] = None
-    default_tier: Optional[str] = None
-    can_negotiate: Optional[bool] = None
-    privacy_force_local: Optional[bool] = None
-    capabilities: Optional[List[str]] = None
+    display_name: str | None = None
+    description: str | None = None
+    system_prompt: str | None = None
+    tools: list[str] | None = None
+    default_tier: str | None = None
+    can_negotiate: bool | None = None
+    privacy_force_local: bool | None = None
+    capabilities: list[str] | None = None
 
 
 class ConfigExportRequest(BaseModel):
@@ -98,13 +98,13 @@ class ConfigExportRequest(BaseModel):
 
 class ConfigImportRequest(BaseModel):
     """Import config from a JSON-compatible dict."""
-    config: Dict[str, Any]
+    config: dict[str, Any]
 
 
 # --- plugin endpoints ------------------------------------------------------
 
 @router.get("/plugins")
-def list_plugins(plugin_type: Optional[str] = None, enabled_only: bool = False):
+def list_plugins(plugin_type: str | None = None, enabled_only: bool = False):
     """List registered plugins."""
     user_id = _current_user_id()
     registry = _get_plugin_registry(user_id)
@@ -366,7 +366,7 @@ from a_cal.workflows.models import WorkflowDef, WorkflowNode
 from a_cal.workflows.store import WorkflowStore
 from a_cal.workflows.runner import WorkflowRunner
 
-_workflow_stores: Dict[str, WorkflowStore] = {}
+_workflow_stores: dict[str, WorkflowStore] = {}
 
 
 def _get_workflow_store(user_id: str) -> WorkflowStore:
@@ -383,8 +383,8 @@ class WorkflowNodeInput(BaseModel):
     id: str = ""
     agent: str = ""
     label: str = ""
-    config: Dict[str, Any] = Field(default_factory=dict)
-    conditional: Optional[str] = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    conditional: str | None = None
 
 
 class WorkflowInput(BaseModel):
@@ -393,7 +393,7 @@ class WorkflowInput(BaseModel):
     id: str = ""
     name: str
     description: str = ""
-    nodes: List[WorkflowNodeInput] = Field(default_factory=list)
+    nodes: list[WorkflowNodeInput] = Field(default_factory=list)
     trigger: str = "manual"
     version: str = "0.1.0"
 
@@ -403,7 +403,7 @@ class WorkflowRunInput(BaseModel):
 
     name: str = ""
     description: str = ""
-    nodes: List[WorkflowNodeInput] = Field(default_factory=list)
+    nodes: list[WorkflowNodeInput] = Field(default_factory=list)
     trigger: str = "manual"
     version: str = "0.1.0"
     initial_message: str = ""

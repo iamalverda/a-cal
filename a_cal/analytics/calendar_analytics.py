@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ _DAY_NAMES = [
 ]
 
 
-def _parse_dt(value: str) -> Optional[datetime]:
+def _parse_dt(value: str) -> datetime | None:
     """Parse an ISO datetime string, returning None on failure."""
     if not value:
         return None
@@ -40,15 +40,15 @@ def _parse_dt(value: str) -> Optional[datetime]:
 def _to_naive(dt: datetime) -> datetime:
     """Convert a timezone-aware datetime to naive UTC for comparisons."""
     if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
     return dt
 
 
 def analyze_busy_times(
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     start: datetime,
     end: datetime,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze which days of week and hours are busiest.
 
     Ported from zero-calendar's analyzeBusyTimes. Returns busy-by-day-of-week
@@ -130,10 +130,10 @@ def analyze_busy_times(
 
 
 def get_calendar_analytics(
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     start: datetime,
     end: datetime,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute comprehensive meeting statistics over a date range.
 
     Ported from zero-calendar's getCalendarAnalytics. Returns total meeting
@@ -156,8 +156,8 @@ def get_calendar_analytics(
 
     total_minutes = 0.0
     meeting_count = 0
-    category_counts: Dict[str, int] = defaultdict(int)
-    daily_minutes: Dict[str, float] = defaultdict(float)
+    category_counts: dict[str, int] = defaultdict(int)
+    daily_minutes: dict[str, float] = defaultdict(float)
 
     for evt in events:
         evt_start = _parse_dt(evt.get("start", ""))
@@ -220,13 +220,13 @@ def get_calendar_analytics(
 
 
 def find_free_time_slots_range(
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     start: datetime,
     end: datetime,
     min_duration_minutes: int = 30,
     work_start_hour: int = 9,
     work_end_hour: int = 17,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Find free time slots across a multi-day range.
 
     Ported from zero-calendar's findFreeTimeSlots. Iterates each day in the
@@ -248,7 +248,7 @@ def find_free_time_slots_range(
     end_naive = _to_naive(end)
 
     # Collect and sort all events in range
-    busy_intervals: List[Tuple[datetime, datetime]] = []
+    busy_intervals: list[tuple[datetime, datetime]] = []
     for evt in events:
         evt_start = _parse_dt(evt.get("start", ""))
         evt_end = _parse_dt(evt.get("end", ""))
@@ -262,7 +262,7 @@ def find_free_time_slots_range(
 
     busy_intervals.sort(key=lambda x: x[0])
 
-    slots: List[Dict[str, Any]] = []
+    slots: list[dict[str, Any]] = []
     min_delta = timedelta(minutes=min_duration_minutes)
 
     current_day = start_naive.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -313,12 +313,12 @@ def find_free_time_slots_range(
 
 
 def suggest_rescheduling(
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     event_id: str,
     look_ahead_days: int = 14,
     work_start_hour: int = 9,
     work_end_hour: int = 17,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Suggest alternative time slots for an existing event.
 
     Ported from zero-calendar's suggestRescheduling. Finds the target event,

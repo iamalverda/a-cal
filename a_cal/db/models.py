@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, Optional
 
 from sqlalchemy import (
@@ -49,7 +49,7 @@ class JSONType(TypeDecorator):
             )
         return dialect.type_descriptor(Text())
 
-    def process_bind_param(self, value: Any, dialect: object) -> Optional[str]:
+    def process_bind_param(self, value: Any, dialect: object) -> str | None:
         if value is None:
             return None
         # On PostgreSQL with JSONB, SQLAlchemy handles serialization.
@@ -57,7 +57,7 @@ class JSONType(TypeDecorator):
             return value
         return json.dumps(value)
 
-    def process_result_value(self, value: Optional[str], dialect: object) -> Any:
+    def process_result_value(self, value: str | None, dialect: object) -> Any:
         if value is None or value == "":
             return None
         # On PostgreSQL, psycopg2 returns Python objects from JSONB.
@@ -68,7 +68,7 @@ class JSONType(TypeDecorator):
 
 def _utcnow() -> datetime:
     """UTC timestamp for default column values."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _new_uuid() -> str:
@@ -252,7 +252,7 @@ class EventTypeDB(Base):
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
-def get_database_url() -> Optional[str]:
+def get_database_url() -> str | None:
     """Get the database URL from the environment.
 
     Checks ``DATABASE_URL`` first (standard convention, works with PostgreSQL
@@ -281,7 +281,7 @@ def get_db_path() -> str:
     return os.path.join(db_dir, "a-cal.db")
 
 
-def create_engine_and_session(db_path: Optional[str] = None):
+def create_engine_and_session(db_path: str | None = None):
     """Create a SQLAlchemy engine and session factory.
 
     Supports both SQLite (standalone mode) and PostgreSQL (production / atom

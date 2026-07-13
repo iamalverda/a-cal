@@ -6,7 +6,7 @@ core sync logic is verified independently of any provider integration.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import List, Optional
 
 import pytest
@@ -29,7 +29,7 @@ def _ev(title: str, start: datetime, sub: str = "sub-1", cal: str = "primary") -
 
 
 class MockProvider(CalendarProvider):
-    def __init__(self, events: List[CalendarEventDTO]) -> None:
+    def __init__(self, events: list[CalendarEventDTO]) -> None:
         self._events = events
 
     async def list_events(self, start, end, calendar_id=None):
@@ -48,7 +48,7 @@ class MockProvider(CalendarProvider):
         pass
 
 
-NOW = datetime(2026, 7, 12, 9, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 7, 12, 9, 0, tzinfo=UTC)
 
 
 # --- rule evaluation -------------------------------------------------------

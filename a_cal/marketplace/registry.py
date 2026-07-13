@@ -56,7 +56,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional
 from urllib.request import urlopen, Request
 from urllib.error import URLError
@@ -85,7 +85,7 @@ class RegistryBundle:
 
     def __init__(
         self,
-        items: List[MarketplaceItem],
+        items: list[MarketplaceItem],
         exported_by: str = "local-dev-user",
     ) -> None:
         """Create a bundle from a list of marketplace items.
@@ -96,9 +96,9 @@ class RegistryBundle:
         """
         self.items = list(items)
         self.exported_by = exported_by
-        self.exported_at = datetime.now(timezone.utc).isoformat()
+        self.exported_at = datetime.now(UTC).isoformat()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize the bundle to a JSON-compatible dict."""
         return {
             "format": BUNDLE_FORMAT,
@@ -113,7 +113,7 @@ class RegistryBundle:
         return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RegistryBundle":
+    def from_dict(cls, data: dict[str, Any]) -> RegistryBundle:
         """Deserialize a bundle from a dict.
 
         Validates the format and version, raising ValueError on mismatch.
@@ -151,7 +151,7 @@ class RegistryBundle:
         return bundle
 
     @classmethod
-    def from_json(cls, json_str: str) -> "RegistryBundle":
+    def from_json(cls, json_str: str) -> RegistryBundle:
         """Deserialize a bundle from a JSON string."""
         return cls.from_dict(json.loads(json_str))
 
@@ -165,7 +165,7 @@ class RegistryBundle:
             f.write(self.to_json())
 
     @classmethod
-    def load(cls, path: str) -> "RegistryBundle":
+    def load(cls, path: str) -> RegistryBundle:
         """Load a bundle from a file.
 
         Args:
@@ -174,7 +174,7 @@ class RegistryBundle:
         Returns:
             The loaded RegistryBundle.
         """
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return cls.from_json(f.read())
 
 
@@ -191,7 +191,7 @@ class RegistryManifest:
         name: str = "",
         description: str = "",
         registry_url: str = "",
-        items: Optional[List[Dict[str, Any]]] = None,
+        items: list[dict[str, Any]] | None = None,
     ) -> None:
         """Create a manifest.
 
@@ -206,7 +206,7 @@ class RegistryManifest:
         self.registry_url = registry_url
         self.items = items or []
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize the manifest to a JSON-compatible dict."""
         return {
             "format": REGISTRY_FORMAT,
@@ -222,7 +222,7 @@ class RegistryManifest:
         return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RegistryManifest":
+    def from_dict(cls, data: dict[str, Any]) -> RegistryManifest:
         """Deserialize a manifest from a dict.
 
         Args:
@@ -248,11 +248,11 @@ class RegistryManifest:
         )
 
     @classmethod
-    def from_json(cls, json_str: str) -> "RegistryManifest":
+    def from_json(cls, json_str: str) -> RegistryManifest:
         """Deserialize a manifest from a JSON string."""
         return cls.from_dict(json.loads(json_str))
 
-    def find(self, query: str) -> List[Dict[str, Any]]:
+    def find(self, query: str) -> list[dict[str, Any]]:
         """Search manifest items by name, description, or tags.
 
         Args:
@@ -262,7 +262,7 @@ class RegistryManifest:
             List of matching item summary dicts, sorted by relevance.
         """
         q = query.lower()
-        scored: List[tuple[float, Dict[str, Any]]] = []
+        scored: list[tuple[float, dict[str, Any]]] = []
         for item in self.items:
             score = 0.0
             if q in item.get("name", "").lower():
@@ -300,7 +300,7 @@ class RegistryClient:
         self.registry_url = registry_url.rstrip("/")
         self.timeout = timeout
 
-    def _fetch(self, path: str) -> Dict[str, Any]:
+    def _fetch(self, path: str) -> dict[str, Any]:
         """Fetch JSON from the registry.
 
         Args:
@@ -359,7 +359,7 @@ class RegistryClient:
         data = self._fetch(f"items/{item_id}")
         return MarketplaceItem.from_dict(data)
 
-    def search(self, query: str) -> List[Dict[str, Any]]:
+    def search(self, query: str) -> list[dict[str, Any]]:
         """Search the registry's manifest for items matching the query.
 
         Args:
@@ -404,7 +404,7 @@ def build_manifest_from_store(store, name: str = "", description: str = "") -> R
         A RegistryManifest with item summaries.
     """
     items = store.list_items(limit=200)
-    summaries: List[Dict[str, Any]] = []
+    summaries: list[dict[str, Any]] = []
     for item in items:
         summaries.append({
             "id": item.id,

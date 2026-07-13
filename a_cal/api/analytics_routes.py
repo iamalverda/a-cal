@@ -8,7 +8,7 @@ cal.com) to the frontend.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query
@@ -36,7 +36,7 @@ router = APIRouter(prefix="/api/a-cal", tags=["a-cal-analytics"])
 _db = PersistentStore()
 
 
-def _fetch_events(days: int = 30) -> List[Dict[str, Any]]:
+def _fetch_events(days: int = 30) -> list[dict[str, Any]]:
     """Fetch unified calendar events from the store."""
     try:
         events = _db.get_unified_calendar(days)
@@ -50,8 +50,8 @@ def _fetch_events(days: int = 30) -> List[Dict[str, Any]]:
 
 class AnalyticsSummaryResponse(BaseModel):
     """Combined analytics summary for the dashboard."""
-    busy_times: Dict[str, Any]
-    meeting_stats: Dict[str, Any]
+    busy_times: dict[str, Any]
+    meeting_stats: dict[str, Any]
     period_days: int
 
 
@@ -66,7 +66,7 @@ def get_analytics_summary(
     specified lookback period.
     """
     events = _fetch_events(days)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = now - timedelta(days=days)
 
     busy = analyze_busy_times(events, start, now)
@@ -85,7 +85,7 @@ def get_busy_times(
 ):
     """Get busy-time analysis (busiest days of week and hours)."""
     events = _fetch_events(days)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = now - timedelta(days=days)
     return analyze_busy_times(events, start, now)
 
@@ -96,7 +96,7 @@ def get_meeting_stats(
 ):
     """Get meeting statistics (count, duration, categories)."""
     events = _fetch_events(days)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = now - timedelta(days=days)
     return get_calendar_analytics(events, start, now)
 
@@ -148,9 +148,9 @@ class EventTypeRequest(BaseModel):
     duration_minutes: int = 30
     description: str = ""
     scheduling_type: str = "collective"
-    availability: Dict[str, Any] = Field(default_factory=dict)
+    availability: dict[str, Any] = Field(default_factory=dict)
     color: str = "#3B82F6"
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.get("/event-types")
@@ -208,7 +208,7 @@ def get_aggregated_availability_endpoint(body: AggregatedAvailabilityRequest):
 
 class AggregatedAvailabilityRequest(BaseModel):
     """Request body for aggregated availability."""
-    schedules: List[Dict[str, Any]] = Field(default_factory=list)
+    schedules: list[dict[str, Any]] = Field(default_factory=list)
     scheduling_type: str = "collective"
 
 
@@ -221,6 +221,6 @@ def list_calendar_tools():
 
 
 @router.get("/schedule-prompt")
-def get_schedule_prompt(timezone: str = Query("UTC")):
+def get_schedule_prompt(tz: str = Query("UTC")):
     """Get the enhanced schedule agent system prompt (zero-calendar patterns)."""
-    return {"prompt": get_enhanced_schedule_prompt(user_timezone=timezone)}
+    return {"prompt": get_enhanced_schedule_prompt(user_timezone=tz)}

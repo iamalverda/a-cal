@@ -35,7 +35,7 @@ _MICROSOFT_AUTH_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/auth
 _MICROSOFT_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
 # Default scopes per provider type.
-OAUTH_SCOPES: Dict[str, list[str]] = {
+OAUTH_SCOPES: dict[str, list[str]] = {
     "google_calendar": [
         "https://www.googleapis.com/auth/calendar",
         "https://www.googleapis.com/auth/calendar.events",
@@ -58,10 +58,10 @@ OAUTH_SCOPES: Dict[str, list[str]] = {
 
 # In-memory state store for OAuth flows (state token → provider connection ID).
 # In production with atom, this uses atom's session store.
-_state_store: Dict[str, str] = {}
+_state_store: dict[str, str] = {}
 
 
-def get_oauth_config(provider_type: str, connection_config: Dict[str, Any]) -> Dict[str, str]:
+def get_oauth_config(provider_type: str, connection_config: dict[str, Any]) -> dict[str, str]:
     """Resolve OAuth client_id and client_secret for a provider.
 
     Checks the connection config first, then falls back to environment
@@ -92,8 +92,8 @@ def build_auth_url(
     provider_type: str,
     connection_id: str,
     redirect_uri: str,
-    connection_config: Dict[str, Any],
-) -> Tuple[str, str]:
+    connection_config: dict[str, Any],
+) -> tuple[str, str]:
     """Build the OAuth authorization URL for a provider.
 
     Returns (auth_url, state) where state is a random token used to
@@ -143,8 +143,8 @@ async def exchange_code_for_tokens(
     provider_type: str,
     code: str,
     redirect_uri: str,
-    connection_config: Dict[str, Any],
-) -> Dict[str, Any]:
+    connection_config: dict[str, Any],
+) -> dict[str, Any]:
     """Exchange an authorization code for access/refresh tokens.
 
     Returns a dict with 'access_token', 'refresh_token' (if available),
@@ -189,7 +189,7 @@ async def exchange_code_for_tokens(
         return tokens
 
 
-def validate_state(state: str) -> Optional[str]:
+def validate_state(state: str) -> str | None:
     """Validate an OAuth state token and return the associated connection ID.
 
     Returns None if the state is invalid or expired.

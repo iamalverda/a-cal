@@ -33,3 +33,14 @@ include = ["a_cal*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "F401", "F403", "F405", "E402"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F841"]

@@ -30,18 +30,18 @@ class EmailDepth(str, enum.Enum):
     FULL_TWO_WAY = "full_two_way"
 
     @classmethod
-    def default(cls) -> "EmailDepth":
+    def default(cls) -> EmailDepth:
         return cls.SYNC_NOTIFY
 
 
 # Human-readable labels for the UI.
-EMAIL_DEPTH_LABELS: Dict[str, str] = {
+EMAIL_DEPTH_LABELS: dict[str, str] = {
     EmailDepth.SYNC_NOTIFY.value: "Sync & Notify",
     EmailDepth.AGENT_MEDIATED.value: "Agent-Mediated Inbox",
     EmailDepth.FULL_TWO_WAY.value: "Full Two-Way Agent",
 }
 
-EMAIL_DEPTH_DESCRIPTIONS: Dict[str, str] = {
+EMAIL_DEPTH_DESCRIPTIONS: dict[str, str] = {
     EmailDepth.SYNC_NOTIFY.value: (
         "Read inbox for events and invites. Send notifications. "
         "No agent actions — you handle everything manually."
@@ -68,7 +68,7 @@ class EmailIntegrationConfig:
     """
 
     depth: str = EmailDepth.SYNC_NOTIFY.value
-    per_provider: Dict[str, str] = field(default_factory=dict)
+    per_provider: dict[str, str] = field(default_factory=dict)
     # Whether to scan the inbox for scheduling content (meeting proposals,
     # invites, reschedules). Off in sync_notify by default since the user
     # is handling things manually.
@@ -97,7 +97,7 @@ class EmailIntegrationConfig:
         """True if agents may send without explicit per-message approval."""
         return self.effective_depth(provider_type) == EmailDepth.FULL_TWO_WAY
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "depth": self.depth,
             "per_provider": dict(self.per_provider),
@@ -105,7 +105,7 @@ class EmailIntegrationConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EmailIntegrationConfig":
+    def from_dict(cls, data: dict[str, Any]) -> EmailIntegrationConfig:
         return cls(
             depth=data.get("depth", EmailDepth.SYNC_NOTIFY.value),
             per_provider=dict(data.get("per_provider", {})),

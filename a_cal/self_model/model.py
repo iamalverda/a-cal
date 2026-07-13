@@ -36,10 +36,10 @@ class SelfModel:
     def __init__(
         self,
         user_id: str,
-        settings: Optional[SelfModelSettings] = None,
-        store: Optional[SelfModelStore] = None,
-        extractor: Optional[SelfModelExtractor] = None,
-        data_dir: Optional[str] = None,
+        settings: SelfModelSettings | None = None,
+        store: SelfModelStore | None = None,
+        extractor: SelfModelExtractor | None = None,
+        data_dir: str | None = None,
     ) -> None:
         self.user_id = user_id
         self.settings = settings or SelfModelSettings()
@@ -52,19 +52,19 @@ class SelfModel:
         self.extractor.settings = settings
 
     async def observe_events(
-        self, events: List[CalendarEventDTO], provenance: str = "calendar"
-    ) -> List[SelfModelFact]:
+        self, events: list[CalendarEventDTO], provenance: str = "calendar"
+    ) -> list[SelfModelFact]:
         """Feed calendar events into the extractor (fire-and-forget safe)."""
         return await self.extractor.extract_from_events(events, provenance)
 
     async def observe_emails(
-        self, messages: List[EmailMessageDTO], provenance: str = "email"
-    ) -> List[SelfModelFact]:
+        self, messages: list[EmailMessageDTO], provenance: str = "email"
+    ) -> list[SelfModelFact]:
         """Feed email messages into the extractor."""
         return await self.extractor.extract_from_emails(messages, provenance)
 
     def inject_into_prompt(
-        self, max_facts: int = 10, categories: Optional[List[FactCategory]] = None
+        self, max_facts: int = 10, categories: list[FactCategory] | None = None
     ) -> str:
         """Format active facts as a context prefix for agent prompts.
 
@@ -86,12 +86,12 @@ class SelfModel:
         if not facts:
             return ""
 
-        lines: List[str] = ["[Self-model context — what I know about you]"]
+        lines: list[str] = ["[Self-model context — what I know about you]"]
         for fact in facts:
             lines.append(f"- {fact.content} (confidence: {fact.confidence:.0%})")
         return "\n".join(lines)
 
-    def enrich_events(self, events: List[CalendarEventDTO]) -> List[CalendarEventDTO]:
+    def enrich_events(self, events: list[CalendarEventDTO]) -> list[CalendarEventDTO]:
         """Tag events with self-model context (energy, relationship, pattern).
 
         This is what powers the calendar view's color-coding and context badges.
@@ -114,7 +114,7 @@ class SelfModel:
         }
         prefs = self.store.by_category(FactCategory.MEETING_PREFS.value)
 
-        enriched: List[CalendarEventDTO] = []
+        enriched: list[CalendarEventDTO] = []
         for ev in events:
             ev_copy = copy.copy(ev)
             ev_copy.metadata = dict(ev.metadata)
@@ -137,7 +137,7 @@ class SelfModel:
             enriched.append(ev_copy)
         return enriched
 
-    def get_proactive_suggestions(self, limit: int = 5) -> List[Dict[str, Any]]:
+    def get_proactive_suggestions(self, limit: int = 5) -> list[dict[str, Any]]:
         """Rank facts by priority for proactive suggestions.
 
         Uses the tiered priority concept from the meta-cognition protocol:
@@ -148,7 +148,7 @@ class SelfModel:
             return []
 
         facts = self.store.all_active()
-        suggestions: List[Dict[str, Any]] = []
+        suggestions: list[dict[str, Any]] = []
 
         for fact in facts:
             # Priority: longitudinal > attention > pattern
@@ -170,7 +170,7 @@ class SelfModel:
         suggestions.sort(key=lambda s: (s["priority"], s["confidence"]), reverse=True)
         return suggestions[:limit]
 
-    def export(self) -> Dict[str, Any]:
+    def export(self) -> dict[str, Any]:
         """Full transparency export — everything the model knows, for the UI."""
         store_export = self.store.export()
         return {

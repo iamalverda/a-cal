@@ -48,8 +48,8 @@ class _SettingsStore:
 
     def __init__(self) -> None:
         self._db = _DBStore()
-        self._conductors: Dict[str, ACalConductor] = {}
-        self._registries: Dict[str, AgentRegistry] = {}
+        self._conductors: dict[str, ACalConductor] = {}
+        self._registries: dict[str, AgentRegistry] = {}
 
     def get_mode(self, user_id: str) -> str:
         return self._db.get_setting("skill_mode", SkillMode.PRO.value)
@@ -145,10 +145,10 @@ class _SettingsStore:
            self._registries[user_id] = AgentRegistry()
         return self._registries[user_id]
 
-    def get_api_keys(self, user_id: str) -> Dict[str, str]:
+    def get_api_keys(self, user_id: str) -> dict[str, str]:
         return self._db.get_api_keys()
 
-    def set_api_keys(self, user_id: str, keys: Dict[str, str]) -> Dict[str, str]:
+    def set_api_keys(self, user_id: str, keys: dict[str, str]) -> dict[str, str]:
         result = self._db.set_api_keys(keys)
         # Invalidate cached conductor so it picks up new keys.
         self._conductors.pop(user_id, None)
@@ -209,7 +209,7 @@ def _current_user_id() -> str:
 
 
 # Module-level override for self-model store data dir (used by tests).
-_sm_data_dir: Optional[str] = None
+_sm_data_dir: str | None = None
 
 
 def _get_sm_store() -> SelfModelStore:
@@ -234,13 +234,13 @@ class ModeRequest(BaseModel):
 class ModelRoutingRequest(BaseModel):
     global_provider: str = "ollama"
     global_model: str = "llama3.2"
-    per_task_overrides: Dict[str, str] = Field(default_factory=dict)
+    per_task_overrides: dict[str, str] = Field(default_factory=dict)
     privacy_force_local: bool = True
 
 
 class SelfModelSettingsRequest(BaseModel):
     depth: str = "pattern_memory"
-    enabled_categories: Dict[str, bool] = Field(default_factory=dict)
+    enabled_categories: dict[str, bool] = Field(default_factory=dict)
     cloud_sync_enabled: bool = False
     proactive_suggestions_enabled: bool = False
     feed_into_calendar_view: bool = True
@@ -251,7 +251,7 @@ class SelfModelSettingsRequest(BaseModel):
 class AutonomyRequest(BaseModel):
     """Payload for updating agent autonomy settings."""
     default_level: str = "confirm"
-    per_sub_account: Dict[str, str] = Field(default_factory=dict)
+    per_sub_account: dict[str, str] = Field(default_factory=dict)
 
 
 # --- conductor chat --------------------------------------------------------
@@ -464,7 +464,7 @@ def set_timezone(body: TimezoneRequest):
 
 class EmailSettingsRequest(BaseModel):
     depth: str = "sync_notify"
-    per_provider: Dict[str, str] = Field(default_factory=dict)
+    per_provider: dict[str, str] = Field(default_factory=dict)
     auto_scan_enabled: bool = False
 
 
@@ -531,9 +531,9 @@ def set_self_model_settings(body: SelfModelSettingsRequest):
         feed_into_proactive=body.feed_into_proactive,
     )
     return _store.set_self_model_settings(user_id, settings).to_dict()
- 
 
- 
+
+
 # --- self-model facts (transparency view) ----------------------------------
 
 class FactEditRequest(BaseModel):
@@ -542,7 +542,7 @@ class FactEditRequest(BaseModel):
 
 
 @router.get("/self-model/facts")
-def list_self_model_facts(category: Optional[str] = None):
+def list_self_model_facts(category: str | None = None):
     """List all active self-model facts, optionally filtered by category.
 
     Facts are sorted by confidence (highest first). This is the transparency
@@ -635,7 +635,7 @@ def get_proactive_suggestions(limit: int = 5):
 
 class ApiKeysRequest(BaseModel):
     """Payload for setting provider API keys."""
-    keys: Dict[str, str] = Field(default_factory=dict)
+    keys: dict[str, str] = Field(default_factory=dict)
 
 
 @router.get("/settings/api-keys")
@@ -780,7 +780,7 @@ from a_cal.agents.nervous_system import NervousSystemCoordinator, SystemState
 from a_cal.agents.cas_specs import CAS_AGENTS, CAS_AGENTS_BY_NAME
 
 # Singleton nervous system coordinator (per-server instance)
-_nervous_system: Optional[NervousSystemCoordinator] = None
+_nervous_system: NervousSystemCoordinator | None = None
 
 
 def _get_nervous_system() -> NervousSystemCoordinator:
@@ -798,13 +798,13 @@ class NSRouteRequest(BaseModel):
 
 class NSUserStateRequest(BaseModel):
     """Request to assess user state from events."""
-    events: list[Dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class NSBindingRequest(BaseModel):
     """Request to verify calendar binding."""
-    events: list[Dict[str, Any]] = Field(default_factory=list)
-    sub_accounts: list[Dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    sub_accounts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @router.get("/nervous-system/overview")

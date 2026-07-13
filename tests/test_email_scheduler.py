@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 
@@ -153,7 +153,7 @@ class TestCheckConflicts:
 
     def test_conflict_detected(self):
         """Overlapping events trigger conflict warning."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         detection = SchedulingDetection(
             is_scheduling_related=True,
             is_meeting_proposal=True,
@@ -190,7 +190,7 @@ class TestCheckConflicts:
 
     def test_no_conflict_creates_event_suggestion(self):
         """Non-overlapping time produces a create_event suggestion."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         detection = SchedulingDetection(
             is_scheduling_related=True,
             is_meeting_proposal=True,
@@ -281,7 +281,7 @@ class TestScanEmailsForScheduling:
 
     def test_conflict_in_pipeline(self):
         """Conflicts are detected in the full pipeline."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Use tomorrow's date to avoid past dates
         tomorrow = now + timedelta(days=1)
 
@@ -313,7 +313,7 @@ class TestDepthGatedScan:
 
     def _make_scheduling_email(self) -> dict:
         """Create an email that will be detected as a meeting proposal with time."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         tomorrow = now + timedelta(days=1)
         tomorrow_str = tomorrow.strftime("%B %d")
         return {
@@ -325,7 +325,7 @@ class TestDepthGatedScan:
 
     def _make_conflicting_events(self) -> list[dict]:
         """Create calendar events that conflict with the 2pm meeting."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         tomorrow = now + timedelta(days=1)
         return [
             {

@@ -56,7 +56,7 @@ class SwarmCoordinator:
 
     def __init__(
         self,
-        available_slots_fn: Optional[Any] = None,
+        available_slots_fn: Any | None = None,
         llm_service: Any = None,
         user_id: str = "local-dev-user",
     ) -> None:
@@ -74,7 +74,7 @@ class SwarmCoordinator:
         self.available_slots_fn = available_slots_fn
         self.llm_service = llm_service
         self.user_id = user_id
-        self._negotiations: Dict[str, SwarmNegotiation] = {}
+        self._negotiations: dict[str, SwarmNegotiation] = {}
 
     def initiate(
         self,
@@ -117,7 +117,7 @@ class SwarmCoordinator:
         )
         return negotiation
 
-    def run(self, negotiation: SwarmNegotiation) -> Dict[str, Any]:
+    def run(self, negotiation: SwarmNegotiation) -> dict[str, Any]:
         """Run the negotiation to completion (or escalation).
 
         This is the main loop. In standalone mode, it's synchronous and
@@ -342,7 +342,7 @@ class SwarmCoordinator:
         self,
         mover: ConflictClaim,
         keeper: ConflictClaim,
-    ) -> Optional[SlotProposal]:
+    ) -> SlotProposal | None:
         """Generate an alternative time slot for the mover.
 
         If an `available_slots_fn` was provided, use it to find real free slots.
@@ -350,7 +350,6 @@ class SwarmCoordinator:
         or +/- a few hours).
         """
         duration = mover.slot_end - mover.slot_start
-        duration_min = int(duration.total_seconds() / 60)
 
         if self.available_slots_fn:
             # In production, this calls the sync engine to find real free slots.
@@ -391,7 +390,7 @@ class SwarmCoordinator:
 
         return True
 
-    def _build_result(self, negotiation: SwarmNegotiation) -> Dict[str, Any]:
+    def _build_result(self, negotiation: SwarmNegotiation) -> dict[str, Any]:
         """Build the result dict from a completed negotiation."""
         winner_id = negotiation.winner_sub_account_id
         loser_id = None
@@ -421,7 +420,7 @@ class SwarmCoordinator:
             "audit_trail": [m.to_dict() for m in negotiation.messages],
         }
 
-    def _error_result(self, negotiation: SwarmNegotiation, reason: str) -> Dict[str, Any]:
+    def _error_result(self, negotiation: SwarmNegotiation, reason: str) -> dict[str, Any]:
         """Build an error result for a malformed negotiation."""
         return {
             "resolved": False,
@@ -435,18 +434,18 @@ class SwarmCoordinator:
             "audit_trail": [m.to_dict() for m in negotiation.messages],
         }
 
-    def get_negotiation(self, negotiation_id: str) -> Optional[SwarmNegotiation]:
+    def get_negotiation(self, negotiation_id: str) -> SwarmNegotiation | None:
         """Retrieve a negotiation by ID (for the audit/transparency view)."""
         return self._negotiations.get(negotiation_id)
 
-    def list_negotiations(self) -> List[Dict[str, Any]]:
+    def list_negotiations(self) -> list[dict[str, Any]]:
         """List all negotiations (for the UI's negotiation history view)."""
         return [n.to_dict() for n in self._negotiations.values()]
 
     def detect_conflicts(
         self,
-        events: List[Any],
-    ) -> List[Tuple[Any, Any]]:
+        events: list[Any],
+    ) -> list[tuple[Any, Any]]:
         """Detect overlapping events from different sub-accounts.
 
         Takes a list of CalendarEventDTO-like objects (anything with .start,
@@ -456,7 +455,7 @@ class SwarmCoordinator:
         This is what the conductor calls before deciding whether to trigger
         a swarm negotiation.
         """
-        conflicts: List[Tuple[Any, Any]] = []
+        conflicts: list[tuple[Any, Any]] = []
         sorted_events = sorted(events, key=lambda e: e.start)
         for i, ev_a in enumerate(sorted_events):
             for ev_b in sorted_events[i + 1:]:

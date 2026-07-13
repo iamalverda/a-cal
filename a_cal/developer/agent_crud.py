@@ -34,7 +34,7 @@ class AgentSpecStore:
 
     def __init__(self, db: Any = None) -> None:
         self._db = db
-        self._custom_specs: Dict[str, AgentSpec] = {}
+        self._custom_specs: dict[str, AgentSpec] = {}
         if db is not None:
             self._load_from_db()
 
@@ -58,19 +58,19 @@ class AgentSpecStore:
         data = {name: spec.to_dict() for name, spec in self._custom_specs.items()}
         self._db.set_setting("custom_agent_specs", data)
 
-    def list_all(self, include_builtins: bool = True) -> List[AgentSpec]:
+    def list_all(self, include_builtins: bool = True) -> list[AgentSpec]:
         """List all agent specs (built-in + custom)."""
-        specs: List[AgentSpec] = []
+        specs: list[AgentSpec] = []
         if include_builtins:
             specs.extend(A_CAL_AGENTS)
         specs.extend(self._custom_specs.values())
         return specs
 
-    def list_custom(self) -> List[AgentSpec]:
+    def list_custom(self) -> list[AgentSpec]:
         """List only custom agent specs."""
         return list(self._custom_specs.values())
 
-    def get(self, name: str) -> Optional[AgentSpec]:
+    def get(self, name: str) -> AgentSpec | None:
         """Get a spec by name. Checks custom first, then built-in."""
         if name in self._custom_specs:
             return self._custom_specs[name]
@@ -99,7 +99,7 @@ class AgentSpecStore:
         self._persist()
         return spec
 
-    def update(self, name: str, updates: Dict[str, Any]) -> AgentSpec:
+    def update(self, name: str, updates: dict[str, Any]) -> AgentSpec:
         """Update a custom agent spec. Cannot update built-in specs.
 
         Raises KeyError if the spec doesn't exist.
@@ -150,6 +150,6 @@ class AgentSpecStore:
             self._persist()
         return deleted
 
-    def to_dict_list(self, include_builtins: bool = True) -> List[Dict[str, Any]]:
+    def to_dict_list(self, include_builtins: bool = True) -> list[dict[str, Any]]:
         """Serialize all specs for API response."""
         return [s.to_dict() for s in self.list_all(include_builtins)]

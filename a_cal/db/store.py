@@ -7,7 +7,7 @@ used by the standalone server. Falls back to in-memory when testing.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 USER_ID = "local-dev-user"
 
 
-def _serialize_sub_account(sa: SubAccount) -> Dict[str, Any]:
+def _serialize_sub_account(sa: SubAccount) -> dict[str, Any]:
     """Convert a SubAccount ORM object to a dict."""
     return {
         "id": sa.id,
@@ -45,7 +45,7 @@ def _serialize_sub_account(sa: SubAccount) -> Dict[str, Any]:
     }
 
 
-def _serialize_provider(p: ProviderConnection) -> Dict[str, Any]:
+def _serialize_provider(p: ProviderConnection) -> dict[str, Any]:
     """Convert a ProviderConnection ORM object to a dict."""
     return {
         "id": p.id,
@@ -60,7 +60,7 @@ def _serialize_provider(p: ProviderConnection) -> Dict[str, Any]:
     }
 
 
-def _serialize_sync_rule(r: SyncRule) -> Dict[str, Any]:
+def _serialize_sync_rule(r: SyncRule) -> dict[str, Any]:
     """Convert a SyncRule ORM object to a dict."""
     return {
         "id": r.id,
@@ -73,7 +73,7 @@ def _serialize_sync_rule(r: SyncRule) -> Dict[str, Any]:
     }
 
 
-def _serialize_event(e: CalendarEvent) -> Dict[str, Any]:
+def _serialize_event(e: CalendarEvent) -> dict[str, Any]:
     """Convert a CalendarEvent ORM object to a dict."""
     return {
         "provider_event_id": e.provider_event_id,
@@ -88,7 +88,7 @@ def _serialize_event(e: CalendarEvent) -> Dict[str, Any]:
     }
 
 
-def _serialize_event_type(et: EventTypeDB) -> Dict[str, Any]:
+def _serialize_event_type(et: EventTypeDB) -> dict[str, Any]:
     """Convert an EventTypeDB ORM object to a dict matching EventType.to_dict."""
     return {
         "id": et.id,
@@ -257,7 +257,7 @@ class PersistentStore:
             db.add_all(rules)
 
             # Demo events — all in the future relative to now
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             events = [
                 CalendarEvent(
                     id="evt-1",
@@ -331,13 +331,13 @@ class PersistentStore:
 
     # --- Sub-accounts -------------------------------------------------------
 
-    def list_sub_accounts(self) -> List[Dict[str, Any]]:
+    def list_sub_accounts(self) -> list[dict[str, Any]]:
         """List all sub accounts."""
         with self._session() as db:
             rows = db.query(SubAccount).all()
             return [_serialize_sub_account(r) for r in rows]
 
-    def create_sub_account(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_sub_account(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new sub-account."""
         with self._session() as db:
             import uuid as _uuid
@@ -356,7 +356,7 @@ class PersistentStore:
             db.refresh(sa)
             return _serialize_sub_account(sa)
 
-    def update_sub_account(self, sub_id: str, patch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update_sub_account(self, sub_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         """Update a sub-account by ID."""
         with self._session() as db:
             sa = db.query(SubAccount).filter(SubAccount.id == sub_id).first()
@@ -383,7 +383,7 @@ class PersistentStore:
 
     # --- Providers ----------------------------------------------------------
 
-    def list_providers(self, sub_account_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_providers(self, sub_account_id: str | None = None) -> list[dict[str, Any]]:
         """List provider connections, optionally filtered by sub-account."""
         with self._session() as db:
             q = db.query(ProviderConnection)
@@ -392,7 +392,7 @@ class PersistentStore:
             rows = q.all()
             return [_serialize_provider(r) for r in rows]
 
-    def create_provider(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_provider(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new provider connection."""
         with self._session() as db:
             import uuid as _uuid
@@ -431,7 +431,7 @@ class PersistentStore:
             logger.info("deleted provider connection: %s", provider_id)
             return True
 
-    def update_provider_status(self, provider_id: str, status: str) -> Optional[Dict[str, Any]]:
+    def update_provider_status(self, provider_id: str, status: str) -> dict[str, Any] | None:
         """Update a provider connection status.
 
         Args:
@@ -449,12 +449,12 @@ class PersistentStore:
                 return None
             p.status = status
             if status == "connected":
-                p.last_sync_at = datetime.now(timezone.utc)
+                p.last_sync_at = datetime.now(UTC)
             db.commit()
             db.refresh(p)
             return _serialize_provider(p)
 
-    def get_provider(self, provider_id: str) -> Optional[Dict[str, Any]]:
+    def get_provider(self, provider_id: str) -> dict[str, Any] | None:
         """Fetch a single provider connection by ID.
 
         Args:
@@ -472,8 +472,8 @@ class PersistentStore:
             return _serialize_provider(p)
 
     def update_provider_config(
-        self, provider_id: str, config: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
+        self, provider_id: str, config: dict[str, Any],
+    ) -> dict[str, Any] | None:
         """Update a provider connection's config (e.g., store OAuth tokens).
 
         Merges the given config into the existing config dict so partial
@@ -501,9 +501,9 @@ class PersistentStore:
 
     # --- Calendar events ----------------------------------------------------
 
-    def get_unified_calendar(self, days: int = 7) -> List[Dict[str, Any]]:
+    def get_unified_calendar(self, days: int = 7) -> list[dict[str, Any]]:
         """Get events from all sub-accounts within the next N days."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         end = now + timedelta(days=days)
         with self._session() as db:
             rows = db.query(CalendarEvent).filter(
@@ -512,9 +512,9 @@ class PersistentStore:
             ).order_by(CalendarEvent.start).all()
             return [_serialize_event(r) for r in rows]
 
-    def get_all_events(self, days: int = 30) -> List[Dict[str, Any]]:
+    def get_all_events(self, days: int = 30) -> list[dict[str, Any]]:
         """Get all events within the next N days (wider window for agent queries)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         end = now + timedelta(days=days)
         with self._session() as db:
             rows = db.query(CalendarEvent).filter(
@@ -523,7 +523,7 @@ class PersistentStore:
             ).order_by(CalendarEvent.start).all()
             return [_serialize_event(r) for r in rows]
 
-    def create_event(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_event(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new calendar event in the store.
 
         Args:
@@ -540,13 +540,13 @@ class PersistentStore:
         if isinstance(end_val, str):
             end_val = datetime.fromisoformat(end_val.replace("Z", "+00:00"))
         if start_val.tzinfo is None:
-            start_val = start_val.replace(tzinfo=timezone.utc)
+            start_val = start_val.replace(tzinfo=UTC)
         if end_val.tzinfo is None:
-            end_val = end_val.replace(tzinfo=timezone.utc)
+            end_val = end_val.replace(tzinfo=UTC)
         # Normalize to UTC before storing — SQLite DateTime strips timezone
         # info, so we must store in UTC to keep all events comparable.
-        start_val = start_val.astimezone(timezone.utc)
-        end_val = end_val.astimezone(timezone.utc)
+        start_val = start_val.astimezone(UTC)
+        end_val = end_val.astimezone(UTC)
 
         with self._session() as db:
             evt = CalendarEvent(
@@ -566,7 +566,7 @@ class PersistentStore:
             logger.info("created event: %s (%s)", evt.id, evt.title)
             return _serialize_event(evt)
 
-    def update_event(self, event_id: str, patch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update_event(self, event_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         """Update an existing calendar event.
 
         Args:
@@ -586,9 +586,9 @@ class PersistentStore:
                 if key in ("start", "end") and isinstance(value, str):
                     value = datetime.fromisoformat(value.replace("Z", "+00:00"))
                     if value.tzinfo is None:
-                        value = value.replace(tzinfo=timezone.utc)
+                        value = value.replace(tzinfo=UTC)
                     # Normalize to UTC before storing (SQLite strips tz info)
-                    value = value.astimezone(timezone.utc)
+                    value = value.astimezone(UTC)
                 if key == "title":
                     evt.title = value
                 elif key == "start":
@@ -626,7 +626,7 @@ class PersistentStore:
             logger.info("deleted event: %s", event_id)
             return True
 
-    def find_event_by_title(self, title_fragment: str) -> Optional[Dict[str, Any]]:
+    def find_event_by_title(self, title_fragment: str) -> dict[str, Any] | None:
         """Find an event by partial title match (for agent rescheduling)."""
         with self._session() as db:
             evt = db.query(CalendarEvent).filter(
@@ -636,7 +636,7 @@ class PersistentStore:
 
     # --- Sync rules ---------------------------------------------------------
 
-    def list_sync_rules(self, sub_account_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_sync_rules(self, sub_account_id: str | None = None) -> list[dict[str, Any]]:
         """List sync rules, optionally filtered by sub-account."""
         with self._session() as db:
             q = db.query(SyncRule)
@@ -645,7 +645,7 @@ class PersistentStore:
             rows = q.all()
             return [_serialize_sync_rule(r) for r in rows]
 
-    def create_sync_rule(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_sync_rule(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new sync rule."""
         with self._session() as db:
             r = SyncRule(
@@ -701,16 +701,16 @@ class PersistentStore:
 
     # --- API keys (stored as settings, masked on retrieval) -----------------
 
-    def get_api_keys(self) -> Dict[str, str]:
+    def get_api_keys(self) -> dict[str, str]:
         """Get API keys, masked for display."""
         keys = self.get_setting("api_keys", {})
         return {k: "***" if v else "" for k, v in keys.items()} if keys else {}
 
-    def get_raw_api_keys(self) -> Dict[str, str]:
+    def get_raw_api_keys(self) -> dict[str, str]:
         """Get raw API keys for internal use (never exposed to API responses)."""
         return self.get_setting("api_keys", {}) or {}
 
-    def set_api_keys(self, keys: Dict[str, str]) -> Dict[str, str]:
+    def set_api_keys(self, keys: dict[str, str]) -> dict[str, str]:
         """Set API keys. Merges with existing keys."""
         existing = self.get_setting("api_keys", {}) or {}
         # Only update keys that have non-empty values (skip masked ones)
@@ -722,7 +722,7 @@ class PersistentStore:
 
     # --- Self-model facts ---------------------------------------------------
 
-    def list_self_model_facts(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_self_model_facts(self, category: str | None = None) -> list[dict[str, Any]]:
         """List self-model facts, optionally filtered by category."""
         with self._session() as db:
             q = db.query(SelfModelFact).filter(SelfModelFact.status == "active")
@@ -743,7 +743,7 @@ class PersistentStore:
                 for r in rows
             ]
 
-    def add_self_model_fact(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def add_self_model_fact(self, data: dict[str, Any]) -> dict[str, Any]:
         """Add a self-model fact."""
         with self._session() as db:
             f = SelfModelFact(
@@ -779,7 +779,7 @@ class PersistentStore:
 
     # --- Negotiations -------------------------------------------------------
 
-    def list_negotiations(self) -> List[Dict[str, Any]]:
+    def list_negotiations(self) -> list[dict[str, Any]]:
         """List all negotiations."""
         with self._session() as db:
             rows = db.query(Negotiation).order_by(Negotiation.created_at.desc()).all()
@@ -795,7 +795,7 @@ class PersistentStore:
                 for r in rows
             ]
 
-    def save_negotiation(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def save_negotiation(self, data: dict[str, Any]) -> dict[str, Any]:
         """Save a negotiation."""
         with self._session() as db:
             n = Negotiation(
@@ -812,7 +812,7 @@ class PersistentStore:
 
     # --- Event types (cal.com integration) ---------------------------------
 
-    def list_event_types(self) -> List[Dict[str, Any]]:
+    def list_event_types(self) -> list[dict[str, Any]]:
         """List all event types persisted in the database.
 
         Returns:
@@ -822,7 +822,7 @@ class PersistentStore:
             rows = db.query(EventTypeDB).order_by(EventTypeDB.created_at).all()
             return [_serialize_event_type(r) for r in rows]
 
-    def create_event_type(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_event_type(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new event type and persist it to the database.
 
         Args:
@@ -848,7 +848,7 @@ class PersistentStore:
             db.refresh(et)
             return _serialize_event_type(et)
 
-    def get_event_type(self, et_id: str) -> Optional[Dict[str, Any]]:
+    def get_event_type(self, et_id: str) -> dict[str, Any] | None:
         """Get a single event type by ID.
 
         Args:

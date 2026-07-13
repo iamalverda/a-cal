@@ -30,15 +30,15 @@ logger = logging.getLogger(__name__)
 class SubAccountSyncEngine:
     """Pulls events from a sub-account's providers and applies its sync model."""
 
-    def __init__(self, sub_account: Dict[str, Any], providers: List[CalendarProvider]) -> None:
+    def __init__(self, sub_account: dict[str, Any], providers: list[CalendarProvider]) -> None:
         self.sub_account = sub_account
         self.providers = providers
         self.sync_mode = sub_account.get("sync_mode", "mirror_filter")
         self.sync_rules = sub_account.get("sync_rules", [])
 
-    async def pull_window(self, start: datetime, end: datetime) -> List[CalendarEventDTO]:
+    async def pull_window(self, start: datetime, end: datetime) -> list[CalendarEventDTO]:
         """Fetch + filter/transform events for [start, end) from all providers."""
-        raw: List[CalendarEventDTO] = []
+        raw: list[CalendarEventDTO] = []
         for provider in self.providers:
             try:
                 events = await provider.list_events(start, end)
@@ -51,7 +51,7 @@ class SubAccountSyncEngine:
 
         return self._apply_model(raw)
 
-    def _apply_model(self, events: List[CalendarEventDTO]) -> List[CalendarEventDTO]:
+    def _apply_model(self, events: list[CalendarEventDTO]) -> list[CalendarEventDTO]:
         """Apply the sub-account's sync mode + rules to the raw event list."""
         if self.sync_mode == "mirror_filter":
             return self._mirror_filter(events)
@@ -64,28 +64,28 @@ class SubAccountSyncEngine:
         # Unknown mode — degrade to mirror+filter (the safe default).
         return self._mirror_filter(events)
 
-    def _mirror_filter(self, events: List[CalendarEventDTO]) -> List[CalendarEventDTO]:
+    def _mirror_filter(self, events: list[CalendarEventDTO]) -> list[CalendarEventDTO]:
         """Default: mirror everything up, then apply include/exclude/transform rules."""
-        out: List[CalendarEventDTO] = []
+        out: list[CalendarEventDTO] = []
         for ev in events:
             outcome = evaluate_rules(ev, self.sync_rules)
             if outcome.included:
                 out.append(outcome.transformed_event or ev)
         return out
 
-    def _intelligent_merge(self, events: List[CalendarEventDTO]) -> List[CalendarEventDTO]:
+    def _intelligent_merge(self, events: list[CalendarEventDTO]) -> list[CalendarEventDTO]:
         """Merge + deduplicate + conflict-resolve across the sub's providers."""
         filtered = self._mirror_filter(events)
         deduped = self._deduplicate(filtered)
         return self._resolve_conflicts(deduped)
 
-    def _layered_federation(self, events: List[CalendarEventDTO]) -> List[CalendarEventDTO]:
+    def _layered_federation(self, events: list[CalendarEventDTO]) -> list[CalendarEventDTO]:
         """Federation: keep each provider's events distinct and tagged, read-only roll-up.
 
         Events are tagged with their provider + calendar origin but NOT merged.
         The main view is a composite; writes are routed back by the API layer.
         """
-        out: List[CalendarEventDTO] = []
+        out: list[CalendarEventDTO] = []
         for ev in events:
             outcome = evaluate_rules(ev, self.sync_rules)
             if not outcome.included:
@@ -96,14 +96,14 @@ class SubAccountSyncEngine:
             out.append(tagged)
         return out
 
-    def _per_sub_agent(self, events: List[CalendarEventDTO]) -> List[CalendarEventDTO]:
+    def _per_sub_agent(self, events: list[CalendarEventDTO]) -> list[CalendarEventDTO]:
         """Each event that hits an AGENT rule is flagged for agent review.
 
         The conductor merges the sub-agent's filtered output. Agent dispatch is
         delegated to atom's conductor (this layer marks intent; atom executes).
         """
-        out: List[CalendarEventDTO] = []
-        agent_queue: List[CalendarEventDTO] = []
+        out: list[CalendarEventDTO] = []
+        agent_queue: list[CalendarEventDTO] = []
         for ev in events:
             outcome = evaluate_rules(ev, self.sync_rules)
             if outcome.agent_review:
@@ -119,9 +119,9 @@ class SubAccountSyncEngine:
         return out
 
     @staticmethod
-    def _deduplicate(events: List[CalendarEventDTO]) -> List[CalendarEventDTO]:
+    def _deduplicate(events: list[CalendarEventDTO]) -> list[CalendarEventDTO]:
         """Drop near-duplicate events (same title + overlapping time window)."""
-        kept: List[CalendarEventDTO] = []
+        kept: list[CalendarEventDTO] = []
         for ev in events:
             dup = False
             for k in kept:
@@ -136,7 +136,7 @@ class SubAccountSyncEngine:
         return kept
 
     @staticmethod
-    def _resolve_conflicts(events: List[CalendarEventDTO]) -> List[CalendarEventDTO]:
+    def _resolve_conflicts(events: list[CalendarEventDTO]) -> list[CalendarEventDTO]:
         """Detect overlapping events and flag them for agent/optimizer resolution.
 
         Full rescheduling is delegated to atom's ScheduleOptimizer; here we only

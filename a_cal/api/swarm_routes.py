@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/a-cal/swarm", tags=["a-cal-swarm"])
 
 # --- per-user coordinator store (standalone mode) --------------------------
 
-_coordinators: Dict[str, SwarmCoordinator] = {}
+_coordinators: dict[str, SwarmCoordinator] = {}
 
 
 def _get_coordinator(user_id: str) -> SwarmCoordinator:
@@ -79,7 +79,7 @@ class EventInput(BaseModel):
 class DetectConflictsRequest(BaseModel):
     """Detect overlapping events from different sub-accounts."""
 
-    events: List[EventInput]
+    events: list[EventInput]
 
 
 # --- helpers ----------------------------------------------------------------

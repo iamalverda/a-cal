@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -71,13 +71,13 @@ class RoutingDecision:
     """The conductor's decision about how to handle a user request."""
 
     intent: IntentType
-    specialist: Optional[AgentSpec]
+    specialist: AgentSpec | None
     tier: CognitiveTier
     force_local: bool
     self_model_context: str = ""
     reasoning: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "intent": self.intent.value,
             "specialist": self.specialist.name if self.specialist else None,
@@ -108,7 +108,7 @@ class ACalConductor:
             ``list_sub_accounts()`` methods (optional).
     """
 
-    _INTENT_KEYWORDS: Dict[IntentType, List[str]] = {
+    _INTENT_KEYWORDS: dict[IntentType, list[str]] = {
         # Self-model checked first so "what patterns do you see in my schedule?"
         # routes to self_model, not schedule (the word "schedule" would match
         # SCHEDULE keywords before SELF_MODEL gets checked).
@@ -151,7 +151,7 @@ class ACalConductor:
         nervous_system: Any = None,
         event_store: Any = None,
         provider_store: Any = None,
-        autonomy_config: Optional[AutonomyConfig] = None,
+        autonomy_config: AutonomyConfig | None = None,
     ) -> None:
         self.self_model = self_model
         self.llm_service = llm_service
@@ -188,7 +188,7 @@ class ACalConductor:
         try:
             return datetime.now().astimezone().tzinfo
         except Exception:
-            return timezone.utc
+            return UTC
 
     def _get_user_now(self):
         """Current datetime in the user's timezone (for date grouping)."""
@@ -254,7 +254,7 @@ class ACalConductor:
     def route(self, message: str) -> RoutingDecision:
         """Decide which specialist handles this message and at what tier."""
         intent = self.classify_intent(message)
-        specialist: Optional[AgentSpec] = None
+        specialist: AgentSpec | None = None
 
         specialist_map = {
             IntentType.SYNC: SYNC_AGENT_SPEC,
@@ -289,11 +289,11 @@ class ACalConductor:
             reasoning=f"Keyword classification -> {intent.value}",
         )
 
-    def _get_calendar_data(self) -> Dict[str, Any]:
+    def _get_calendar_data(self) -> dict[str, Any]:
         """Fetch calendar events, providers, and sub-accounts from the store."""
-        events: List[Dict[str, Any]] = []
-        providers: List[Dict[str, Any]] = []
-        sub_accounts: List[Dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
+        providers: list[dict[str, Any]] = []
+        sub_accounts: list[dict[str, Any]] = []
 
         if self.event_store:
             try:
@@ -311,7 +311,7 @@ class ACalConductor:
 
         return {"events": events, "providers": providers, "sub_accounts": sub_accounts}
 
-    async def handle(self, message: str) -> Dict[str, Any]:
+    async def handle(self, message: str) -> dict[str, Any]:
         """Handle a user message end-to-end.
 
         In standalone mode (no LLM), generates real, useful rule-based
@@ -325,8 +325,8 @@ class ACalConductor:
         decision = self.route(message)
 
         # Route through the nervous system if available
-        routing_trace: Optional[Dict[str, Any]] = None
-        cas_modules_engaged: List[str] = []
+        routing_trace: dict[str, Any] | None = None
+        cas_modules_engaged: list[str] = []
         if self.nervous_system:
             try:
                 trace = self.nervous_system.route_through_nervous_system(message)
@@ -382,7 +382,7 @@ class ACalConductor:
                 "actions": result["actions"],
                 "routing_trace": routing_trace,
                 "cas_modules_engaged": cas_modules_engaged,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "standalone": True,
                 "autonomy_level": autonomy_level.value,
                 "confirmation_required": confirmation_required,
@@ -490,13 +490,13 @@ class ACalConductor:
             "actions": standalone_result["actions"],
             "routing_trace": routing_trace,
             "cas_modules_engaged": cas_modules_engaged,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "standalone": False,
             "actions_source": "hybrid",
             "autonomy_level": autonomy_level.value,
             "confirmation_required": confirmation_required,
         }
 
-    def list_specialists(self) -> List[Dict[str, Any]]:
+    def list_specialists(self) -> list[dict[str, Any]]:
         """Return all specialist specs (for the UI's agent overview)."""
         return [a.to_dict() for a in A_CAL_AGENTS_BY_NAME.values()]

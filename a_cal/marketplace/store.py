@@ -31,10 +31,10 @@ class MarketplaceStore:
     """
 
     def __init__(self) -> None:
-        self._items: Dict[str, MarketplaceItem] = {}
-        self._installs: Dict[str, InstallRecord] = {}  # record_id → record
-        self._installs_by_user: Dict[str, List[str]] = {}  # user_id → record_ids
-        self._remixes: List[RemixRecord] = []
+        self._items: dict[str, MarketplaceItem] = {}
+        self._installs: dict[str, InstallRecord] = {}  # record_id → record
+        self._installs_by_user: dict[str, list[str]] = {}  # user_id → record_ids
+        self._remixes: list[RemixRecord] = []
         self._seeded = False
 
     # --- seeding -------------------------------------------------------------
@@ -159,7 +159,7 @@ class MarketplaceStore:
         parent_item_id: str,
         name: str,
         description: str,
-        config_overrides: Dict[str, Any],
+        config_overrides: dict[str, Any],
         changes_summary: str = "",
     ) -> MarketplaceItem:
         """Fork an existing item, apply overrides, and publish the remix.
@@ -209,10 +209,10 @@ class MarketplaceStore:
 
     def list_items(
         self,
-        item_type: Optional[str] = None,
-        tag: Optional[str] = None,
+        item_type: str | None = None,
+        tag: str | None = None,
         limit: int = 50,
-    ) -> List[MarketplaceItem]:
+    ) -> list[MarketplaceItem]:
         """Browse marketplace items, optionally filtered by type or tag."""
         self._ensure_seeded()
         items = list(self._items.values())
@@ -226,16 +226,16 @@ class MarketplaceStore:
         items.sort(key=lambda i: (i.install_count, i.rating), reverse=True)
         return items[:limit]
 
-    def get_item(self, item_id: str) -> Optional[MarketplaceItem]:
+    def get_item(self, item_id: str) -> MarketplaceItem | None:
         """Get a single marketplace item by ID."""
         self._ensure_seeded()
         return self._items.get(item_id)
 
-    def search(self, query: str, limit: int = 20) -> List[MarketplaceItem]:
+    def search(self, query: str, limit: int = 20) -> list[MarketplaceItem]:
         """Search items by name, description, tags, or author."""
         self._ensure_seeded()
         q = query.lower()
-        scored: List[Tuple[float, MarketplaceItem]] = []
+        scored: list[tuple[float, MarketplaceItem]] = []
 
         for item in self._items.values():
             score = 0.0
@@ -266,12 +266,12 @@ class MarketplaceStore:
 
     # --- user installs -------------------------------------------------------
 
-    def get_items_by_author(self, author: str) -> List[MarketplaceItem]:
+    def get_items_by_author(self, author: str) -> list[MarketplaceItem]:
         """Get all items authored by a user (includes their remixes)."""
         self._ensure_seeded()
         return [i for i in self._items.values() if i.author == author]
 
-    def get_user_installs(self, user_id: str) -> List[InstallRecord]:
+    def get_user_installs(self, user_id: str) -> list[InstallRecord]:
         """Get all items a user has installed."""
         self._ensure_seeded()
         record_ids = self._installs_by_user.get(user_id, [])
@@ -279,10 +279,10 @@ class MarketplaceStore:
 
     # --- remix history -------------------------------------------------------
 
-    def get_remix_chain(self, item_id: str) -> List[Dict[str, Any]]:
+    def get_remix_chain(self, item_id: str) -> list[dict[str, Any]]:
         """Trace the remix ancestry of an item (parent → child chain)."""
         self._ensure_seeded()
-        chain: List[Dict[str, Any]] = []
+        chain: list[dict[str, Any]] = []
         current = self._items.get(item_id)
         while current and current.remixed_from:
             parent = self._items.get(current.remixed_from)
@@ -297,7 +297,7 @@ class MarketplaceStore:
                 break
         return chain
 
-    def get_remixes_of(self, item_id: str) -> List[MarketplaceItem]:
+    def get_remixes_of(self, item_id: str) -> list[MarketplaceItem]:
         """Get all items that were remixed from the given item."""
         self._ensure_seeded()
         return [i for i in self._items.values() if i.remixed_from == item_id]

@@ -36,9 +36,9 @@ class ModeConfig:
     display_name: str
     description: str
     # UI surfaces visible in this mode
-    visible_panels: List[str] = field(default_factory=list)
+    visible_panels: list[str] = field(default_factory=list)
     # Settings that are shown (others are hidden but still effective)
-    visible_settings: List[str] = field(default_factory=list)
+    visible_settings: list[str] = field(default_factory=list)
     # Default sync mode for new sub-accounts
     default_sync_mode: str = "mirror_filter"
     # Whether per-task model routing is exposed
@@ -60,7 +60,7 @@ class ModeConfig:
     # Whether proactive suggestions are on by default
     default_proactive: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode.value,
             "display_name": self.display_name,
@@ -150,7 +150,7 @@ DEVELOPER_MODE = ModeConfig(
     default_proactive=True,
 )
 
-ALL_MODES: Dict[str, ModeConfig] = {
+ALL_MODES: dict[str, ModeConfig] = {
     SkillMode.SIMPLE.value: SIMPLE_MODE,
     SkillMode.PRO.value: PRO_MODE,
     SkillMode.DEVELOPER.value: DEVELOPER_MODE,

@@ -1,6 +1,6 @@
 """Tests for the timezone setting and conductor timezone-aware date grouping."""
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, UTC
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -87,7 +87,7 @@ class TestConductorTimezone:
         user's local timezone keeps it on the same calendar day — the bug that
         motivated timezone support."""
         store = PersistentStore(in_memory=True)
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         event_start = now_utc + timedelta(minutes=30)
         store.create_event({
             "title": "Late Evening Meeting",

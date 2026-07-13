@@ -189,7 +189,7 @@ async def oauth_callback(
     # Store tokens. When atom is available, use encrypted ConnectionService.
     # In standalone, store in the provider config column (SQLite, not exposed
     # in API responses).
-    token_data: Dict[str, Any] = {
+    token_data: dict[str, Any] = {
         "access_token": tokens.get("access_token", ""),
         "token_type": tokens.get("token_type", "Bearer"),
         "expires_in": tokens.get("expires_in"),

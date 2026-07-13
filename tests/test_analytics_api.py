@@ -263,7 +263,7 @@ class TestSchedulePrompt:
 
     def test_get_schedule_prompt_custom_tz(self, client):
         """GET /schedule-prompt with timezone param includes it."""
-        resp = client.get("/api/a-cal/schedule-prompt?timezone=America/New_York")
+        resp = client.get("/api/a-cal/schedule-prompt?tz=America/New_York")
         assert resp.status_code == 200
         assert "America/New_York" in resp.json()["prompt"]
 

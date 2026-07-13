@@ -35,10 +35,10 @@ class WorkflowNode:
     id: str
     agent: str
     label: str
-    config: Dict[str, Any] = field(default_factory=dict)
-    conditional: Optional[str] = None
+    config: dict[str, Any] = field(default_factory=dict)
+    conditional: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
         return {
             "id": self.id,
@@ -49,7 +49,7 @@ class WorkflowNode:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowNode":
+    def from_dict(cls, data: dict[str, Any]) -> WorkflowNode:
         """Deserialize from a dict."""
         return cls(
             id=data.get("id", ""),
@@ -79,13 +79,13 @@ class WorkflowDef:
     id: str = ""
     name: str = ""
     description: str = ""
-    nodes: List[WorkflowNode] = field(default_factory=list)
+    nodes: list[WorkflowNode] = field(default_factory=list)
     trigger: str = "manual"
     version: str = "0.1.0"
     created_at: str = ""
     updated_at: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
         return {
             "id": self.id,
@@ -99,7 +99,7 @@ class WorkflowDef:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowDef":
+    def from_dict(cls, data: dict[str, Any]) -> WorkflowDef:
         """Deserialize from a dict."""
         return cls(
             id=data.get("id", ""),
@@ -129,13 +129,13 @@ class WorkflowRunResult:
 
     workflow_id: str
     success: bool
-    steps: List[Dict[str, Any]] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
     final_output: str = ""
-    error: Optional[str] = None
+    error: str | None = None
     started_at: str = ""
     finished_at: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict."""
         return {
             "workflow_id": self.workflow_id,

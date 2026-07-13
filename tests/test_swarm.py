@@ -7,7 +7,7 @@ mode (rule-based, no LLM) so they're deterministic and fast.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from types import SimpleNamespace
 
 import pytest
@@ -27,7 +27,7 @@ from a_cal.swarm.coordinator import SwarmCoordinator
 
 # --- helpers -----------------------------------------------------------------
 
-BASE = datetime(2026, 7, 16, 14, 0, tzinfo=timezone.utc)
+BASE = datetime(2026, 7, 16, 14, 0, tzinfo=UTC)
 
 
 def _claim(

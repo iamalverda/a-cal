@@ -31,8 +31,9 @@ import os
 import sys
 import traceback
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from datetime import datetime, timezone, UTC
+from typing import Any, Dict, List, Optional
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +64,12 @@ class LoadedPlugin:
     plugin_type: str
     file_path: str
     instance: Any  # The Plugin class instance
-    hooks: List[str] = field(default_factory=list)
+    hooks: list[str] = field(default_factory=list)
     enabled: bool = True
-    load_error: Optional[str] = None
-    loaded_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    load_error: str | None = None
+    loaded_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -89,7 +90,7 @@ class PluginRuntime:
     the runtime calls the appropriate hook on each enabled plugin.
     """
 
-    def __init__(self, plugin_dir: Optional[str] = None) -> None:
+    def __init__(self, plugin_dir: str | None = None) -> None:
         """Initialize the plugin runtime.
 
         Args:
@@ -97,21 +98,21 @@ class PluginRuntime:
                 ~/.a-cal/plugins/ or A_CAL_PLUGIN_DIR env var.
         """
         self._plugin_dir = plugin_dir or os.environ.get("A_CAL_PLUGIN_DIR", DEFAULT_PLUGIN_DIR)
-        self._loaded: Dict[str, LoadedPlugin] = {}  # plugin_id -> LoadedPlugin
+        self._loaded: dict[str, LoadedPlugin] = {}  # plugin_id -> LoadedPlugin
         self._scanned = False  # Track whether we've done the initial scan
 
     def _ensure_dir(self) -> None:
         """Create the plugin directory if it doesn't exist."""
         os.makedirs(self._plugin_dir, exist_ok=True)
 
-    def scan_and_load(self) -> List[LoadedPlugin]:
+    def scan_and_load(self) -> list[LoadedPlugin]:
         """Scan the plugin directory and load all valid plugins.
 
         Returns a list of LoadedPlugin objects (including failed loads
         with load_error set).
         """
         self._ensure_dir()
-        results: List[LoadedPlugin] = []
+        results: list[LoadedPlugin] = []
 
         for filename in sorted(os.listdir(self._plugin_dir)):
             if not filename.endswith(".py") or filename.startswith("_"):
@@ -131,7 +132,7 @@ class PluginRuntime:
         self._scanned = True
         return results
 
-    def _load_plugin_file(self, plugin_id: str, file_path: str) -> Optional[LoadedPlugin]:
+    def _load_plugin_file(self, plugin_id: str, file_path: str) -> LoadedPlugin | None:
         """Load a single plugin file.
 
         Args:
@@ -163,7 +164,7 @@ class PluginRuntime:
             # Using spec.loader.exec_module can return cached code objects
             # from __pycache__ even after the source file changes, which
             # breaks hot-reload during development.
-            with open(file_path, "r", encoding="utf-8") as src_file:
+            with open(file_path, encoding="utf-8") as src_file:
                 source_code = src_file.read()
             code_obj = compile(source_code, file_path, "exec")
 
@@ -227,11 +228,11 @@ class PluginRuntime:
                 load_error=error_msg,
             )
 
-    def get_plugin(self, plugin_id: str) -> Optional[LoadedPlugin]:
+    def get_plugin(self, plugin_id: str) -> LoadedPlugin | None:
         """Get a loaded plugin by ID."""
         return self._loaded.get(plugin_id)
 
-    def list_loaded(self) -> List[LoadedPlugin]:
+    def list_loaded(self) -> list[LoadedPlugin]:
         """List all loaded plugins."""
         return list(self._loaded.values())
 
@@ -251,7 +252,7 @@ class PluginRuntime:
             return True
         return False
 
-    def reload(self, plugin_id: str) -> Optional[LoadedPlugin]:
+    def reload(self, plugin_id: str) -> LoadedPlugin | None:
         """Reload a single plugin from disk."""
         plugin = self._loaded.get(plugin_id)
         if plugin is None:
@@ -268,7 +269,7 @@ class PluginRuntime:
         hook_name: str,
         *args: Any,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute a hook on all enabled plugins.
 
         Returns a dict mapping plugin_id -> result. Errors are caught
@@ -282,7 +283,7 @@ class PluginRuntime:
         Returns:
             Dict of plugin_id -> {"result": Any, "error": Optional[str]}.
         """
-        results: Dict[str, Any] = {}
+        results: dict[str, Any] = {}
 
         for plugin_id, plugin in self._loaded.items():
             if not plugin.enabled or plugin.instance is None:
@@ -301,23 +302,23 @@ class PluginRuntime:
 
         return results
 
-    def on_event_created(self, event: Dict[str, Any]) -> Dict[str, Any]:
+    def on_event_created(self, event: dict[str, Any]) -> dict[str, Any]:
         """Fire on_event_created hook on all enabled plugins."""
         return self._execute_hook("on_event_created", event)
 
-    def on_event_updated(self, event: Dict[str, Any]) -> Dict[str, Any]:
+    def on_event_updated(self, event: dict[str, Any]) -> dict[str, Any]:
         """Fire on_event_updated hook on all enabled plugins."""
         return self._execute_hook("on_event_updated", event)
 
-    def on_event_deleted(self, event_id: str) -> Dict[str, Any]:
+    def on_event_deleted(self, event_id: str) -> dict[str, Any]:
         """Fire on_event_deleted hook on all enabled plugins."""
         return self._execute_hook("on_event_deleted", event_id)
 
-    def on_sync_complete(self, sub_account_id: str, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def on_sync_complete(self, sub_account_id: str, events: list[dict[str, Any]]) -> dict[str, Any]:
         """Fire on_sync_complete hook on all enabled plugins."""
         return self._execute_hook("on_sync_complete", sub_account_id, events)
 
-    def on_intent_classified(self, message: str, intent: str) -> Optional[str]:
+    def on_intent_classified(self, message: str, intent: str) -> str | None:
         """Fire on_intent_classified hook. First non-None result wins.
 
         This allows agent plugins to override the conductor's intent
@@ -330,7 +331,7 @@ class PluginRuntime:
                 return data["result"]  # type: ignore[return-value]
         return None
 
-    def on_conductor_response(self, response: str, context: Dict[str, Any]) -> Optional[str]:
+    def on_conductor_response(self, response: str, context: dict[str, Any]) -> str | None:
         """Fire on_conductor_response hook. First non-None result wins.
 
         This allows plugins to transform the conductor's response before
@@ -342,13 +343,13 @@ class PluginRuntime:
                 return data["result"]  # type: ignore[return-value]
         return None
 
-    def get_agent_specs(self) -> List[Dict[str, Any]]:
+    def get_agent_specs(self) -> list[dict[str, Any]]:
         """Collect agent specs from all agent-type plugins.
 
         Returns a list of AgentSpec dicts that can be registered with
         the conductor's agent registry.
         """
-        specs: List[Dict[str, Any]] = []
+        specs: list[dict[str, Any]] = []
         results = self._execute_hook("get_agent_spec")
         for plugin_id, data in results.items():
             if data["result"] is not None and data["error"] is None:
@@ -358,9 +359,9 @@ class PluginRuntime:
                     specs.extend(data["result"])
         return specs
 
-    def get_sync_rule_packs(self) -> List[Dict[str, Any]]:
+    def get_sync_rule_packs(self) -> list[dict[str, Any]]:
         """Collect sync rule packs from all sync_rule-type plugins."""
-        packs: List[Dict[str, Any]] = []
+        packs: list[dict[str, Any]] = []
         results = self._execute_hook("get_sync_rules")
         for plugin_id, data in results.items():
             if data["result"] is not None and data["error"] is None:
@@ -373,7 +374,7 @@ class PluginRuntime:
 
 # --- Singleton runtime -------------------------------------------------------
 
-_runtime: Optional[PluginRuntime] = None
+_runtime: PluginRuntime | None = None
 
 
 def get_runtime() -> PluginRuntime:

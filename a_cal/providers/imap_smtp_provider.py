@@ -27,7 +27,7 @@ import email.utils
 import imaplib
 import logging
 import smtplib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Dict, List, Optional, Tuple
@@ -90,10 +90,10 @@ class ImapSmtpProvider(EmailProvider):
 
     async def list_messages(
         self,
-        since_cursor: Optional[str],
+        since_cursor: str | None,
         folder: str = "INBOX",
         limit: int = 50,
-    ) -> Tuple[List[EmailMessageDTO], Optional[str]]:
+    ) -> tuple[list[EmailMessageDTO], str | None]:
         """Fetch a page of messages from the IMAP folder.
 
         Args:
@@ -129,7 +129,7 @@ class ImapSmtpProvider(EmailProvider):
             if status != "OK" or not data:
                 return [], None
 
-            messages: List[EmailMessageDTO] = []
+            messages: list[EmailMessageDTO] = []
             next_cursor = since_cursor
 
             for item in data:
@@ -164,11 +164,11 @@ class ImapSmtpProvider(EmailProvider):
 
     async def send_message(
         self,
-        to: List[str],
+        to: list[str],
         subject: str,
         body_text: str,
-        in_reply_to: Optional[str] = None,
-        thread_id: Optional[str] = None,
+        in_reply_to: str | None = None,
+        thread_id: str | None = None,
     ) -> str:
         """Send a plain-text email via SMTP.
 
@@ -257,7 +257,7 @@ class ImapSmtpProvider(EmailProvider):
                 pass
 
     @staticmethod
-    def _extract_uid(flag_data: object) -> Optional[str]:
+    def _extract_uid(flag_data: object) -> str | None:
         """Extract the UID from a FETCH response flag string."""
         if isinstance(flag_data, bytes):
             text = flag_data.decode("utf-8", errors="replace")
@@ -294,7 +294,7 @@ class ImapSmtpProvider(EmailProvider):
                 dt_tuple = email.utils.parsedate_tz(date_str)
                 if dt_tuple:
                     received_at = datetime.fromtimestamp(
-                        email.utils.mktime_tz(dt_tuple), tz=timezone.utc
+                        email.utils.mktime_tz(dt_tuple), tz=UTC
                     )
             except Exception:
                 pass
@@ -324,7 +324,7 @@ class ImapSmtpProvider(EmailProvider):
             snippet = subject
 
         # Check for calendar invite
-        labels: List[str] = []
+        labels: list[str] = []
         if msg.is_multipart():
             for part in msg.walk():
                 if part.get_content_type() == "text/calendar":

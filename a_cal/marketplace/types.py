@@ -17,7 +17,7 @@ from __future__ import annotations
 import enum
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional
 
 
@@ -49,7 +49,7 @@ class Provenance:
     version: str = "0.1.0"
     license: str = "AGPL-3.0-or-later"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "summary": self.summary,
             "what_it_does": self.what_it_does,
@@ -60,7 +60,7 @@ class Provenance:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Provenance":
+    def from_dict(cls, data: dict[str, Any]) -> Provenance:
         return cls(
             summary=data.get("summary", ""),
             what_it_does=data.get("what_it_does", ""),
@@ -86,18 +86,18 @@ class MarketplaceItem:
     author: str = ""
     description: str = ""
     provenance: Provenance = field(default_factory=Provenance)
-    config: Dict[str, Any] = field(default_factory=dict)
-    tags: List[str] = field(default_factory=list)
+    config: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
     # Remix chain: if this item was forked from another, that item's id.
-    remixed_from: Optional[str] = None
+    remixed_from: str | None = None
     # Community metrics.
     install_count: int = 0
     rating_sum: float = 0.0
     rating_count: int = 0
     created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
-    updated_at: Optional[str] = None
+    updated_at: str | None = None
 
     @property
     def rating(self) -> float:
@@ -111,14 +111,14 @@ class MarketplaceItem:
         clamped = max(0.0, min(5.0, stars))
         self.rating_sum += clamped
         self.rating_count += 1
-        self.updated_at = datetime.now(timezone.utc).isoformat()
+        self.updated_at = datetime.now(UTC).isoformat()
 
     def record_install(self) -> None:
         """Increment the install counter."""
         self.install_count += 1
-        self.updated_at = datetime.now(timezone.utc).isoformat()
+        self.updated_at = datetime.now(UTC).isoformat()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -137,7 +137,7 @@ class MarketplaceItem:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MarketplaceItem":
+    def from_dict(cls, data: dict[str, Any]) -> MarketplaceItem:
         return cls(
             id=data.get("id", str(uuid.uuid4())),
             name=data.get("name", ""),
@@ -152,7 +152,7 @@ class MarketplaceItem:
             rating_sum=data.get("rating_sum", 0.0),
             rating_count=data.get("rating_count", 0),
             created_at=data.get(
-                "created_at", datetime.now(timezone.utc).isoformat()
+                "created_at", datetime.now(UTC).isoformat()
             ),
             updated_at=data.get("updated_at"),
         )
@@ -166,13 +166,13 @@ class InstallRecord:
     user_id: str = ""
     item_id: str = ""
     installed_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     # The config as installed (may differ from the current marketplace version
     # if the user modified it after installing).
-    installed_config: Dict[str, Any] = field(default_factory=dict)
+    installed_config: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "user_id": self.user_id,
@@ -190,12 +190,12 @@ class RemixRecord:
     child_item_id: str = ""
     remixed_by: str = ""  # user_id
     remixed_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     # What changed in the remix (human-readable diff summary).
     changes_summary: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "parent_item_id": self.parent_item_id,
             "child_item_id": self.child_item_id,

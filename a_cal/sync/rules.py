@@ -37,7 +37,7 @@ class RuleOutcome:
 
     included: bool = True
     agent_review: bool = False
-    transformed_event: Optional[CalendarEventDTO] = None
+    transformed_event: CalendarEventDTO | None = None
 
 
 def _field_value(event: CalendarEventDTO, field: str) -> str:

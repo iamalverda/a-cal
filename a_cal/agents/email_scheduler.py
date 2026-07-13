@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -135,12 +135,12 @@ class ExtractedTime:
     raw_text: str
     date_text: str = ""
     time_text: str = ""
-    duration_minutes: Optional[int] = None
-    estimated_start: Optional[datetime] = None
-    estimated_end: Optional[datetime] = None
+    duration_minutes: int | None = None
+    estimated_start: datetime | None = None
+    estimated_end: datetime | None = None
     confidence: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "raw_text": self.raw_text,
             "date_text": self.date_text,
@@ -160,14 +160,14 @@ class SchedulingDetection:
     is_calendar_invite: bool
     is_reschedule: bool
     is_cancellation: bool
-    detected_keywords: List[str] = field(default_factory=list)
-    extracted_times: List[ExtractedTime] = field(default_factory=list)
+    detected_keywords: list[str] = field(default_factory=list)
+    extracted_times: list[ExtractedTime] = field(default_factory=list)
     proposed_by: str = ""  # email address of proposer
     subject: str = ""
     snippet: str = ""
     confidence: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "is_scheduling_related": self.is_scheduling_related,
             "is_meeting_proposal": self.is_meeting_proposal,
@@ -189,18 +189,18 @@ class SchedulingSuggestion:
     type: str  # "create_event", "conflict_warning", "decline", "reschedule_propose"
     email_subject: str
     email_from: str
-    proposed_time: Optional[ExtractedTime] = None
-    conflict_with: Optional[str] = None  # title of conflicting event
-    suggested_alternative: Optional[str] = None
+    proposed_time: ExtractedTime | None = None
+    conflict_with: str | None = None  # title of conflicting event
+    suggested_alternative: str | None = None
     confidence: float = 0.0
     message: str = ""
     # Draft reply text (populated at agent_mediated depth or above).
-    draft_reply: Optional[str] = None
+    draft_reply: str | None = None
     # Whether this suggestion may be auto-executed without per-action
     # confirmation (only at full_two_way depth).
     auto_action: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": self.type,
             "email_subject": self.email_subject,
@@ -238,7 +238,7 @@ def detect_scheduling_content(
     """
     full_text = f"{subject} {snippet} {body_text}".lower()
 
-    detected_keywords: List[str] = []
+    detected_keywords: list[str] = []
     for kw in SCHEDULING_KEYWORDS:
         if kw in full_text:
             detected_keywords.append(kw)
@@ -284,19 +284,19 @@ def detect_scheduling_content(
     )
 
 
-def extract_times(text: str) -> List[ExtractedTime]:
+def extract_times(text: str) -> list[ExtractedTime]:
     """Extract date/time references from text.
 
     Returns a list of ExtractedTime objects with estimated start/end times
     where possible. Estimation is conservative — confidence is low when
     only partial information (e.g. time but no date) is found.
     """
-    results: List[ExtractedTime] = []
+    results: list[ExtractedTime] = []
     text_lower = text.lower()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Find all date matches
-    date_matches: List[Tuple[str, str, Optional[datetime]]] = []
+    date_matches: list[tuple[str, str, datetime | None]] = []
     for pattern, ptype in DATE_PATTERNS:
         for m in re.finditer(pattern, text_lower):
             raw = m.group(0)
@@ -304,7 +304,7 @@ def extract_times(text: str) -> List[ExtractedTime]:
             date_matches.append((raw, ptype, est_date))
 
     # Find all time matches
-    time_matches: List[Tuple[str, str, Optional[Tuple[int, int]]]] = []
+    time_matches: list[tuple[str, str, tuple[int, int] | None]] = []
     for pattern, ptype in TIME_PATTERNS:
         for m in re.finditer(pattern, text_lower):
             raw = m.group(0)
@@ -312,7 +312,7 @@ def extract_times(text: str) -> List[ExtractedTime]:
             time_matches.append((raw, ptype, est_time))
 
     # Find duration
-    duration_minutes: Optional[int] = None
+    duration_minutes: int | None = None
     for pattern, ptype in DURATION_PATTERNS:
         m = re.search(pattern, text_lower)
         if m:
@@ -372,7 +372,7 @@ def extract_times(text: str) -> List[ExtractedTime]:
     return results
 
 
-def _estimate_date(raw: str, ptype: str, match: re.Match, now: datetime) -> Optional[datetime]:
+def _estimate_date(raw: str, ptype: str, match: re.Match, now: datetime) -> datetime | None:
     """Estimate a datetime from a date pattern match."""
     try:
         if ptype == "weekday":
@@ -393,7 +393,7 @@ def _estimate_date(raw: str, ptype: str, match: re.Match, now: datetime) -> Opti
             year = now.year
             if month < now.month or (month == now.month and day < now.day):
                 year += 1
-            return datetime(year, month, day, tzinfo=timezone.utc)
+            return datetime(year, month, day, tzinfo=UTC)
 
         elif ptype == "day_month":
             day = int(match.group(1))
@@ -404,7 +404,7 @@ def _estimate_date(raw: str, ptype: str, match: re.Match, now: datetime) -> Opti
             year = now.year
             if month < now.month or (month == now.month and day < now.day):
                 year += 1
-            return datetime(year, month, day, tzinfo=timezone.utc)
+            return datetime(year, month, day, tzinfo=UTC)
 
         elif ptype == "slash_date":
             month = int(match.group(1))
@@ -412,13 +412,13 @@ def _estimate_date(raw: str, ptype: str, match: re.Match, now: datetime) -> Opti
             year = int(match.group(3)) if match.group(3) else now.year
             if year < 100:
                 year += 2000
-            return datetime(year, month, day, tzinfo=timezone.utc)
+            return datetime(year, month, day, tzinfo=UTC)
 
         elif ptype == "iso_date":
             year = int(match.group(1))
             month = int(match.group(2))
             day = int(match.group(3))
-            return datetime(year, month, day, tzinfo=timezone.utc)
+            return datetime(year, month, day, tzinfo=UTC)
 
         elif ptype == "relative_date":
             if raw == "today":
@@ -450,7 +450,7 @@ def _estimate_date(raw: str, ptype: str, match: re.Match, now: datetime) -> Opti
     return None
 
 
-def _estimate_time(raw: str, ptype: str, match: re.Match) -> Optional[Tuple[int, int]]:
+def _estimate_time(raw: str, ptype: str, match: re.Match) -> tuple[int, int] | None:
     """Estimate hour:minute from a time pattern match."""
     try:
         if ptype == "clock_time":
@@ -501,7 +501,7 @@ def _estimate_time(raw: str, ptype: str, match: re.Match) -> Optional[Tuple[int,
     return None
 
 
-def _estimate_duration(raw: str, ptype: str, match: re.Match) -> Optional[int]:
+def _estimate_duration(raw: str, ptype: str, match: re.Match) -> int | None:
     """Estimate duration in minutes from a duration pattern."""
     try:
         if ptype == "explicit_duration":
@@ -528,9 +528,9 @@ def _estimate_duration(raw: str, ptype: str, match: re.Match) -> Optional[int]:
 
 def check_conflicts(
     detection: SchedulingDetection,
-    calendar_events: List[Dict[str, Any]],
+    calendar_events: list[dict[str, Any]],
     depth: str = DEPTH_SYNC_NOTIFY,
-) -> List[SchedulingSuggestion]:
+) -> list[SchedulingSuggestion]:
     """Check if proposed meeting times conflict with existing events.
 
     Args:
@@ -541,7 +541,7 @@ def check_conflicts(
     Returns:
         List of scheduling suggestions (conflict warnings or create event).
     """
-    suggestions: List[SchedulingSuggestion] = []
+    suggestions: list[SchedulingSuggestion] = []
 
     for extracted in detection.extracted_times:
         if not extracted.estimated_start or not extracted.estimated_end:
@@ -634,7 +634,7 @@ def _draft_conflict_reply(
     )
 
 
-def _parse_event_time(time_str: str) -> Optional[datetime]:
+def _parse_event_time(time_str: str) -> datetime | None:
     """Parse an event time string (ISO or common formats)."""
     if not time_str:
         return None
@@ -650,10 +650,10 @@ def _parse_event_time(time_str: str) -> Optional[datetime]:
 
 
 def scan_emails_for_scheduling(
-    emails: List[Dict[str, Any]],
-    calendar_events: List[Dict[str, Any]],
+    emails: list[dict[str, Any]],
+    calendar_events: list[dict[str, Any]],
     depth: str = DEPTH_SYNC_NOTIFY,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Full email-to-schedule pipeline: scan emails, detect meetings, check conflicts.
 
     Args:
@@ -678,8 +678,8 @@ def scan_emails_for_scheduling(
     """
     if depth not in _VALID_DEPTHS:
         depth = DEPTH_SYNC_NOTIFY
-    detections: List[SchedulingDetection] = []
-    all_suggestions: List[SchedulingSuggestion] = []
+    detections: list[SchedulingDetection] = []
+    all_suggestions: list[SchedulingSuggestion] = []
 
     for email_msg in emails:
         detection = detect_scheduling_content(
@@ -709,7 +709,7 @@ def scan_emails_for_scheduling(
         "auto_actions": sum(1 for s in all_suggestions if s.auto_action),
     }
 
-    summary_parts: List[str] = []
+    summary_parts: list[str] = []
     if stats["scheduling_related"] == 0:
         summary_parts.append("No scheduling-related emails found in your inbox.")
     else:

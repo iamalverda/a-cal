@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid as _uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional
 
 from a_cal.workflows.models import WorkflowDef
@@ -30,23 +30,23 @@ class WorkflowStore:
         """Initialize with a PersistentStore instance."""
         self._db = db
 
-    def _get_all_raw(self) -> Dict[str, Dict[str, Any]]:
+    def _get_all_raw(self) -> dict[str, dict[str, Any]]:
         """Load all workflows from the settings table."""
         data = self._db.get_setting("workflows", {})
         return data if isinstance(data, dict) else {}
 
-    def _save_all_raw(self, data: Dict[str, Dict[str, Any]]) -> None:
+    def _save_all_raw(self, data: dict[str, dict[str, Any]]) -> None:
         """Persist all workflows to the settings table."""
         self._db.set_setting("workflows", data)
 
-    def list_workflows(self) -> List[WorkflowDef]:
+    def list_workflows(self) -> list[WorkflowDef]:
         """Return all saved workflows, ordered by updated_at descending."""
         raw = self._get_all_raw()
         workflows = [WorkflowDef.from_dict(v) for v in raw.values()]
         workflows.sort(key=lambda w: w.updated_at or w.created_at, reverse=True)
         return workflows
 
-    def get_workflow(self, workflow_id: str) -> Optional[WorkflowDef]:
+    def get_workflow(self, workflow_id: str) -> WorkflowDef | None:
         """Get a single workflow by ID."""
         raw = self._get_all_raw()
         data = raw.get(workflow_id)
@@ -67,7 +67,7 @@ class WorkflowStore:
             The saved workflow with ID and timestamps set.
         """
         raw = self._get_all_raw()
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         if not workflow.id:
             workflow.id = str(_uuid.uuid4())

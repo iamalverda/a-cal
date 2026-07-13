@@ -198,7 +198,6 @@ def test_list_items_filtered_by_type(store):
 
 def test_persistence_across_sessions():
     """Items survive across store instances (simulating server restart)."""
-    import tempfile
     db_path = tempfile.mktemp(suffix=".db")
 
     # First session: publish an item

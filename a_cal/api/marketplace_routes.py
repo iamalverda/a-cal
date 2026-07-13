@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/a-cal/marketplace", tags=["a-cal-marketplace"])
 
 # --- singleton store — uses SQLite persistence, falls back to in-memory -----
 
-_store: Optional[MarketplaceStore] = None
+_store: MarketplaceStore | None = None
 
 
 def _get_store():
@@ -68,8 +68,8 @@ class PublishItemRequest(BaseModel):
     item_type: str  # MarketplaceItemType value
     description: str = ""
     provenance: ProvenanceInput = Field(default_factory=ProvenanceInput)
-    config: Dict[str, Any] = Field(default_factory=dict)
-    tags: List[str] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
 
 
 class RemixRequest(BaseModel):
@@ -77,7 +77,7 @@ class RemixRequest(BaseModel):
     parent_item_id: str = ""
     name: str
     description: str = ""
-    config_overrides: Dict[str, Any] = Field(default_factory=dict)
+    config_overrides: dict[str, Any] = Field(default_factory=dict)
     changes_summary: str = ""
 
 
@@ -111,8 +111,8 @@ def _item_from_request(body: PublishItemRequest, author: str) -> MarketplaceItem
 
 @router.get("/items")
 def list_items(
-    item_type: Optional[str] = Query(None),
-    tag: Optional[str] = Query(None),
+    item_type: str | None = Query(None),
+    tag: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ):
     """Browse marketplace items, optionally filtered by type or tag."""
@@ -232,7 +232,7 @@ from a_cal.marketplace.registry import (
 
 class ExportRequest(BaseModel):
     """Request to export marketplace items as a portable bundle."""
-    item_ids: List[str] = Field(default_factory=list)
+    item_ids: list[str] = Field(default_factory=list)
     # If empty, exports all items in the store.
 
 
@@ -315,7 +315,7 @@ def import_items(body: ImportBundleRequest):
 
     imported = 0
     skipped = 0
-    errors: List[str] = []
+    errors: list[str] = []
 
     for item in bundle.items:
         existing = store.get_item(item.id)

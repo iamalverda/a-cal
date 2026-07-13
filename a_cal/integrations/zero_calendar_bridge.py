@@ -11,12 +11,13 @@ Ported from zero-calendar/lib/ai-tools.ts and lib/system-prompts.tsx.
 from __future__ import annotations
 
 from typing import Any, Dict, List
+from datetime import UTC
 
 
 # Tool catalog — defines the tools available to the schedule agent.
 # Each tool has a name, description, and parameter schema. The conductor
 # can use these to augment the LLM's capabilities.
-CALENDAR_TOOLS: List[Dict[str, Any]] = [
+CALENDAR_TOOLS: list[dict[str, Any]] = [
     {
         "name": "getEvents",
         "description": "Get calendar events within a date range.",
@@ -137,7 +138,7 @@ def get_enhanced_schedule_prompt(
     """
     from datetime import datetime, timezone as tz
 
-    now = datetime.now(tz.utc) if not current_date else datetime.fromisoformat(current_date)
+    now = datetime.now(UTC) if not current_date else datetime.fromisoformat(current_date)
     current_date_formatted = now.strftime("%A, %B %d, %Y")
     current_time_formatted = now.strftime("%I:%M %p")
 

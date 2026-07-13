@@ -14,7 +14,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional
 
 from a_cal.self_model.types import SelfModelFact
@@ -36,12 +36,12 @@ class SelfModelStore:
     recall on top but never replaces it.
     """
 
-    def __init__(self, user_id: str, data_dir: Optional[str] = None) -> None:
+    def __init__(self, user_id: str, data_dir: str | None = None) -> None:
         self.user_id = user_id
         self._data_dir = Path(data_dir or os.path.expanduser("~/.a-cal/self_model"))
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._file_path = self._data_dir / f"{user_id}_facts.json"
-        self._facts: Dict[str, SelfModelFact] = {}
+        self._facts: dict[str, SelfModelFact] = {}
         self._lancedb = None  # lazy — only if available and configured
         self._load()
 
@@ -97,7 +97,7 @@ class SelfModelStore:
         self._save()
         return fact
 
-    def get(self, fact_id: str) -> Optional[SelfModelFact]:
+    def get(self, fact_id: str) -> SelfModelFact | None:
         return self._facts.get(fact_id)
 
     def delete(self, fact_id: str) -> bool:
@@ -109,7 +109,7 @@ class SelfModelStore:
             return True
         return False
 
-    def update(self, fact_id: str, content: str) -> Optional[SelfModelFact]:
+    def update(self, fact_id: str, content: str) -> SelfModelFact | None:
         """User-corrected edit of a fact's content.
 
         Sets confidence to 1.0 (user override) and marks provenance as
@@ -121,11 +121,11 @@ class SelfModelStore:
         fact.content = content
         fact.confidence = 1.0
         fact.provenance = f"user-corrected:{fact.provenance}"
-        fact.updated_at = datetime.now(timezone.utc).isoformat()
+        fact.updated_at = datetime.now(UTC).isoformat()
         self._save()
         return fact
 
-    def all_active(self) -> List[SelfModelFact]:
+    def all_active(self) -> list[SelfModelFact]:
         """All active facts, sorted by confidence descending."""
         return sorted(
             [f for f in self._facts.values() if f.is_active()],
@@ -133,18 +133,18 @@ class SelfModelStore:
             reverse=True,
         )
 
-    def by_category(self, category: str) -> List[SelfModelFact]:
+    def by_category(self, category: str) -> list[SelfModelFact]:
         """Active facts in a specific category."""
         return [f for f in self.all_active() if f.category == category]
 
-    def search(self, query: str, limit: int = 10) -> List[SelfModelFact]:
+    def search(self, query: str, limit: int = 10) -> list[SelfModelFact]:
         """Simple keyword search over fact content.
 
         In the full LanceDB deployment this becomes semantic vector search.
         Here it's a case-insensitive substring match — adequate for self-hosted.
         """
         q = query.lower()
-        scored: List[tuple[float, SelfModelFact]] = []
+        scored: list[tuple[float, SelfModelFact]] = []
         for fact in self.all_active():
             content = fact.content.lower()
             if q in content:
@@ -164,14 +164,14 @@ class SelfModelStore:
         self._save()
         return count
 
-    def _find_by_hash(self, content_hash: str) -> Optional[SelfModelFact]:
+    def _find_by_hash(self, content_hash: str) -> SelfModelFact | None:
         """Find an active fact by its content hash."""
         for fact in self._facts.values():
             if fact.is_active() and fact.content_hash() == content_hash:
                 return fact
         return None
 
-    def export(self) -> Dict[str, Any]:
+    def export(self) -> dict[str, Any]:
         """Export all facts as a dict (for the transparency view in settings)."""
         return {
             "user_id": self.user_id,

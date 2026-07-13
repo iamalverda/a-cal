@@ -31,19 +31,19 @@ class AgentRegistry:
         spec = registry.get("a_cal_schedule_agent")
     """
 
-    def __init__(self, custom_specs: Optional[List[AgentSpec]] = None) -> None:
+    def __init__(self, custom_specs: list[AgentSpec] | None = None) -> None:
         """Initialize with the built-in agents plus any user customizations.
 
         Custom specs (from the marketplace or Developer Studio) override
         built-ins by name, allowing users to customize agent behavior without
         forking the codebase.
         """
-        self._agents: Dict[str, AgentSpec] = {a.name: a for a in A_CAL_AGENTS}
+        self._agents: dict[str, AgentSpec] = {a.name: a for a in A_CAL_AGENTS}
         if custom_specs:
             for spec in custom_specs:
                 self._agents[spec.name] = spec
 
-    def list_agents(self) -> List[AgentSpec]:
+    def list_agents(self) -> list[AgentSpec]:
         """All registered agents, conductor first."""
         result = []
         if "a_cal_conductor" in self._agents:
@@ -53,7 +53,7 @@ class AgentRegistry:
                 result.append(spec)
         return result
 
-    def get(self, name: str) -> Optional[AgentSpec]:
+    def get(self, name: str) -> AgentSpec | None:
         return self._agents.get(name)
 
     def register(self, spec: AgentSpec) -> None:
@@ -68,7 +68,7 @@ class AgentRegistry:
             return True
         return False
 
-    def to_dict_list(self) -> List[Dict[str, Any]]:
+    def to_dict_list(self) -> list[dict[str, Any]]:
         """Serialize all agents for the API/UI."""
         return [a.to_dict() for a in self.list_agents()]
 

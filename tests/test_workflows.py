@@ -247,7 +247,7 @@ class TestWorkflowRunner:
         class _FailingConductor:
             async def handle(self, message: str) -> dict:
                 raise RuntimeError("agent unavailable")
-        
+
         runner = WorkflowRunner(_FailingConductor())
         wf = WorkflowDef(
             name="Failing",

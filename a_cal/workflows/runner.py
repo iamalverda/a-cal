@@ -15,7 +15,7 @@ is to let users build useful pipelines without a complex expression engine.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Dict, Optional
 
 from a_cal.workflows.models import WorkflowDef, WorkflowNode, WorkflowRunResult
@@ -54,7 +54,7 @@ class WorkflowRunner:
         Returns:
             A ``WorkflowRunResult`` with per-step outputs and final result.
         """
-        started = datetime.now(timezone.utc)
+        started = datetime.now(UTC)
         result = WorkflowRunResult(
             workflow_id=workflow.id or workflow.name,
             success=True,
@@ -67,7 +67,7 @@ class WorkflowRunner:
             context_parts.append(f"[Initial input]: {initial_message}")
 
         for idx, node in enumerate(workflow.nodes):
-            step_result: Dict[str, Any] = {
+            step_result: dict[str, Any] = {
                 "node_id": node.id,
                 "node_index": idx,
                 "agent": node.agent,
@@ -114,7 +114,7 @@ class WorkflowRunner:
 
             result.steps.append(step_result)
 
-        finished = datetime.now(timezone.utc)
+        finished = datetime.now(UTC)
         result.finished_at = finished.isoformat()
         return result
 
@@ -146,7 +146,7 @@ class WorkflowRunner:
         # Include node config as key-value pairs.
         if node.config:
             config_lines = [f"  {k}: {v}" for k, v in node.config.items()]
-            parts.append(f"[Configuration for this step:]")
+            parts.append("[Configuration for this step:]")
             parts.extend(config_lines)
             parts.append("")
 

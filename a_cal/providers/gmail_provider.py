@@ -26,11 +26,11 @@ class GmailEmailProvider(EmailProvider):
                 "for any email server that supports IMAP/SMTP."
             )
 
-    async def list_messages(self, since_cursor: Optional[str], folder: str = "INBOX", limit: int = 50) -> Tuple[List[EmailMessageDTO], Optional[str]]:
+    async def list_messages(self, since_cursor: str | None, folder: str = "INBOX", limit: int = 50) -> tuple[list[EmailMessageDTO], str | None]:
         raw = await self._svc.list_messages() if hasattr(self._svc, "list_messages") else []
         return [self._to_dto(m) for m in raw], since_cursor
 
-    async def send_message(self, to: List[str], subject: str, body_text: str, in_reply_to: Optional[str] = None, thread_id: Optional[str] = None) -> str:
+    async def send_message(self, to: list[str], subject: str, body_text: str, in_reply_to: str | None = None, thread_id: str | None = None) -> str:
         return await self._svc.send_email(to, subject, body_text) if hasattr(self._svc, "send_email") else ""
 
     async def reply(self, provider_message_id: str, body_text: str) -> str:
