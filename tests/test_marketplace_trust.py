@@ -17,7 +17,7 @@ from a_cal.marketplace.trust import (
     compute_content_hash,
     compute_trust_score,
 )
-from a_cal.marketplace.types import MarketplaceItem
+from a_cal.marketplace.types import MarketplaceItem, MarketplaceItemType, Provenance
 
 
 client = TestClient(app)
@@ -283,3 +283,72 @@ class TestTrustAPI:
             assert "trust_score" in item
             assert "verification_status" in item
             assert "flag_count" in item
+
+
+class TestRemixHash:
+    """Verify that remixed items also get content hashes (bug fix)."""
+
+    def test_in_memory_remix_has_hash(self):
+        """Remixed items in the in-memory store get a content hash."""
+        from a_cal.marketplace.store import MarketplaceStore
+        store = MarketplaceStore()
+        # Publish a parent item
+        parent = store.publish(MarketplaceItem(
+            name="Parent Item",
+            item_type=MarketplaceItemType.AGENT_SPEC.value,
+            author="test@example.com",
+            description="Parent for remix test",
+            provenance=Provenance(
+                summary="Parent",
+                what_it_does="Does things",
+                gaps_and_limits="None",
+                integration_notes="None",
+                version="1.0.0",
+            ),
+            config={"key": "value"},
+            tags=["test"],
+        ))
+        assert parent.content_hash != ""
+
+        # Remix it
+        child = store.remix(
+            user_id="test@example.com",
+            parent_item_id=parent.id,
+            name="Remixed Child",
+            description="A remix of the parent",
+            config_overrides={"key": "overridden"},
+        )
+        assert child.content_hash != ""
+        assert child.content_hash != parent.content_hash  # different config = different hash
+
+    def test_api_remix_has_hash(self):
+        """Remixed items via the API include a non-empty content_hash."""
+        # Publish a parent
+        r1 = client.post(
+            "/api/a-cal/marketplace/items",
+            json={
+                "name": "API Remix Parent",
+                "item_type": "agent_spec",
+                "author": "test@example.com",
+                "description": "Parent for API remix test",
+                "config": {"strategy": "aggressive"},
+                "tags": ["test", "remix-parent"],
+            },
+        )
+        assert r1.status_code == 200
+        parent = r1.json()
+        parent_id = parent["id"]
+
+        # Remix it
+        r2 = client.post(
+            f"/api/a-cal/marketplace/items/{parent_id}/remix",
+            json={
+                "name": "API Remix Child",
+                "description": "A remix via the API",
+                "config_overrides": {"strategy": "conservative"},
+            },
+        )
+        assert r2.status_code == 200
+        child = r2.json()
+        assert child.get("content_hash", "") != ""
+        assert child["content_hash"] != parent["content_hash"]

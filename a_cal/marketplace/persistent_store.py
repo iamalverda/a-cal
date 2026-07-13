@@ -317,6 +317,7 @@ class PersistentMarketplaceStore:
                 remixed_from=parent_item_id,
             )
 
+            child.compute_hash()
             row = MarketplaceItemDB(
                 id=child.id,
                 name=child.name,
@@ -330,11 +331,12 @@ class PersistentMarketplaceStore:
                 install_count=0,
                 rating="0.0",
                 rating_count=0,
+                content_hash=child.content_hash,
             )
             session.add(row)
             session.commit()
             logger.info("user %s remixed item %s -> %s", user_id, parent_item_id, child.id)
-            return child
+            return _row_to_item(row)
         except KeyError:
             raise
         except Exception:
