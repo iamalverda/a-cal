@@ -28,7 +28,7 @@ from a_cal.api.analytics_routes import router as analytics_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="A-Cal Standalone", version="0.5.0")
+app = FastAPI(title="A-Cal Standalone", version="0.7.0")
 
 import os
 
@@ -59,8 +59,26 @@ app.include_router(analytics_router)
 
 @app.get("/health")
 def health():
-    """Health check."""
-    return {"status": "ok", "mode": "standalone"}
+    """Health check with database status.
+
+    Returns the server mode and which database backend is in use so users
+    can verify their PostgreSQL configuration is active.
+    """
+    from a_cal.db.models import get_database_url, _engine
+
+    db_type = "sqlite"
+    db_url_env = get_database_url()
+    if db_url_env:
+        db_type = "postgresql" if "postgresql" in db_url_env else "external"
+    elif _engine is not None:
+        db_type = _engine.dialect.name
+
+    return {
+        "status": "ok",
+        "mode": "standalone",
+        "version": "0.7.0",
+        "database": db_type,
+    }
 
 
 if __name__ == "__main__":

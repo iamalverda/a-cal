@@ -280,3 +280,36 @@ class TestDockerAndEnvConfig:
             content = f.read()
         assert "alembic" in content
         assert 'migrations = [' in content
+
+
+class TestHealthEndpoint:
+    """Tests for the enhanced /health endpoint with database info."""
+
+    def test_health_returns_database_type(self):
+        """/health endpoint includes database backend type."""
+        from fastapi.testclient import TestClient
+        from a_cal.api.standalone import app
+
+        client = TestClient(app)
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["mode"] == "standalone"
+        assert "database" in data
+        assert "version" in data
+
+    def test_health_reports_sqlite_by_default(self):
+        """/health reports sqlite when DATABASE_URL is not set."""
+        import os
+        from unittest.mock import patch
+        from fastapi.testclient import TestClient
+        from a_cal.api.standalone import app
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DATABASE_URL", None)
+            client = TestClient(app)
+            response = client.get("/health")
+            data = response.json()
+            # In test mode with A_CAL_DB_PATH=:memory:, should be sqlite
+            assert data["database"] == "sqlite"

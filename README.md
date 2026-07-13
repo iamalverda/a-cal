@@ -123,6 +123,17 @@ docker compose up --build
 
 The `a-cal-data` volume persists the SQLite database across container restarts.
 
+#### PostgreSQL (optional)
+
+```bash
+# Start with PostgreSQL instead of SQLite:
+docker compose --profile postgres up --build
+```
+
+This starts a PostgreSQL 16 container and sets `DATABASE_URL` automatically.
+The `a-cal-postgres` volume persists data across restarts. The backend image
+includes `psycopg2-binary` and `alembic` for production use.
+
 ### Run Tests
 
 ```bash
@@ -302,6 +313,8 @@ plugins/
 ## Optional Dependencies
 
 - `caldav` + `icalendar` — for CalDAV provider support (`pip install a-cal[caldav]`)
+- `postgres` — for PostgreSQL backend (`pip install a-cal[postgres]`, includes `psycopg2-binary`)
+- `migrations` — for Alembic database migrations (`pip install a-cal[migrations]`)
 - `httpx` — for OAuth token exchange and HTTP-based provider calls
 - `ollama` — for local model serving (install separately via [ollama.ai](https://ollama.ai))
 
