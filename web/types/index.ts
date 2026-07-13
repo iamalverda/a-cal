@@ -43,6 +43,79 @@ export interface UnifiedEvent {
   location: string | null;
   source_sub_account_id: string | null;
   metadata: Record<string, unknown>;
+  is_all_day?: boolean;
+  recurrence_rule?: string | null;
+  attendees?: EventAttendee[] | null;
+  color?: string | null;
+}
+
+/** An attendee on a calendar event. */
+export interface EventAttendee {
+  email: string;
+  name?: string;
+  status?: string;
+}
+
+// --- Phase 4: Advanced Email types ----------------------------------------
+
+/** A custom, color-coded email label. */
+export interface EmailLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
+/** An auto-apply email filter rule. */
+export interface EmailFilter {
+  id: string;
+  name: string;
+  field: string;
+  pattern: string;
+  action: string;
+  action_value: string | null;
+  is_active: boolean;
+}
+
+/** A snoozed email. */
+export interface EmailSnooze {
+  id: string;
+  provider_connection_id: string;
+  provider_message_id: string;
+  snooze_until: string;
+}
+
+/** A scheduled email pending delivery. */
+export interface ScheduledEmail {
+  id: string;
+  provider_connection_id: string;
+  to_addresses: string[];
+  subject: string;
+  body_text: string;
+  scheduled_for: string;
+  status: string;
+}
+
+/** A reusable email template. */
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string | null;
+  body_text: string;
+}
+
+/** Vacation auto-responder configuration. */
+export interface VacationConfig {
+  enabled: boolean;
+  subject: string;
+  body_text: string;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+/** AI email summarization result. */
+export interface EmailSummary {
+  summary: string;
+  method: string;
 }
 
 export interface EmailAttachment {

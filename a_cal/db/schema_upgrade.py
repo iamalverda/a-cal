@@ -112,6 +112,28 @@ _COLUMN_ADDITIONS: list[tuple[str, str, str]] = [
         "ALTER TABLE a_cal_event_types ADD COLUMN confirmation_template TEXT "
         "NULL",
     ),
+    # CalendarEvent Phase 3 extensions
+    (
+        "a_cal_events",
+        "is_all_day",
+        "ALTER TABLE a_cal_events ADD COLUMN is_all_day BOOLEAN "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "a_cal_events",
+        "recurrence_rule",
+        "ALTER TABLE a_cal_events ADD COLUMN recurrence_rule TEXT NULL",
+    ),
+    (
+        "a_cal_events",
+        "attendees",
+        "ALTER TABLE a_cal_events ADD COLUMN attendees TEXT NULL",
+    ),
+    (
+        "a_cal_events",
+        "color",
+        "ALTER TABLE a_cal_events ADD COLUMN color VARCHAR(20) NULL",
+    ),
 ]
 
 

@@ -16,6 +16,11 @@ from .models import (
     Base,
     BookingDB,
     CalendarEvent,
+    EmailLabel,
+    EmailFilter,
+    EmailSnooze,
+    ScheduledEmail,
+    EmailTemplate,
     EventTypeDB,
     Negotiation,
     ProviderConnection,
@@ -104,6 +109,10 @@ def _serialize_event(e: CalendarEvent) -> dict[str, Any]:
         "location": e.location,
         "source_sub_account_id": e.source_sub_account_id,
         "metadata": e.event_metadata or {},
+        "is_all_day": getattr(e, "is_all_day", False) or False,
+        "recurrence_rule": getattr(e, "recurrence_rule", None),
+        "attendees": getattr(e, "attendees", None),
+        "color": getattr(e, "color", None),
     }
 
 
@@ -613,6 +622,10 @@ class PersistentStore:
                 location=data.get("location"),
                 source_sub_account_id=data.get("source_sub_account_id"),
                 event_metadata=data.get("metadata", {}),
+                is_all_day=data.get("is_all_day", False),
+                recurrence_rule=data.get("recurrence_rule"),
+                attendees=data.get("attendees"),
+                color=data.get("color"),
             )
             db.add(evt)
             db.commit()
@@ -656,6 +669,14 @@ class PersistentStore:
                     evt.location = value
                 elif key == "metadata":
                     evt.event_metadata = value
+                elif key == "is_all_day":
+                    evt.is_all_day = value
+                elif key == "recurrence_rule":
+                    evt.recurrence_rule = value
+                elif key == "attendees":
+                    evt.attendees = value
+                elif key == "color":
+                    evt.color = value
             db.commit()
             db.refresh(evt)
             logger.info("updated event: %s (%s)", evt.provider_event_id, evt.title)
@@ -1137,6 +1158,265 @@ class PersistentStore:
             if row is None:
                 return False
             db.delete(row)
+            db.commit()
+            return True
+
+
+    # --- Email Labels (Phase 4) ---
+
+    def list_email_labels(self) -> list[dict[str, Any]]:
+        """List all custom email labels for the current user."""
+        with self._session() as db:
+            rows = db.query(EmailLabel).filter(
+                EmailLabel.user_id == _uid(),
+            ).order_by(EmailLabel.name).all()
+            return [{"id": r.id, "name": r.name, "color": r.color} for r in rows]
+
+    def create_email_label(self, name: str, color: str = "#6366f1") -> dict[str, Any]:
+        """Create a new custom email label."""
+        with self._session() as db:
+            lbl = EmailLabel(user_id=_uid(), name=name, color=color)
+            db.add(lbl)
+            db.commit()
+            db.refresh(lbl)
+            return {"id": lbl.id, "name": lbl.name, "color": lbl.color}
+
+    def delete_email_label(self, label_id: str) -> bool:
+        """Delete a custom email label."""
+        with self._session() as db:
+            lbl = db.query(EmailLabel).filter(
+                EmailLabel.id == label_id,
+                EmailLabel.user_id == _uid(),
+            ).first()
+            if not lbl:
+                return False
+            db.delete(lbl)
+            db.commit()
+            return True
+
+    # --- Email Filters (Phase 4) ---
+
+    def list_email_filters(self) -> list[dict[str, Any]]:
+        """List all email filter rules for the current user."""
+        with self._session() as db:
+            rows = db.query(EmailFilter).filter(
+                EmailFilter.user_id == _uid(),
+            ).order_by(EmailFilter.created_at).all()
+            return [{
+                "id": r.id, "name": r.name, "field": r.field,
+                "pattern": r.pattern, "action": r.action,
+                "action_value": r.action_value, "is_active": r.is_active,
+            } for r in rows]
+
+    def create_email_filter(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new email filter rule."""
+        with self._session() as db:
+            flt = EmailFilter(
+                user_id=_uid(),
+                name=data["name"],
+                field=data.get("field", "from"),
+                pattern=data["pattern"],
+                action=data.get("action", "label"),
+                action_value=data.get("action_value"),
+                is_active=data.get("is_active", True),
+            )
+            db.add(flt)
+            db.commit()
+            db.refresh(flt)
+            return {
+                "id": flt.id, "name": flt.name, "field": flt.field,
+                "pattern": flt.pattern, "action": flt.action,
+                "action_value": flt.action_value, "is_active": flt.is_active,
+            }
+
+    def delete_email_filter(self, filter_id: str) -> bool:
+        """Delete an email filter rule."""
+        with self._session() as db:
+            flt = db.query(EmailFilter).filter(
+                EmailFilter.id == filter_id,
+                EmailFilter.user_id == _uid(),
+            ).first()
+            if not flt:
+                return False
+            db.delete(flt)
+            db.commit()
+            return True
+
+    # --- Email Snooze (Phase 4) ---
+
+    def snooze_email(self, provider_connection_id: str, provider_message_id: str,
+                     snooze_until: datetime) -> dict[str, Any]:
+        """Snooze an email until a future time."""
+        with self._session() as db:
+            sz = EmailSnooze(
+                user_id=_uid(),
+                provider_connection_id=provider_connection_id,
+                provider_message_id=provider_message_id,
+                snooze_until=snooze_until,
+            )
+            db.add(sz)
+            db.commit()
+            db.refresh(sz)
+            return {
+                "id": sz.id,
+                "provider_connection_id": sz.provider_connection_id,
+                "provider_message_id": sz.provider_message_id,
+                "snooze_until": sz.snooze_until.isoformat(),
+            }
+
+    def list_snoozed_emails(self) -> list[dict[str, Any]]:
+        """List all snoozed emails for the current user."""
+        with self._session() as db:
+            rows = db.query(EmailSnooze).filter(
+                EmailSnooze.user_id == _uid(),
+            ).order_by(EmailSnooze.snooze_until).all()
+            return [{
+                "id": r.id,
+                "provider_connection_id": r.provider_connection_id,
+                "provider_message_id": r.provider_message_id,
+                "snooze_until": r.snooze_until.isoformat(),
+            } for r in rows]
+
+    def unsnooze_email(self, snooze_id: str) -> bool:
+        """Remove a snooze record (return email to inbox)."""
+        with self._session() as db:
+            sz = db.query(EmailSnooze).filter(
+                EmailSnooze.id == snooze_id,
+                EmailSnooze.user_id == _uid(),
+            ).first()
+            if not sz:
+                return False
+            db.delete(sz)
+            db.commit()
+            return True
+
+    # --- Scheduled Emails (Phase 4) ---
+
+    def schedule_email(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Schedule an email to be sent at a future time."""
+        with self._session() as db:
+            scheduled_for = data["scheduled_for"]
+            if isinstance(scheduled_for, str):
+                scheduled_for = datetime.fromisoformat(scheduled_for.replace("Z", "+00:00"))
+                if scheduled_for.tzinfo is None:
+                    scheduled_for = scheduled_for.replace(tzinfo=UTC)
+                scheduled_for = scheduled_for.astimezone(UTC)
+
+            se = ScheduledEmail(
+                user_id=_uid(),
+                provider_connection_id=data["provider_connection_id"],
+                to_addresses=data["to_addresses"],
+                subject=data["subject"],
+                body_text=data["body_text"],
+                attachments=data.get("attachments"),
+                scheduled_for=scheduled_for,
+                status="pending",
+            )
+            db.add(se)
+            db.commit()
+            db.refresh(se)
+            return {
+                "id": se.id,
+                "provider_connection_id": se.provider_connection_id,
+                "to_addresses": se.to_addresses,
+                "subject": se.subject,
+                "body_text": se.body_text,
+                "scheduled_for": se.scheduled_for.isoformat(),
+                "status": se.status,
+            }
+
+    def list_scheduled_emails(self) -> list[dict[str, Any]]:
+        """List all scheduled emails for the current user."""
+        with self._session() as db:
+            rows = db.query(ScheduledEmail).filter(
+                ScheduledEmail.user_id == _uid(),
+                ScheduledEmail.status == "pending",
+            ).order_by(ScheduledEmail.scheduled_for).all()
+            return [{
+                "id": r.id,
+                "provider_connection_id": r.provider_connection_id,
+                "to_addresses": r.to_addresses,
+                "subject": r.subject,
+                "body_text": r.body_text,
+                "scheduled_for": r.scheduled_for.isoformat(),
+                "status": r.status,
+            } for r in rows]
+
+    def cancel_scheduled_email(self, sched_id: str) -> bool:
+        """Cancel a scheduled email."""
+        with self._session() as db:
+            se = db.query(ScheduledEmail).filter(
+                ScheduledEmail.id == sched_id,
+                ScheduledEmail.user_id == _uid(),
+            ).first()
+            if not se:
+                return False
+            db.delete(se)
+            db.commit()
+            return True
+
+    # --- Email Templates (Phase 4) ---
+
+    def list_email_templates(self) -> list[dict[str, Any]]:
+        """List all email templates for the current user."""
+        with self._session() as db:
+            rows = db.query(EmailTemplate).filter(
+                EmailTemplate.user_id == _uid(),
+            ).order_by(EmailTemplate.name).all()
+            return [{
+                "id": r.id, "name": r.name,
+                "subject": r.subject, "body_text": r.body_text,
+            } for r in rows]
+
+    def create_email_template(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new email template."""
+        with self._session() as db:
+            tpl = EmailTemplate(
+                user_id=_uid(),
+                name=data["name"],
+                subject=data.get("subject"),
+                body_text=data["body_text"],
+            )
+            db.add(tpl)
+            db.commit()
+            db.refresh(tpl)
+            return {
+                "id": tpl.id, "name": tpl.name,
+                "subject": tpl.subject, "body_text": tpl.body_text,
+            }
+
+    def update_email_template(self, tpl_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update an existing email template."""
+        with self._session() as db:
+            tpl = db.query(EmailTemplate).filter(
+                EmailTemplate.id == tpl_id,
+                EmailTemplate.user_id == _uid(),
+            ).first()
+            if not tpl:
+                return None
+            if "name" in patch:
+                tpl.name = patch["name"]
+            if "subject" in patch:
+                tpl.subject = patch["subject"]
+            if "body_text" in patch:
+                tpl.body_text = patch["body_text"]
+            db.commit()
+            db.refresh(tpl)
+            return {
+                "id": tpl.id, "name": tpl.name,
+                "subject": tpl.subject, "body_text": tpl.body_text,
+            }
+
+    def delete_email_template(self, tpl_id: str) -> bool:
+        """Delete an email template."""
+        with self._session() as db:
+            tpl = db.query(EmailTemplate).filter(
+                EmailTemplate.id == tpl_id,
+                EmailTemplate.user_id == _uid(),
+            ).first()
+            if not tpl:
+                return False
+            db.delete(tpl)
             db.commit()
             return True
 

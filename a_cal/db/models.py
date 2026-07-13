@@ -155,6 +155,10 @@ class CalendarEvent(Base):
     location = Column(String(500), nullable=True)
     source_sub_account_id = Column(String(36), ForeignKey("a_cal_sub_accounts.id"), nullable=True)
     event_metadata = Column(JSONType, nullable=False, default=dict)
+    is_all_day = Column(Boolean, nullable=False, default=False)
+    recurrence_rule = Column(Text, nullable=True)
+    attendees = Column(JSONType, nullable=True)
+    color = Column(String(20), nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
 
 
@@ -442,3 +446,71 @@ def get_session() -> Session:
     """Get a new database session."""
     _, session_local = _get_engine_and_session()
     return session_local()
+
+
+class EmailLabel(Base):
+    """A custom, color-coded label for organizing email messages."""
+    __tablename__ = "a_cal_email_labels"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(100), nullable=False)
+    color = Column(String(20), nullable=False, default="#6366f1")
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class EmailFilter(Base):
+    """An auto-apply filter rule for incoming email."""
+    __tablename__ = "a_cal_email_filters"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(100), nullable=False)
+    field = Column(String(50), nullable=False)
+    pattern = Column(String(500), nullable=False)
+    action = Column(String(50), nullable=False, default="label")
+    action_value = Column(String(200), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class EmailSnooze(Base):
+    """A snoozed email — hidden from inbox until the snooze_until time."""
+    __tablename__ = "a_cal_email_snoozes"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    provider_connection_id = Column(String(36), nullable=False)
+    provider_message_id = Column(String(255), nullable=False)
+    snooze_until = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ScheduledEmail(Base):
+    """An email scheduled to be sent at a future time."""
+    __tablename__ = "a_cal_scheduled_emails"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    provider_connection_id = Column(String(36), nullable=False)
+    to_addresses = Column(JSONType, nullable=False)
+    subject = Column(String(500), nullable=False)
+    body_text = Column(Text, nullable=False)
+    attachments = Column(JSONType, nullable=True)
+    scheduled_for = Column(DateTime, nullable=False)
+    status = Column(String(50), nullable=False, default="pending")
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class EmailTemplate(Base):
+    """A reusable email template (canned response)."""
+    __tablename__ = "a_cal_email_templates"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(100), nullable=False)
+    subject = Column(String(500), nullable=True)
+    body_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)

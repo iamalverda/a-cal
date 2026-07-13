@@ -55,6 +55,14 @@ import type {
   AuthUser,
   FlagRecord,
   VerificationStatus,
+  EmailLabel,
+  EmailFilter,
+  EmailSnooze,
+  ScheduledEmail,
+  EmailTemplate,
+  VacationConfig,
+  EmailSummary,
+  EventAttendee,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -182,6 +190,10 @@ export const api = {
     description?: string;
     location?: string;
     source_sub_account_id?: string;
+    is_all_day?: boolean;
+    recurrence_rule?: string;
+    attendees?: Array<{ email: string; name?: string; status?: string }>;
+    color?: string;
   }): Promise<UnifiedEvent> {
     return fetchJson(`${API_BASE}/calendar/events`, {
       method: "POST",
@@ -199,6 +211,164 @@ export const api = {
   async deleteEvent(eventId: string): Promise<{ status: string }> {
     return fetchJson(`${API_BASE}/calendar/events/${eventId}`, {
       method: "DELETE",
+    });
+  },
+
+  // --- Phase 4: Advanced Email — Labels, Filters, Snooze, Scheduled,
+  //     Vacation, Templates, AI Summarization ---------------------------
+
+  /** List all custom email labels. */
+  async listEmailLabels(): Promise<EmailLabel[]> {
+    return fetchJson(`${API_BASE}/email/labels`);
+  },
+
+  /** Create a custom email label. */
+  async createEmailLabel(name: string, color: string): Promise<EmailLabel> {
+    return fetchJson(`${API_BASE}/email/labels`, {
+      method: "POST",
+      body: JSON.stringify({ name, color }),
+    });
+  },
+
+  /** Delete a custom email label. */
+  async deleteEmailLabel(labelId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/labels/${labelId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** List all email filter rules. */
+  async listEmailFilters(): Promise<EmailFilter[]> {
+    return fetchJson(`${API_BASE}/email/filters`);
+  },
+
+  /** Create an email filter rule. */
+  async createEmailFilter(data: {
+    name: string;
+    field: string;
+    pattern: string;
+    action: string;
+    action_value?: string;
+    is_active?: boolean;
+  }): Promise<EmailFilter> {
+    return fetchJson(`${API_BASE}/email/filters`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Delete an email filter rule. */
+  async deleteEmailFilter(filterId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/filters/${filterId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** Snooze an email until a future time. */
+  async snoozeEmail(providerConnectionId: string, providerMessageId: string, snoozeUntil: string): Promise<EmailSnooze> {
+    return fetchJson(`${API_BASE}/email/snooze`, {
+      method: "POST",
+      body: JSON.stringify({
+        provider_connection_id: providerConnectionId,
+        provider_message_id: providerMessageId,
+        snooze_until: snoozeUntil,
+      }),
+    });
+  },
+
+  /** List all snoozed emails. */
+  async listSnoozedEmails(): Promise<EmailSnooze[]> {
+    return fetchJson(`${API_BASE}/email/snoozed`);
+  },
+
+  /** Remove a snooze (return email to inbox). */
+  async unsnoozeEmail(snoozeId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/snoozed/${snoozeId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** Schedule an email to be sent at a future time. */
+  async scheduleEmail(data: {
+    provider_connection_id: string;
+    to_addresses: string[];
+    subject: string;
+    body_text: string;
+    attachments?: Array<{ filename: string; content_type: string; content: string }>;
+    scheduled_for: string;
+  }): Promise<ScheduledEmail> {
+    return fetchJson(`${API_BASE}/email/schedule`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** List all pending scheduled emails. */
+  async listScheduledEmails(): Promise<ScheduledEmail[]> {
+    return fetchJson(`${API_BASE}/email/scheduled`);
+  },
+
+  /** Cancel a scheduled email. */
+  async cancelScheduledEmail(schedId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/scheduled/${schedId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** Get vacation auto-responder config. */
+  async getVacationConfig(): Promise<VacationConfig> {
+    return fetchJson(`${API_BASE}/email/vacation`);
+  },
+
+  /** Update vacation auto-responder config. */
+  async updateVacationConfig(data: VacationConfig): Promise<VacationConfig> {
+    return fetchJson(`${API_BASE}/email/vacation`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** List all email templates. */
+  async listEmailTemplates(): Promise<EmailTemplate[]> {
+    return fetchJson(`${API_BASE}/email/templates`);
+  },
+
+  /** Create an email template. */
+  async createEmailTemplate(data: {
+    name: string;
+    subject?: string;
+    body_text: string;
+  }): Promise<EmailTemplate> {
+    return fetchJson(`${API_BASE}/email/templates`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Update an email template. */
+  async updateEmailTemplate(tplId: string, data: {
+    name?: string;
+    subject?: string;
+    body_text?: string;
+  }): Promise<EmailTemplate> {
+    return fetchJson(`${API_BASE}/email/templates/${tplId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Delete an email template. */
+  async deleteEmailTemplate(tplId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/templates/${tplId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** Generate an AI summary of an email. */
+  async summarizeEmail(bodyText: string, subject: string): Promise<EmailSummary> {
+    return fetchJson(`${API_BASE}/email/summarize`, {
+      method: "POST",
+      body: JSON.stringify({ body_text: bodyText, subject }),
     });
   },
 
