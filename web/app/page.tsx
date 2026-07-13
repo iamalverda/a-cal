@@ -35,6 +35,13 @@ export default function Page() {
   const [mode, setMode] = useState<SkillMode>("pro");
   const [showSettings, setShowSettings] = useState(false);
   const [dark, setDark] = useState(true);
+
+  /** Sync the dark class on <html> with the dark state. */
+  useEffect(() => {
+    const root = document.documentElement;
+    if (dark) root.classList.add("dark");
+    else root.classList.remove("dark");
+  }, [dark]);
   const [subAccounts, setSubAccounts] = useState<SubAccount[]>(mockSubAccounts);
   const [providers, setProviders] = useState<Record<string, ProviderConnection[]>>(mockProviders);
   const [events, setEvents] = useState<UnifiedEvent[]>(mockEvents);
@@ -206,7 +213,7 @@ export default function Page() {
   );
 
   return (
-    <div className={`flex h-screen overflow-hidden ${dark ? "dark" : ""}`}>
+    <div className="flex h-screen overflow-hidden">
       {/* Left sidebar — branding + sub-accounts */}
       <aside className={cn(
         "w-64 shrink-0 border-r border-[var(--border)] flex-col bg-[var(--card)] z-50",
