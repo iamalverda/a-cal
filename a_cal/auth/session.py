@@ -264,29 +264,38 @@ def me(request: Request) -> UserResponse | None:
 # Middleware — sets the contextvar from the session on every request.
 # ---------------------------------------------------------------------------
 
-from starlette.middleware.base import BaseHTTPMiddleware
+class AuthMiddleware:
+    """Pure-ASGI middleware that sets the current-user contextvar per request.
 
+    Implemented as raw ASGI (not Starlette's ``BaseHTTPMiddleware``) on
+    purpose: ``BaseHTTPMiddleware`` runs the downstream app in a separate
+    task, so a contextvar set inside its ``dispatch`` does NOT propagate to
+    the endpoint — every request would silently fall back to the default
+    user. A pure-ASGI middleware calls the app in the same task, so the
+    contextvar is visible to route handlers and the store's ``_uid()``.
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    """Sets the current user ID contextvar from the session cookie.
-
-    Must be installed AFTER SessionMiddleware so that ``request.session``
-    is available.
+    Must be installed INNER of ``SessionMiddleware`` (i.e. SessionMiddleware
+    added last so it is outermost) so that ``scope["session"]`` is already
+    populated when this runs.
     """
 
-    async def dispatch(self, request, call_next):
-        """Extract user_id from session and set it in the contextvar."""
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         user_id = "local-dev-user"
-        try:
-            session_user = request.session.get("user_id")
+        session = scope.get("session")
+        if session:
+            session_user = session.get("user_id")
             if session_user:
                 user_id = str(session_user)
-        except Exception:
-            pass
 
         token = set_current_user_id(user_id)
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, send)
         finally:
             reset_current_user_id(token)
-        return response

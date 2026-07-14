@@ -313,6 +313,92 @@ class TestWebhooks:
         assert isinstance(r.json(), list)
 
 
+class TestWebhookTenantIsolation:
+    """A public booking must dispatch webhooks ONLY to the event-type owner.
+
+    Regression guard for the cross-tenant leak: previously an unauthenticated
+    booking fanned attendee PII out to every user's webhook endpoints.
+    """
+
+    def test_public_booking_webhook_does_not_leak_across_tenants(self, monkeypatch):
+        from a_cal.integrations import webhooks as webhook_mod
+
+        # Capture outbound webhook POSTs instead of hitting the network.
+        called_urls: list[str] = []
+
+        class _Resp:
+            status_code = 200
+            text = "ok"
+
+        def _fake_post(url, **kwargs):
+            called_urls.append(url)
+            return _Resp()
+
+        monkeypatch.setattr(webhook_mod.httpx, "post", _fake_post)
+
+        # User A: owns the booking page and a webhook.
+        client.post("/api/a-cal/auth/register", json={
+            "email": "owner-a@example.com", "password": "password-a-123",
+        })
+        client.post("/api/a-cal/webhooks", json={
+            "url": "https://a.example/hook", "events": ["*"],
+        })
+        client.post("/api/a-cal/event-types", json={
+            "title": "A Intro", "slug": "a-intro",
+            "duration_minutes": 30, "min_notice_hours": 0, "video_provider": "",
+        })
+
+        # User B: a different tenant with their own webhook (the would-be snoop).
+        client.post("/api/a-cal/auth/register", json={
+            "email": "snoop-b@example.com", "password": "password-b-123",
+        })
+        client.post("/api/a-cal/webhooks", json={
+            "url": "https://b.example/hook", "events": ["*"],
+        })
+
+        # A booking on A's public page — made while B's session is active, to
+        # prove dispatch keys off the event-type owner, not the caller.
+        tomorrow = (datetime.datetime.now(UTC) + timedelta(days=1)).strftime("%Y-%m-%d")
+        slots = client.get(f"/api/a-cal/booking/a-intro/slots?date={tomorrow}").json()["slots"]
+        assert slots, "expected available slots for the booking page"
+
+        r = client.post("/api/a-cal/booking/a-intro", json={
+            "attendee_name": "Attendee", "attendee_email": "attendee@example.com",
+            "start_time": slots[0]["start"], "answers": {},
+        })
+        assert r.status_code == 200
+
+        # Only A's webhook received the attendee payload; B's never saw it.
+        assert called_urls == ["https://a.example/hook"], called_urls
+
+    def test_two_registered_users_are_isolated_over_http(self):
+        """Regression guard for the auth-context middleware.
+
+        Two logged-in users making ordinary CRUD calls must each see only
+        their own data. This fails if AuthMiddleware ever stops propagating
+        the session user to endpoints (e.g. reverting to BaseHTTPMiddleware),
+        which would silently collapse every request onto one shared user.
+        """
+        # User A creates a team.
+        client.post("/api/a-cal/auth/register", json={
+            "email": "crud-a@example.com", "password": "password-a-123",
+        })
+        client.post("/api/a-cal/teams", json={"name": "A's Team"})
+        a_teams = client.get("/api/a-cal/teams").json()
+        assert [t["name"] for t in a_teams] == ["A's Team"]
+
+        # User B logs in fresh and must NOT see A's team.
+        client.post("/api/a-cal/auth/register", json={
+            "email": "crud-b@example.com", "password": "password-b-123",
+        })
+        b_teams = client.get("/api/a-cal/teams").json()
+        assert [t["name"] for t in b_teams] == []
+
+        client.post("/api/a-cal/teams", json={"name": "B's Team"})
+        b_teams = client.get("/api/a-cal/teams").json()
+        assert [t["name"] for t in b_teams] == ["B's Team"]
+
+
 # --- Payments --------------------------------------------------------------
 
 class TestPayments:

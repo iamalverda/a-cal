@@ -25,13 +25,17 @@ from pydantic import BaseModel, Field
 from a_cal.db.store import PersistentStore
 
 # Phase 5: webhook dispatch + workflow triggers (lazy import to avoid circular deps)
-def _dispatch_webhook(event_type: str, payload: dict) -> None:
-    """Fire webhook event for booking lifecycle events."""
+def _dispatch_webhook(event_type: str, payload: dict, owner_user_id: str) -> None:
+    """Fire a webhook event to the resource owner's webhooks only.
+
+    ``owner_user_id`` scopes delivery to the event-type owner so a public
+    booking never dispatches to another tenant's webhook endpoints.
+    """
     try:
         from a_cal.integrations.webhooks import dispatch_event
-        dispatch_event(event_type, payload)
-    except Exception:
-        pass
+        dispatch_event(event_type, payload, owner_user_id)
+    except Exception as exc:
+        logger.warning("webhook dispatch for %s failed: %s", event_type, exc)
 
 def _trigger_workflows(trigger: str, context: dict) -> None:
     """Run workflows matching the given trigger.
@@ -60,8 +64,8 @@ def _trigger_workflows(trigger: str, context: dict) -> None:
             loop.create_task(
                 runner.run(wf, initial_message=str(context))
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("workflow trigger %r failed: %s", trigger, exc)
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +317,9 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
         except Exception as exc:
             logger.warning("Confirmation email failed for booking %s: %s", booking["id"], exc)
 
-    # Phase 5: Dispatch webhook event
+    # Phase 5: Dispatch webhook event — only to the event-type owner's
+    # webhooks. booking["user_id"] is stamped from the event type's owner
+    # in create_booking, so a public booking never reaches other tenants.
     _dispatch_webhook("booking.created", {
         "booking_id": booking["id"],
         "event_type_id": et["id"],
@@ -323,7 +329,7 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
         "start_time": booking["start_time"],
         "assigned_member_id": assigned_member_id,
         "is_paid": et.get("is_paid", False),
-    })
+    }, booking["user_id"])
 
     # Phase 5: Trigger booking-related workflows
     _trigger_workflows("booking_created", {

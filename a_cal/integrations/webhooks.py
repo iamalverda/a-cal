@@ -12,7 +12,6 @@ import hashlib
 import hmac
 import json
 import logging
-from datetime import datetime, UTC
 from typing import Any
 
 import httpx
@@ -37,17 +36,23 @@ def _sign_payload(payload: bytes, secret: str) -> str:
     return hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
 
 
-def dispatch_event(event_type: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Dispatch an event to all subscribed active webhooks.
+def dispatch_event(
+    event_type: str, payload: dict[str, Any], owner_user_id: str,
+) -> list[dict[str, Any]]:
+    """Dispatch an event to a single owner's subscribed active webhooks.
 
     Args:
         event_type: Event name (e.g. ``booking.created``, ``booking.cancelled``).
         payload: Event data to send as JSON body.
+        owner_user_id: The user who owns the resource that fired the event
+            (e.g. the event-type owner for a public booking). Only this
+            user's webhooks receive the payload, so bookings never fan out
+            to other tenants' endpoints.
 
     Returns:
         List of delivery result dicts (one per webhook).
     """
-    webhooks = _store.list_active_webhooks_for_event(event_type)
+    webhooks = _store.list_active_webhooks_for_event(event_type, owner_user_id)
     if not webhooks:
         return []
 
@@ -84,10 +89,7 @@ def dispatch_event(event_type: str, payload: dict[str, Any]) -> list[dict[str, A
             "response_body": response_body,
         })
 
-        _store.update_webhook(hook["id"], {
-            "last_delivery_at": datetime.now(UTC),
-            "last_status": status_code,
-        })
+        _store.mark_webhook_delivered(hook["id"], status_code)
 
         results.append(delivery)
 

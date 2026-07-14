@@ -96,6 +96,23 @@ _cors_origins = [
     if o.strip()
 ]
 
+_DEV_SESSION_SECRET = "a-cal-dev-secret-change-in-production-do-not-use-in-prod"
+_session_secret = os.environ.get("A_CAL_SESSION_SECRET", _DEV_SESSION_SECRET)
+if _session_secret == _DEV_SESSION_SECRET:
+    logger.warning(
+        "A_CAL_SESSION_SECRET is unset — using the built-in dev secret. Session "
+        "cookies are forgeable; set A_CAL_SESSION_SECRET to a random value before "
+        "exposing this server to real users."
+    )
+
+# Middleware stack, outermost -> innermost: CORS -> Session -> Auth -> app.
+# Starlette makes the LAST-added middleware the OUTERMOST, so these are added
+# in reverse: AuthMiddleware first (innermost), then SessionMiddleware, then
+# CORS last (outermost). SessionMiddleware MUST be outer of AuthMiddleware so
+# that scope["session"] is populated before AuthMiddleware reads it to set the
+# current-user contextvar.
+app.add_middleware(AuthMiddleware)
+app.add_middleware(SessionMiddleware, secret_key=_session_secret)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -103,15 +120,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Session middleware (signed cookie) + auth context middleware.
-# AuthMiddleware must run after SessionMiddleware so request.session is available.
-_session_secret = os.environ.get(
-    "A_CAL_SESSION_SECRET",
-    "a-cal-dev-secret-change-in-production-do-not-use-in-prod",
-)
-app.add_middleware(SessionMiddleware, secret_key=_session_secret)
-app.add_middleware(AuthMiddleware)
 
 app.include_router(agent_router)
 app.include_router(swarm_router)

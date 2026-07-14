@@ -21,12 +21,18 @@ from __future__ import annotations
 
 import logging
 import secrets
+import time
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlencode
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# OAuth authorization codes are short-lived; a pending flow that isn't
+# completed within this window is abandoned. Bounds memory growth and
+# limits the replay window for a leaked state token.
+_STATE_TTL_SECONDS = 600
 
 # OAuth endpoint URLs (publicly documented, not secrets).
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -56,9 +62,9 @@ OAUTH_SCOPES: dict[str, list[str]] = {
     ],
 }
 
-# In-memory state store for OAuth flows (state token → provider connection ID).
+# In-memory state store for OAuth flows (state token → (connection ID, created_at)).
 # In production with atom, this uses atom's session store.
-_state_store: dict[str, str] = {}
+_state_store: dict[str, tuple[str, float]] = {}
 
 
 def get_oauth_config(provider_type: str, connection_config: dict[str, Any]) -> dict[str, str]:
@@ -107,7 +113,7 @@ def build_auth_url(
         )
 
     state = secrets.token_urlsafe(32)
-    _state_store[state] = connection_id
+    _state_store[state] = (connection_id, time.time())
 
     scopes = OAUTH_SCOPES.get(provider_type, [])
     scope_str = " ".join(scopes)
@@ -192,9 +198,17 @@ async def exchange_code_for_tokens(
 def validate_state(state: str) -> str | None:
     """Validate an OAuth state token and return the associated connection ID.
 
-    Returns None if the state is invalid or expired.
+    The token is single-use (popped on read) and expires after
+    ``_STATE_TTL_SECONDS``. Returns None if the state is unknown or expired.
     """
-    return _state_store.pop(state, None)
+    entry = _state_store.pop(state, None)
+    if entry is None:
+        return None
+    connection_id, created_at = entry
+    if time.time() - created_at > _STATE_TTL_SECONDS:
+        logger.info("OAuth state expired for connection %s", connection_id)
+        return None
+    return connection_id
 
 
 def build_redirect_uri(provider_id: str, base_url: str = "http://localhost:8000") -> str:

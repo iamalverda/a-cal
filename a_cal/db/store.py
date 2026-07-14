@@ -464,9 +464,38 @@ class PersistentStore:
             rows = q.all()
             return [_serialize_provider(r) for r in rows]
 
+    def _provider_if_owned(self, db: Session, provider_id: str) -> ProviderConnection | None:
+        """Return the provider row only if it belongs to the current user.
+
+        Provider connections have no ``user_id`` of their own — ownership is
+        derived from the parent sub-account. This joins through
+        ``SubAccount`` so a user can never read or mutate another user's
+        provider connection by guessing its ID.
+        """
+        return (
+            db.query(ProviderConnection)
+            .join(SubAccount, ProviderConnection.sub_account_id == SubAccount.id)
+            .filter(
+                ProviderConnection.id == provider_id,
+                SubAccount.user_id == _uid(),
+            )
+            .first()
+        )
+
     def create_provider(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Create a new provider connection."""
+        """Create a new provider connection.
+
+        The target sub-account must belong to the current user; otherwise a
+        ``ValueError`` is raised so a user cannot attach a provider to
+        someone else's sub-account.
+        """
         with self._session() as db:
+            owns_sub = db.query(SubAccount).filter(
+                SubAccount.id == data["sub_account_id"],
+                SubAccount.user_id == _uid(),
+            ).first()
+            if owns_sub is None:
+                raise ValueError("Sub-account not found")
             import uuid as _uuid
             p = ProviderConnection(
                 id=f"pc-{_uuid.uuid4().hex[:8]}",
@@ -490,12 +519,10 @@ class PersistentStore:
             provider_id: The ID of the provider connection to delete.
 
         Returns:
-            True if deleted, False if not found.
+            True if deleted, False if not found or not owned.
         """
         with self._session() as db:
-            p = db.query(ProviderConnection).filter(
-                ProviderConnection.id == provider_id,
-            ).first()
+            p = self._provider_if_owned(db, provider_id)
             if not p:
                 return False
             db.delete(p)
@@ -511,12 +538,10 @@ class PersistentStore:
             status: New status (pending, connected, error, revoked).
 
         Returns:
-            Updated provider dict, or None if not found.
+            Updated provider dict, or None if not found or not owned.
         """
         with self._session() as db:
-            p = db.query(ProviderConnection).filter(
-                ProviderConnection.id == provider_id,
-            ).first()
+            p = self._provider_if_owned(db, provider_id)
             if not p:
                 return None
             p.status = status
@@ -533,12 +558,11 @@ class PersistentStore:
             provider_id: The provider connection ID.
 
         Returns:
-            Provider dict (including config and scopes) or None if not found.
+            Provider dict (including config and scopes) or None if not found
+            or not owned by the current user.
         """
         with self._session() as db:
-            p = db.query(ProviderConnection).filter(
-                ProviderConnection.id == provider_id,
-            ).first()
+            p = self._provider_if_owned(db, provider_id)
             if not p:
                 return None
             return _serialize_provider(p)
@@ -556,12 +580,10 @@ class PersistentStore:
             config: Config fields to merge into the stored config.
 
         Returns:
-            Updated provider dict, or None if not found.
+            Updated provider dict, or None if not found or not owned.
         """
         with self._session() as db:
-            p = db.query(ProviderConnection).filter(
-                ProviderConnection.id == provider_id,
-            ).first()
+            p = self._provider_if_owned(db, provider_id)
             if not p:
                 return None
             merged = dict(p.config or {})
@@ -924,6 +946,28 @@ class PersistentStore:
             ).order_by(EventTypeDB.created_at).all()
             return [_serialize_event_type(r) for r in rows]
 
+    def _ensure_unique_slug(
+        self, db: Session, desired: str, exclude_id: str | None = None,
+    ) -> str:
+        """Return a globally-unique event-type slug.
+
+        Slugs address public booking pages (``/booking/{slug}``) and
+        ``get_event_type_by_slug`` matches on slug alone, so a slug must be
+        unique across all users — otherwise a booking could resolve to the
+        wrong owner. Collisions are suffixed ``-2``, ``-3``, ….
+        """
+        base = (desired or "event").strip().lower() or "event"
+        candidate = base
+        n = 1
+        while True:
+            q = db.query(EventTypeDB).filter(EventTypeDB.slug == candidate)
+            if exclude_id:
+                q = q.filter(EventTypeDB.id != exclude_id)
+            if q.first() is None:
+                return candidate
+            n += 1
+            candidate = f"{base}-{n}"
+
     def create_event_type(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new event type and persist it to the database.
 
@@ -935,10 +979,11 @@ class PersistentStore:
             The created event type as a dict.
         """
         with self._session() as db:
+            slug = self._ensure_unique_slug(db, data.get("slug") or data.get("title", "30-min"))
             et = EventTypeDB(
                 user_id=_uid(),
                 title=data.get("title", "30 Minute Meeting"),
-                slug=data.get("slug", "30-min"),
+                slug=slug,
                 duration_minutes=data.get("duration_minutes", 30),
                 description=data.get("description", ""),
                 scheduling_type=data.get("scheduling_type", "collective"),
@@ -1032,6 +1077,9 @@ class PersistentStore:
             ).first()
             if row is None:
                 return None
+            if "slug" in patch and patch["slug"]:
+                patch = dict(patch)
+                patch["slug"] = self._ensure_unique_slug(db, patch["slug"], exclude_id=et_id)
             for key, val in patch.items():
                 if key == "metadata":
                     row.event_metadata = val
@@ -1534,10 +1582,28 @@ class PersistentStore:
     # --- Team Members ---
 
     def list_team_members(self, team_id: str) -> list[dict[str, Any]]:
-        """List all members of a team."""
+        """List all members of a team the current user owns.
+
+        Returns an empty list if the team does not belong to the current
+        user, so members cannot be enumerated cross-tenant by team ID.
+        """
         with self._session() as db:
+            owns = db.query(Team).filter(
+                Team.id == team_id, Team.user_id == _uid(),
+            ).first()
+            if owns is None:
+                return []
             rows = db.query(TeamMember).filter(TeamMember.team_id == team_id).all()
             return [self._serialize_team_member(r) for r in rows]
+
+    def _member_if_owned(self, db: Session, member_id: str) -> TeamMember | None:
+        """Return a team member only if its team belongs to the current user."""
+        return (
+            db.query(TeamMember)
+            .join(Team, TeamMember.team_id == Team.id)
+            .filter(TeamMember.id == member_id, Team.user_id == _uid())
+            .first()
+        )
 
     def add_team_member(self, data: dict[str, Any]) -> dict[str, Any]:
         """Add a member to a team."""
@@ -1556,9 +1622,9 @@ class PersistentStore:
             return self._serialize_team_member(member)
 
     def update_team_member(self, member_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-        """Update a team member's fields."""
+        """Update a team member's fields (only if the team is owned)."""
         with self._session() as db:
-            row = db.query(TeamMember).filter(TeamMember.id == member_id).first()
+            row = self._member_if_owned(db, member_id)
             if row is None:
                 return None
             for key, val in patch.items():
@@ -1569,9 +1635,9 @@ class PersistentStore:
             return self._serialize_team_member(row)
 
     def remove_team_member(self, member_id: str) -> bool:
-        """Remove a member from a team."""
+        """Remove a member from a team (only if the team is owned)."""
         with self._session() as db:
-            row = db.query(TeamMember).filter(TeamMember.id == member_id).first()
+            row = self._member_if_owned(db, member_id)
             if row is None:
                 return False
             db.delete(row)
@@ -1711,7 +1777,9 @@ class PersistentStore:
             db.add(hook)
             db.commit()
             db.refresh(hook)
-            return self._serialize_webhook(hook)
+            # Return the secret once, at creation time, so the owner can copy
+            # it for signature verification. List responses omit it.
+            return self._serialize_webhook(hook, include_secret=True)
 
     def update_webhook(self, webhook_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         """Update a webhook config."""
@@ -1736,22 +1804,55 @@ class PersistentStore:
             db.commit()
             return True
 
-    def list_active_webhooks_for_event(self, event_type_name: str) -> list[dict[str, Any]]:
-        """List active webhooks subscribed to a given event type."""
+    def list_active_webhooks_for_event(
+        self, event_type_name: str, user_id: str,
+    ) -> list[dict[str, Any]]:
+        """List a single user's active webhooks subscribed to an event type.
+
+        ``user_id`` is required and scopes the lookup to one owner. Event
+        dispatch (e.g. from a public, unauthenticated booking page) must pass
+        the event-type owner's ``user_id`` so a booking never fans out to
+        another tenant's webhook endpoints.
+        """
         with self._session() as db:
             rows = db.query(WebhookConfig).filter(
+                WebhookConfig.user_id == user_id,
                 WebhookConfig.is_active == True,
             ).all()
             result = []
             for r in rows:
                 events = r.events or []
                 if event_type_name in events or "*" in events:
-                    result.append(self._serialize_webhook(r))
+                    result.append(self._serialize_webhook(r, include_secret=True))
             return result
 
-    def list_webhook_deliveries(self, webhook_id: str) -> list[dict[str, Any]]:
-        """List delivery history for a specific webhook."""
+    def mark_webhook_delivered(self, webhook_id: str, last_status: int | None) -> None:
+        """Record delivery bookkeeping (last status + time) on a webhook.
+
+        Intentionally not user-scoped: the caller has already authorized the
+        webhook via ``list_active_webhooks_for_event`` (which is owner-scoped),
+        and dispatch runs in a public request context where the contextvar
+        user would not match the webhook's owner.
+        """
         with self._session() as db:
+            hook = db.query(WebhookConfig).filter(
+                WebhookConfig.id == webhook_id,
+            ).first()
+            if hook is None:
+                return
+            hook.last_delivery_at = datetime.now(UTC)
+            hook.last_status = last_status
+            db.commit()
+
+    def list_webhook_deliveries(self, webhook_id: str) -> list[dict[str, Any]]:
+        """List delivery history for a specific webhook owned by the user."""
+        with self._session() as db:
+            owns = db.query(WebhookConfig).filter(
+                WebhookConfig.id == webhook_id,
+                WebhookConfig.user_id == _uid(),
+            ).first()
+            if owns is None:
+                return []
             rows = db.query(WebhookDelivery).filter(
                 WebhookDelivery.webhook_id == webhook_id,
             ).order_by(WebhookDelivery.delivered_at.desc()).limit(50).all()
@@ -1789,18 +1890,27 @@ class PersistentStore:
             }
 
     @staticmethod
-    def _serialize_webhook(w: WebhookConfig) -> dict[str, Any]:
-        """Convert a WebhookConfig ORM object to a dict."""
-        return {
+    def _serialize_webhook(w: WebhookConfig, include_secret: bool = False) -> dict[str, Any]:
+        """Convert a WebhookConfig ORM object to a dict.
+
+        The signing ``secret`` is omitted by default so it is not echoed in
+        list responses. Callers that genuinely need it — the one-time create
+        response and the dispatcher that signs payloads — pass
+        ``include_secret=True``. ``has_secret`` always indicates presence.
+        """
+        data: dict[str, Any] = {
             "id": w.id,
             "url": w.url,
             "events": w.events or [],
-            "secret": w.secret,
+            "has_secret": bool(w.secret),
             "is_active": w.is_active,
             "last_delivery_at": w.last_delivery_at.isoformat() if w.last_delivery_at else None,
             "last_status": w.last_status,
             "created_at": w.created_at.isoformat() if w.created_at else None,
         }
+        if include_secret:
+            data["secret"] = w.secret
+        return data
 
     @staticmethod
     def _serialize_booking(b: BookingDB) -> dict[str, Any]:

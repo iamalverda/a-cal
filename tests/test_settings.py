@@ -77,6 +77,31 @@ class TestModelRouting:
         result = config.resolve_model("negotiate")
         assert result["forced_local"] == "true"
 
+    def test_privacy_force_local_flag_cannot_disable_forcing(self):
+        """Charter #2: privacy is structural, not a toggle.
+
+        Even with privacy_force_local=False and a cloud global provider,
+        email/self_model/negotiate must still resolve to a local model.
+        """
+        config = ModelRoutingConfig(
+            global_provider=ModelProvider.OPENAI.value,
+            privacy_force_local=False,
+        )
+        for task in ("email", "self_model", "negotiate"):
+            result = config.resolve_model(task)
+            assert result["forced_local"] == "true", f"{task} escaped local forcing"
+            assert result["provider"] == ModelProvider.OLLAMA.value
+
+    def test_per_task_override_cannot_bypass_privacy(self):
+        """A per-task override pointing at cloud must not leak private tasks."""
+        config = ModelRoutingConfig(
+            global_provider=ModelProvider.OLLAMA.value,
+            per_task_overrides={"email": "openai:gpt-4o"},
+        )
+        result = config.resolve_model("email")
+        assert result["forced_local"] == "true"
+        assert result["provider"] == ModelProvider.OLLAMA.value
+
     def test_per_task_override(self):
         config = ModelRoutingConfig(
             global_provider=ModelProvider.OLLAMA.value,

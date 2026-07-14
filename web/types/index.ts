@@ -865,7 +865,10 @@ export interface WebhookConfig {
   id: string;
   url: string;
   events: string[];
-  secret: string | null;
+  /** Only returned once, on the create response. Omitted from list responses. */
+  secret?: string | null;
+  /** Present in list responses: whether a signing secret is set (value hidden). */
+  has_secret?: boolean;
   is_active: boolean;
   last_delivery_at: string | null;
   last_status: number | null;

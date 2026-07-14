@@ -207,3 +207,136 @@ class TestSelfModelFactIsolation:
         facts = store.list_self_model_facts()
         assert len(facts) == 1
         assert "User A" in facts[0]["content"]
+
+
+class TestProviderIsolation:
+    """Provider connections are isolated per user via their sub-account."""
+
+    def _make_provider(self, store):
+        sa = store.create_sub_account({"name": "A's Calendar", "kind": "calendar"})
+        return store.create_provider({
+            "sub_account_id": sa["id"],
+            "provider_type": "google_calendar",
+            "provider_account_id": "a@example.com",
+        })
+
+    def test_user_cannot_read_or_mutate_others_provider(self, store, user_a):
+        """User B cannot get, delete, or update user A's provider by ID."""
+        prov = self._make_provider(store)
+        pid = prov["id"]
+
+        token_b = set_current_user_id("user-b")
+        try:
+            assert store.get_provider(pid) is None
+            assert store.delete_provider(pid) is False
+            assert store.update_provider_status(pid, "connected") is None
+            assert store.update_provider_config(pid, {"oauth_tokens": {"x": 1}}) is None
+        finally:
+            reset_current_user_id(token_b)
+
+        # User A still owns an intact, non-deleted provider.
+        still = store.get_provider(pid)
+        assert still is not None
+        assert still["status"] != "connected"
+        assert "oauth_tokens" not in (still["config"] or {})
+
+    def test_user_cannot_attach_provider_to_others_sub_account(self, store, user_a):
+        """User B cannot create a provider on user A's sub-account."""
+        sa = store.create_sub_account({"name": "A's Calendar", "kind": "calendar"})
+
+        token_b = set_current_user_id("user-b")
+        try:
+            with pytest.raises(ValueError):
+                store.create_provider({
+                    "sub_account_id": sa["id"],
+                    "provider_type": "google_calendar",
+                    "provider_account_id": "hacker@example.com",
+                })
+        finally:
+            reset_current_user_id(token_b)
+
+
+class TestWebhookIsolation:
+    """Webhooks and their deliveries are isolated per user."""
+
+    def test_dispatch_lookup_scoped_to_owner(self, store, user_a):
+        """list_active_webhooks_for_event only returns the named owner's hooks."""
+        store.create_webhook({"url": "https://a.example/hook", "events": ["*"]})
+
+        token_b = set_current_user_id("user-b")
+        try:
+            store.create_webhook({"url": "https://b.example/hook", "events": ["*"]})
+            hooks_b = store.list_active_webhooks_for_event("booking.created", "user-b")
+            assert [h["url"] for h in hooks_b] == ["https://b.example/hook"]
+        finally:
+            reset_current_user_id(token_b)
+
+        hooks_a = store.list_active_webhooks_for_event("booking.created", "user-a")
+        assert [h["url"] for h in hooks_a] == ["https://a.example/hook"]
+
+    def test_user_cannot_read_others_webhook_deliveries(self, store, user_a):
+        """User B cannot read user A's webhook delivery history."""
+        hook = store.create_webhook({"url": "https://a.example/hook", "events": ["*"]})
+        store.record_webhook_delivery({
+            "webhook_id": hook["id"],
+            "event_type": "booking.created",
+            "status_code": 200,
+        })
+
+        token_b = set_current_user_id("user-b")
+        try:
+            assert store.list_webhook_deliveries(hook["id"]) == []
+        finally:
+            reset_current_user_id(token_b)
+
+        assert len(store.list_webhook_deliveries(hook["id"])) == 1
+
+    def test_secret_returned_on_create_but_omitted_from_list(self, store, user_a):
+        """The signing secret is shown once at creation, never in list responses."""
+        created = store.create_webhook({
+            "url": "https://a.example/hook", "events": ["*"], "secret": "shh-secret",
+        })
+        assert created["secret"] == "shh-secret"
+
+        listed = store.list_webhooks()
+        assert "secret" not in listed[0]
+        assert listed[0]["has_secret"] is True
+
+
+class TestTeamMemberIsolation:
+    """Team members can only be read/modified by the team's owner."""
+
+    def test_user_cannot_list_or_modify_others_team_members(self, store, user_a):
+        team = store.create_team({"name": "A Team", "slug": "a-team"})
+        member = store.add_team_member({"team_id": team["id"], "email": "m@a.example"})
+
+        token_b = set_current_user_id("user-b")
+        try:
+            assert store.list_team_members(team["id"]) == []
+            assert store.update_team_member(member["id"], {"role": "admin"}) is None
+            assert store.remove_team_member(member["id"]) is False
+        finally:
+            reset_current_user_id(token_b)
+
+        members = store.list_team_members(team["id"])
+        assert len(members) == 1
+        assert members[0]["role"] == "member"
+
+
+class TestEventTypeSlugUniqueness:
+    """Public booking slugs are globally unique so bookings never misroute."""
+
+    def test_duplicate_slug_is_suffixed_across_users(self, store, user_a):
+        et_a = store.create_event_type({"title": "Intro Call", "slug": "intro"})
+        assert et_a["slug"] == "intro"
+
+        token_b = set_current_user_id("user-b")
+        try:
+            et_b = store.create_event_type({"title": "Intro Call", "slug": "intro"})
+            assert et_b["slug"] == "intro-2"
+        finally:
+            reset_current_user_id(token_b)
+
+        # Each public slug resolves deterministically to its true owner.
+        assert store.get_event_type_by_slug("intro")["id"] == et_a["id"]
+        assert store.get_event_type_by_slug("intro-2")["id"] == et_b["id"]

@@ -295,9 +295,9 @@ def delete_webhook(webhook_id: str) -> dict[str, str]:
 
 @router.post("/webhooks/test")
 def test_webhook_delivery(body: dict[str, Any]) -> dict[str, Any]:
-    """Dispatch a test event to all active webhooks."""
+    """Dispatch a test event to the current user's active webhooks."""
     event_type = body.get("event", "test.event")
-    results = dispatch_event(event_type, body.get("payload", {"test": True}))
+    results = dispatch_event(event_type, body.get("payload", {"test": True}), _uid())
     return {"dispatched": len(results), "deliveries": results}
 
 
