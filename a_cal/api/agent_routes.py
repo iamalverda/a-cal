@@ -47,9 +47,18 @@ class _SettingsStore:
     """
 
     def __init__(self) -> None:
-        self._db = _DBStore()
         self._conductors: dict[str, ACalConductor] = {}
         self._registries: dict[str, AgentRegistry] = {}
+
+    @property
+    def _db(self) -> _DBStore:
+        """Return the shared PersistentStore via the store module.
+
+        Reading through this property means tests only need to patch
+        ``a_cal.api.store._store`` and the change propagates here automatically.
+        """
+        from a_cal.api import store as _store_mod
+        return _store_mod._store
 
     def get_mode(self, user_id: str) -> str:
         return self._db.get_setting("skill_mode", SkillMode.PRO.value)

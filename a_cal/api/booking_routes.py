@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 
 # Phase 5: webhook dispatch + workflow triggers (lazy import to avoid circular deps)
 def _dispatch_webhook(event_type: str, payload: dict, owner_user_id: str) -> None:
@@ -64,7 +64,7 @@ def _trigger_workflows(
         # resolve the owner, not the public request user.
         token = set_current_user_id(owner_user_id) if owner_user_id else None
         try:
-            store = WorkflowStore(_db)
+            store = WorkflowStore(_store)
             wfs = store.list_workflows()
             # Map booking_created -> schedule_change workflow trigger
             wf_trigger = "schedule_change" if trigger == "booking_created" else trigger
@@ -91,7 +91,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-booking"])
 
-_db = PersistentStore()
 
 
 # --- models ----------------------------------------------------------------
@@ -181,7 +180,7 @@ def get_public_event_type(slug: str) -> dict[str, Any]:
     This endpoint is unauthenticated — anyone with the slug can view the
     booking page. Returns only the fields needed for the booking UI.
     """
-    et = _db.get_event_type_by_slug(slug)
+    et = _store.get_event_type_by_slug(slug)
     if et is None:
         raise HTTPException(status_code=404, detail="Booking page not found")
     return et
@@ -198,7 +197,7 @@ def get_booking_slots(
     Computes free slots based on the event type's availability schedule,
     buffer times, min notice, max booking window, and existing bookings.
     """
-    et = _db.get_event_type_by_slug(slug)
+    et = _store.get_event_type_by_slug(slug)
     if et is None:
         raise HTTPException(status_code=404, detail="Booking page not found")
 
@@ -264,7 +263,7 @@ def get_booking_slots(
             # Check if this slot conflicts with existing bookings
             booking_start = current + timedelta(minutes=buffer_before)
             booking_end = booking_start + timedelta(minutes=duration)
-            if _db.check_slot_available(et["id"], booking_start, booking_end):
+            if _store.check_slot_available(et["id"], booking_start, booking_end):
                 slots.append({
                     "start": booking_start.isoformat(),
                     "end": booking_end.isoformat(),
@@ -288,7 +287,7 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
     Validates the slot is available, generates a video link if configured,
     and sends a confirmation email if enabled.
     """
-    et = _db.get_event_type_by_slug(slug)
+    et = _store.get_event_type_by_slug(slug)
     if et is None:
         raise HTTPException(status_code=404, detail="Booking page not found")
 
@@ -297,7 +296,7 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
 
     # Re-check slot availability at booking time
     booking_start = body.start_time
-    if not _db.check_slot_available(et["id"], booking_start, end_time):
+    if not _store.check_slot_available(et["id"], booking_start, end_time):
         raise HTTPException(status_code=409, detail="This time slot is no longer available")
 
     # Generate video link if a provider is configured
@@ -308,14 +307,14 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
     team_id = et.get("team_id")
     strategy = et.get("assignment_strategy", "collective")
     if team_id and strategy == "round_robin":
-        member = _db.get_next_round_robin_member(team_id)
+        member = _store.get_next_round_robin_member(team_id)
         if member:
             assigned_member_id = member["id"]
 
     # Phase 5: Payment status for paid events
     payment_status = "paid" if not et.get("is_paid") else "pending_payment"
 
-    booking = _db.create_booking({
+    booking = _store.create_booking({
         "event_type_id": et["id"],
         "attendee_name": body.attendee_name,
         "attendee_email": body.attendee_email,
@@ -377,13 +376,13 @@ def list_bookings(
     event_type_id: str | None = Query(None),
 ) -> list[dict[str, Any]]:
     """List bookings for the current user."""
-    return _db.list_bookings(event_type_id)
+    return _store.list_bookings(event_type_id)
 
 
 @router.get("/bookings/{booking_id}")
 def get_booking(booking_id: str) -> dict[str, Any]:
     """Get a single booking by ID."""
-    b = _db.get_booking(booking_id)
+    b = _store.get_booking(booking_id)
     if b is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     return b
@@ -400,7 +399,7 @@ def update_booking(booking_id: str, body: BookingUpdateRequest) -> dict[str, Any
     if body.video_link is not None:
         patch["video_link"] = body.video_link
 
-    result = _db.update_booking(booking_id, patch)
+    result = _store.update_booking(booking_id, patch)
     if result is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     return result
@@ -409,7 +408,7 @@ def update_booking(booking_id: str, body: BookingUpdateRequest) -> dict[str, Any
 @router.delete("/bookings/{booking_id}")
 def delete_booking(booking_id: str) -> dict[str, str]:
     """Delete a booking."""
-    if not _db.delete_booking(booking_id):
+    if not _store.delete_booking(booking_id):
         raise HTTPException(status_code=404, detail="Booking not found")
     return {"status": "deleted", "booking_id": booking_id}
 
@@ -417,10 +416,10 @@ def delete_booking(booking_id: str) -> dict[str, str]:
 @router.post("/bookings/{booking_id}/send-confirmation")
 def send_booking_confirmation(booking_id: str) -> dict[str, Any]:
     """Resend a booking confirmation email."""
-    b = _db.get_booking(booking_id)
+    b = _store.get_booking(booking_id)
     if b is None:
         raise HTTPException(status_code=404, detail="Booking not found")
-    et = _db.get_event_type(b.get("event_type_id", ""))
+    et = _store.get_event_type(b.get("event_type_id", ""))
     if et is None:
         raise HTTPException(status_code=404, detail="Event type not found")
     _send_confirmation_email(et, b)
@@ -432,7 +431,7 @@ def send_booking_confirmation(booking_id: str) -> dict[str, Any]:
 @router.put("/event-types/{event_type_id}")
 def update_event_type(event_type_id: str, body: EventTypeExtendedRequest) -> dict[str, Any]:
     """Update an event type with full scheduling configuration."""
-    result = _db.update_event_type(event_type_id, body.model_dump())
+    result = _store.update_event_type(event_type_id, body.model_dump())
     if result is None:
         raise HTTPException(status_code=404, detail="Event type not found")
     return result
@@ -499,7 +498,7 @@ def _send_confirmation_email(event_type: dict[str, Any], booking: dict[str, Any]
     try:
         from a_cal.providers.factory import build_email_provider
 
-        all_providers = _db.list_providers()
+        all_providers = _store.list_providers()
         email_providers = [
             p for p in all_providers
             if p["provider_type"] in ("imap_smtp", "gmail")

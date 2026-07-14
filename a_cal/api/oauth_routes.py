@@ -27,7 +27,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 from a_cal.integrations.atom_bridge import get_atom_token_storage
 from a_cal.providers.oauth import (
     build_auth_url,
@@ -40,7 +40,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-oauth"])
 
-_store = PersistentStore()
 
 # When atom is available, OAuth tokens are encrypted via atom's
 # ConnectionService (Fernet at rest). Otherwise, stored in SQLite config.

@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,6 @@ MAX_QUERY_DEPTH = 10
 
 router = APIRouter(prefix="/api/a-cal/graphql", tags=["a-cal-graphql"])
 
-_db = PersistentStore()
 
 
 class GraphQLRequest(BaseModel):
@@ -154,38 +153,38 @@ def _parse_query(query: str) -> list[dict[str, Any]]:
 def _resolve_events(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Resolve the `events` field."""
     days = args.get("limit", 30)
-    return _db.get_all_events(days=days)
+    return _store.get_all_events(days=days)
 
 
 def _resolve_event_types(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Resolve the `eventTypes` field."""
-    return _db.list_event_types()
+    return _store.list_event_types()
 
 
 def _resolve_bookings(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Resolve the `bookings` field."""
     et_id = args.get("eventTypeId") or args.get("event_type_id")
-    return _db.list_bookings(event_type_id=et_id)
+    return _store.list_bookings(event_type_id=et_id)
 
 
 def _resolve_teams(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Resolve the `teams` field."""
-    return _db.list_teams()
+    return _store.list_teams()
 
 
 def _resolve_event_type(args: dict[str, Any]) -> dict[str, Any] | None:
     """Resolve a single `eventType` by id or slug."""
     if "id" in args:
-        return _db.get_event_type(args["id"])
+        return _store.get_event_type(args["id"])
     if "slug" in args:
-        return _db.get_event_type_by_slug(args["slug"])
+        return _store.get_event_type_by_slug(args["slug"])
     return None
 
 
 def _resolve_booking(args: dict[str, Any]) -> dict[str, Any] | None:
     """Resolve a single `booking` by id."""
     if "id" in args:
-        return _db.get_booking(args["id"])
+        return _store.get_booking(args["id"])
     return None
 
 

@@ -16,11 +16,10 @@ from typing import Any
 
 import httpx
 
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 
 logger = logging.getLogger(__name__)
 
-_store = PersistentStore()
 
 
 def _sign_payload(payload: bytes, secret: str) -> str:

@@ -166,11 +166,10 @@ class UnifiedEvent(BaseModel):
 
 
 
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 
 # Persistent store — uses SQLite by default, in-memory for tests.
 # Data survives server restarts in standalone mode.
-_store = PersistentStore()
 
 # --- sub-account endpoints -------------------------------------------------
 

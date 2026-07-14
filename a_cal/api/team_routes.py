@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 from a_cal.integrations.payments import PaymentService
 from a_cal.integrations.webhooks import dispatch_event
 
@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-team"])
 
-_db = PersistentStore()
 _payments = PaymentService()
 
 
@@ -141,7 +140,7 @@ class PaymentConfigOut(BaseModel):
 @router.get("/teams")
 def list_teams() -> list[dict[str, Any]]:
     """List all teams for the current user."""
-    return _db.list_teams()
+    return _store.list_teams()
 
 
 @router.post("/teams")
@@ -150,16 +149,16 @@ def create_team(body: TeamCreate) -> dict[str, Any]:
     data = body.model_dump()
     if not data.get("slug"):
         data["slug"] = data["name"].lower().replace(" ", "-")
-    return _db.create_team(data)
+    return _store.create_team(data)
 
 
 @router.get("/teams/{team_id}")
 def get_team(team_id: str) -> dict[str, Any]:
     """Get a single team by ID."""
-    team = _db.get_team(team_id)
+    team = _store.get_team(team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Team not found")
-    members = _db.list_team_members(team_id)
+    members = _store.list_team_members(team_id)
     return {**team, "members": members}
 
 
@@ -167,7 +166,7 @@ def get_team(team_id: str) -> dict[str, Any]:
 def update_team(team_id: str, body: TeamUpdate) -> dict[str, Any]:
     """Update a team's fields."""
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
-    result = _db.update_team(team_id, patch)
+    result = _store.update_team(team_id, patch)
     if result is None:
         raise HTTPException(status_code=404, detail="Team not found")
     return result
@@ -176,7 +175,7 @@ def update_team(team_id: str, body: TeamUpdate) -> dict[str, Any]:
 @router.delete("/teams/{team_id}")
 def delete_team(team_id: str) -> dict[str, str]:
     """Delete a team and all its members."""
-    if not _db.delete_team(team_id):
+    if not _store.delete_team(team_id):
         raise HTTPException(status_code=404, detail="Team not found")
     return {"status": "deleted"}
 
@@ -186,24 +185,24 @@ def delete_team(team_id: str) -> dict[str, str]:
 @router.get("/teams/{team_id}/members")
 def list_team_members(team_id: str) -> list[dict[str, Any]]:
     """List all members of a team."""
-    return _db.list_team_members(team_id)
+    return _store.list_team_members(team_id)
 
 
 @router.post("/teams/{team_id}/members")
 def add_team_member(team_id: str, body: TeamMemberCreate) -> dict[str, Any]:
     """Add a member to a team."""
-    if _db.get_team(team_id) is None:
+    if _store.get_team(team_id) is None:
         raise HTTPException(status_code=404, detail="Team not found")
     data = body.model_dump()
     data["team_id"] = team_id
-    return _db.add_team_member(data)
+    return _store.add_team_member(data)
 
 
 @router.patch("/teams/{team_id}/members/{member_id}")
 def update_team_member(team_id: str, member_id: str, body: TeamMemberUpdate) -> dict[str, Any]:
     """Update a team member's fields."""
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
-    result = _db.update_team_member(member_id, patch)
+    result = _store.update_team_member(member_id, patch)
     if result is None:
         raise HTTPException(status_code=404, detail="Member not found")
     return result
@@ -212,7 +211,7 @@ def update_team_member(team_id: str, member_id: str, body: TeamMemberUpdate) -> 
 @router.delete("/teams/{team_id}/members/{member_id}")
 def remove_team_member(team_id: str, member_id: str) -> dict[str, str]:
     """Remove a member from a team."""
-    if not _db.remove_team_member(member_id):
+    if not _store.remove_team_member(member_id):
         raise HTTPException(status_code=404, detail="Member not found")
     return {"status": "removed"}
 
@@ -222,19 +221,19 @@ def remove_team_member(team_id: str, member_id: str) -> dict[str, str]:
 @router.get("/routing-forms")
 def list_routing_forms() -> list[dict[str, Any]]:
     """List all routing forms for the current user."""
-    return _db.list_routing_forms()
+    return _store.list_routing_forms()
 
 
 @router.post("/routing-forms")
 def create_routing_form(body: RoutingFormCreate) -> dict[str, Any]:
     """Create a new routing form."""
-    return _db.create_routing_form(body.model_dump())
+    return _store.create_routing_form(body.model_dump())
 
 
 @router.get("/routing-forms/{form_id}")
 def get_routing_form(form_id: str) -> dict[str, Any]:
     """Get a routing form by ID."""
-    form = _db.get_routing_form(form_id)
+    form = _store.get_routing_form(form_id)
     if form is None:
         raise HTTPException(status_code=404, detail="Routing form not found")
     return form
@@ -244,7 +243,7 @@ def get_routing_form(form_id: str) -> dict[str, Any]:
 def update_routing_form(form_id: str, body: RoutingFormUpdate) -> dict[str, Any]:
     """Update a routing form."""
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
-    result = _db.update_routing_form(form_id, patch)
+    result = _store.update_routing_form(form_id, patch)
     if result is None:
         raise HTTPException(status_code=404, detail="Routing form not found")
     return result
@@ -253,7 +252,7 @@ def update_routing_form(form_id: str, body: RoutingFormUpdate) -> dict[str, Any]
 @router.delete("/routing-forms/{form_id}")
 def delete_routing_form(form_id: str) -> dict[str, str]:
     """Delete a routing form."""
-    if not _db.delete_routing_form(form_id):
+    if not _store.delete_routing_form(form_id):
         raise HTTPException(status_code=404, detail="Routing form not found")
     return {"status": "deleted"}
 
@@ -263,7 +262,7 @@ def delete_routing_form(form_id: str) -> dict[str, str]:
 @router.get("/webhooks")
 def list_webhooks() -> list[dict[str, Any]]:
     """List all webhook configs for the current user."""
-    return _db.list_webhooks()
+    return _store.list_webhooks()
 
 
 @router.post("/webhooks")
@@ -272,14 +271,14 @@ def create_webhook(body: WebhookCreate) -> dict[str, Any]:
     data = body.model_dump()
     if not data.get("secret"):
         data["secret"] = secrets.token_hex(16)
-    return _db.create_webhook(data)
+    return _store.create_webhook(data)
 
 
 @router.patch("/webhooks/{webhook_id}")
 def update_webhook(webhook_id: str, body: WebhookUpdate) -> dict[str, Any]:
     """Update a webhook endpoint."""
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
-    result = _db.update_webhook(webhook_id, patch)
+    result = _store.update_webhook(webhook_id, patch)
     if result is None:
         raise HTTPException(status_code=404, detail="Webhook not found")
     return result
@@ -288,7 +287,7 @@ def update_webhook(webhook_id: str, body: WebhookUpdate) -> dict[str, Any]:
 @router.delete("/webhooks/{webhook_id}")
 def delete_webhook(webhook_id: str) -> dict[str, str]:
     """Delete a webhook endpoint."""
-    if not _db.delete_webhook(webhook_id):
+    if not _store.delete_webhook(webhook_id):
         raise HTTPException(status_code=404, detail="Webhook not found")
     return {"status": "deleted"}
 
@@ -322,7 +321,7 @@ def create_payment_intent(body: PaymentIntentRequest) -> dict[str, Any]:
     Looks up the event type to get the price, then creates a Stripe
     PaymentIntent (or mock intent if Stripe is not configured).
     """
-    et = _db.get_event_type(body.event_type_id)
+    et = _store.get_event_type(body.event_type_id)
     if et is None:
         raise HTTPException(status_code=404, detail="Event type not found")
     if not et.get("is_paid"):
@@ -359,7 +358,7 @@ class CustomDomainConfig(BaseModel):
 @router.get("/platform/domain")
 def get_custom_domain() -> dict[str, Any]:
     """Get the custom domain configuration for booking pages."""
-    config = _db.get_setting("custom_domain", {})
+    config = _store.get_setting("custom_domain", {})
     return {
         "domain": config.get("domain", ""),
         "is_active": config.get("is_active", False),
@@ -375,7 +374,7 @@ def set_custom_domain(body: CustomDomainConfig) -> dict[str, Any]:
         "is_active": body.is_active,
         "ssl_verified": body.ssl_verified,
     }
-    _db.set_setting("custom_domain", config)
+    _store.set_setting("custom_domain", config)
     return config
 
 
@@ -384,7 +383,7 @@ def set_custom_domain(body: CustomDomainConfig) -> dict[str, Any]:
 @router.get("/webhooks/{webhook_id}/deliveries")
 def list_webhook_deliveries(webhook_id: str) -> list[dict[str, Any]]:
     """List delivery history for a specific webhook."""
-    return _db.list_webhook_deliveries(webhook_id)
+    return _store.list_webhook_deliveries(webhook_id)
 
 
 # --- Workflow triggers (Phase 5) -------------------------------------------
@@ -399,7 +398,7 @@ class WorkflowTriggerConfig(BaseModel):
 @router.get("/workflow-triggers")
 def get_workflow_triggers() -> dict[str, Any]:
     """Get which booking events trigger workflow automation."""
-    return _db.get_setting("workflow_triggers", {
+    return _store.get_setting("workflow_triggers", {
         "booking_created": True,
         "booking_cancelled": True,
         "booking_rescheduled": True,
@@ -410,5 +409,5 @@ def get_workflow_triggers() -> dict[str, Any]:
 def set_workflow_triggers(body: WorkflowTriggerConfig) -> dict[str, Any]:
     """Configure which booking events trigger workflow automation."""
     config = body.model_dump()
-    _db.set_setting("workflow_triggers", config)
+    _store.set_setting("workflow_triggers", config)
     return config

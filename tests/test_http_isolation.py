@@ -36,22 +36,23 @@ def _patch_stores(db: PersistentStore) -> dict:
         oauth_routes,
         agent_routes,
     )
+    from a_cal.api import store as store_mod
     originals = {
         "standalone_data": standalone_data._store,
-        "booking": booking_routes._db,
-        "analytics": analytics_routes._db,
-        "team": team_routes._db,
-        "graphql": graphql_routes._db,
+        "booking": booking_routes._store,
+        "analytics": analytics_routes._store,
+        "team": team_routes._store,
+        "graphql": graphql_routes._store,
         "oauth": oauth_routes._store,
-        "agent_store_db": agent_routes._store._db,
+        "store_mod": store_mod._store,
     }
     standalone_data._store = db
-    booking_routes._db = db
-    analytics_routes._db = db
-    team_routes._db = db
-    graphql_routes._db = db
+    booking_routes._store = db
+    analytics_routes._store = db
+    team_routes._store = db
+    graphql_routes._store = db
     oauth_routes._store = db
-    agent_routes._store._db = db
+    store_mod._store = db
     return originals
 
 
@@ -66,13 +67,14 @@ def _restore_stores(originals: dict) -> None:
         oauth_routes,
         agent_routes,
     )
+    from a_cal.api import store as store_mod
     standalone_data._store = originals["standalone_data"]
-    booking_routes._db = originals["booking"]
-    analytics_routes._db = originals["analytics"]
-    team_routes._db = originals["team"]
-    graphql_routes._db = originals["graphql"]
+    booking_routes._store = originals["booking"]
+    analytics_routes._store = originals["analytics"]
+    team_routes._store = originals["team"]
+    graphql_routes._store = originals["graphql"]
     oauth_routes._store = originals["oauth"]
-    agent_routes._store._db = originals["agent_store_db"]
+    store_mod._store = originals["store_mod"]
 
 
 @pytest.fixture
