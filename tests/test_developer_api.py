@@ -183,3 +183,48 @@ class TestConfigExportImport:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["warnings"]) > 0
+
+
+# --- P1-1: Plugin runtime gated behind A_CAL_ENABLE_PLUGINS flag -----------
+
+class TestPluginRuntimeFlag:
+    """Plugin runtime endpoints return 404 when the flag is off."""
+
+    def test_endpoints_404_when_flag_off(self):
+        """All /plugins/runtime/* endpoints return 404 when flag is off."""
+        import os
+        from fastapi.testclient import TestClient
+        from a_cal.api.standalone import app
+
+        # Ensure flag is not set
+        old = os.environ.get("A_CAL_ENABLE_PLUGINS")
+        os.environ.pop("A_CAL_ENABLE_PLUGINS", None)
+        try:
+            client = TestClient(app)
+            client.post("/api/a-cal/auth/demo-login")
+            assert client.get("/api/a-cal/developer/plugins/runtime/list").status_code == 404
+            assert client.post("/api/a-cal/developer/plugins/runtime/scan").status_code == 404
+            assert client.get("/api/a-cal/developer/plugins/runtime/hooks").status_code == 404
+        finally:
+            if old is not None:
+                os.environ["A_CAL_ENABLE_PLUGINS"] = old
+
+    def test_endpoints_accessible_when_flag_on(self):
+        """Plugin runtime endpoints work when A_CAL_ENABLE_PLUGINS=1."""
+        import os
+        from fastapi.testclient import TestClient
+        from a_cal.api.standalone import app
+
+        old = os.environ.get("A_CAL_ENABLE_PLUGINS")
+        os.environ["A_CAL_ENABLE_PLUGINS"] = "1"
+        try:
+            client = TestClient(app)
+            client.post("/api/a-cal/auth/demo-login")
+            r = client.get("/api/a-cal/developer/plugins/runtime/hooks")
+            assert r.status_code == 200
+            assert "hooks" in r.json()
+        finally:
+            if old is not None:
+                os.environ["A_CAL_ENABLE_PLUGINS"] = old
+            else:
+                os.environ.pop("A_CAL_ENABLE_PLUGINS", None)

@@ -33,6 +33,7 @@ import {
   mockProviders,
   mockEvents,
   mockAgents,
+  shouldUseMocks,
 } from "@/lib/mock-data";
 import type { SkillMode, SubAccount, ProviderConnection, UnifiedEvent, AgentSpec } from "@/types";
 
@@ -48,12 +49,13 @@ export default function Page() {
     if (dark) root.classList.add("dark");
     else root.classList.remove("dark");
   }, [dark]);
-  const [subAccounts, setSubAccounts] = useState<SubAccount[]>(mockSubAccounts);
-  const [providers, setProviders] = useState<Record<string, ProviderConnection[]>>(mockProviders);
-  const [events, setEvents] = useState<UnifiedEvent[]>(mockEvents);
-  const [agents, setAgents] = useState<AgentSpec[]>(mockAgents);
+  const useMocks = shouldUseMocks();
+  const [subAccounts, setSubAccounts] = useState<SubAccount[]>(useMocks ? mockSubAccounts : []);
+  const [providers, setProviders] = useState<Record<string, ProviderConnection[]>>(useMocks ? mockProviders : {});
+  const [events, setEvents] = useState<UnifiedEvent[]>(useMocks ? mockEvents : []);
+  const [agents, setAgents] = useState<AgentSpec[]>(useMocks ? mockAgents : []);
   const [visibleSubAccounts, setVisibleSubAccounts] = useState<Set<string>>(
-    new Set(mockSubAccounts.filter((s) => !s.is_main).map((s) => s.id))
+    new Set(useMocks ? mockSubAccounts.filter((s) => !s.is_main).map((s) => s.id) : [])
   );
   const [selectedSubAccountId, setSelectedSubAccountId] = useState<string | null>(null);
   const [showConductor, setShowConductor] = useState(true);
@@ -75,7 +77,7 @@ export default function Page() {
   const [showAddWizard, setShowAddWizard] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  /** Load real data from the backend on mount, falling back to mock data. */
+  /** Load real data from the backend on mount. */
   useEffect(() => {
     async function loadRealData() {
       try {
@@ -115,7 +117,8 @@ export default function Page() {
           // keep default (false)
         }
       } catch {
-        // Backend not running — use mock data (already set)
+        // Backend not running — in production, state stays empty (no mock
+        // fallback). In development, mock data was already set as initial state.
       }
     }
     loadRealData();

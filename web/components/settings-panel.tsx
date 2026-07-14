@@ -33,7 +33,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { api, oauthApi } from "@/lib/api";
-import { mockModeConfig } from "@/lib/mock-data";
+import { mockModeConfig, shouldUseMocks } from "@/lib/mock-data";
 import type { SkillMode, ModelProvider, ModeConfig, ModelRoutingConfig, ProviderConnection, SubAccount, ProviderType, SelfModelFact, AtomStatus, BackendMode, AutonomyLevel, EmailDepth } from "@/types";
 
 interface SettingsPanelProps {
@@ -90,7 +90,18 @@ const EMAIL_DEPTHS = [
 
 export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProps) {
   const [activeSection, setActiveSection] = useState("mode");
-  const [modeConfig, setModeConfig] = useState<ModeConfig>(mockModeConfig);
+  const useMocks = shouldUseMocks();
+  const [modeConfig, setModeConfig] = useState<ModeConfig>(
+    useMocks ? mockModeConfig : {
+      mode: "pro", display_name: "Pro", description: "",
+      visible_panels: [], visible_settings: [],
+      default_sync_mode: "mirror_filter",
+      per_task_model_routing: false, developer_studio: false,
+      config_as_code: false, visual_builder: false,
+      plugin_system: false, api_sdk: false, marketplace: false,
+      default_self_model_depth: "pattern_memory", default_proactive: false,
+    }
+  );
   const [modelProvider, setModelProvider] = useState<ModelProvider>("ollama");
   const [modelName, setModelName] = useState("llama3.2");
   const [selfModelDepth, setSelfModelDepth] = useState("pattern_memory");
@@ -137,7 +148,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
   const [editingFactId, setEditingFactId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
 
-  /** Load settings from the backend on mount, falling back to mock data. */
+  /** Load settings from the backend on mount. */
   useEffect(() => {
     async function loadSettings() {
       try {
@@ -171,7 +182,7 @@ export function SettingsPanel({ mode, onModeChange, onClose }: SettingsPanelProp
         api.getEmailSettings().then((e) => { setEmailDepth(e.depth); setEmailAutoScan(e.auto_scan_enabled); }).catch(() => {});
         api.getTimezone().then((tz) => { setTimezone(tz); setTimezoneDraft(tz); }).catch(() => {});
       } catch {
-        // Backend not running — keep defaults (mock data already set)
+        // Backend not running — in production, defaults stay (no mock fallback).
       }
     }
     loadSettings();

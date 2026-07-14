@@ -2,7 +2,26 @@
 
 This lets the A-Cal UI be fully explorable standalone. When the backend is
 running, the API client uses real data instead.
+
+Mock data is gated behind a dev-only condition. In production builds
+(``NODE_ENV === "production"`` without ``NEXT_PUBLIC_A_CAL_USE_MOCKS``),
+the UI surfaces real error states instead of fake data.
  */
+
+/** Whether mock data should be used as a fallback.
+
+Returns true when:
+  - ``NODE_ENV === "development"`` (Next.js dev server), or
+  - ``NEXT_PUBLIC_A_CAL_USE_MOCKS`` is explicitly set to "1" or "true".
+
+In production, this returns false so the UI never shows fake data.
+*/
+export function shouldUseMocks(): boolean {
+  if (process.env.NODE_ENV === "development") return true;
+  return process.env.NEXT_PUBLIC_A_CAL_USE_MOCKS === "1"
+    || process.env.NEXT_PUBLIC_A_CAL_USE_MOCKS === "true";
+}
+
 
 import type {
   SubAccount,
