@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from a_cal.api.agent_routes import router as agent_router
+from a_cal.api.nervous_system_routes import router as nervous_system_router
 from a_cal.api.swarm_routes import router as swarm_router
 from a_cal.api.marketplace_routes import router as marketplace_router
 from a_cal.api.developer_routes import router as developer_router
@@ -122,6 +123,7 @@ app.add_middleware(
 )
 
 app.include_router(agent_router)
+app.include_router(nervous_system_router)
 app.include_router(swarm_router)
 app.include_router(marketplace_router)
 app.include_router(developer_router)
