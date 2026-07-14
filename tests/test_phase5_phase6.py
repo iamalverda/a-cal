@@ -696,3 +696,31 @@ class TestGraphQL:
         et = data["data"]["eventTypes"][0]
         assert "myTitle" in et
         assert "title" not in et
+
+
+class TestGraphQLDepthLimit:
+    """GraphQL depth/complexity limit (P3-1)."""
+
+    def test_depth_within_limit_succeeds(self):
+        """A query at the max depth boundary is accepted."""
+        # events { id } is depth 1; eventType { id } is depth 1.
+        # Build a query with nested selections up to the limit.
+        r = client.post("/api/a-cal/graphql", json={
+            "query": "{ eventTypes { id title slug } }",
+        })
+        assert r.status_code == 200
+        assert "errors" not in r.json()
+
+    def test_excessive_depth_returns_error(self):
+        """A deeply nested query beyond MAX_QUERY_DEPTH returns a parse error."""
+        # Build a query with 12 levels of nesting: events { a { a { ... } } }
+        # Each '{' adds one depth level. We need > MAX_QUERY_DEPTH (10).
+        nesting = 12
+        inner = "id"
+        for _ in range(nesting):
+            inner = f"foo {{ {inner} }}"
+        query = "{ events { " + inner + " } }"
+        r = client.post("/api/a-cal/graphql", json={"query": query})
+        data = r.json()
+        assert "errors" in data
+        assert "max nesting depth" in data["errors"][0]["message"]

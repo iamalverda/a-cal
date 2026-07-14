@@ -23,6 +23,9 @@ from a_cal.db.store import PersistentStore
 
 logger = logging.getLogger(__name__)
 
+# Maximum nesting depth for GraphQL queries (DoS protection).
+MAX_QUERY_DEPTH = 10
+
 router = APIRouter(prefix="/api/a-cal/graphql", tags=["a-cal-graphql"])
 
 _db = PersistentStore()
@@ -37,12 +40,17 @@ class GraphQLRequest(BaseModel):
 
 # --- Minimal GraphQL parser ------------------------------------------------
 
-def _parse_selection_set(text: str, pos: int) -> tuple[list[dict[str, Any]], int]:
+def _parse_selection_set(
+    text: str, pos: int, depth: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
     """Parse a GraphQL selection set (fields inside braces).
 
     Returns a list of field dicts and the position after the closing brace.
     Each field dict has: name, alias, args, selections.
+    Raises ValueError if nesting exceeds MAX_QUERY_DEPTH.
     """
+    if depth >= MAX_QUERY_DEPTH:
+        raise ValueError(f"GraphQL query exceeds max nesting depth ({MAX_QUERY_DEPTH})")
     fields: list[dict[str, Any]] = []
     while pos < len(text):
         # Skip whitespace
@@ -113,7 +121,7 @@ def _parse_selection_set(text: str, pos: int) -> tuple[list[dict[str, Any]], int
         selections: list[dict[str, Any]] | None = None
         if pos < len(text) and text[pos] == "{":
             pos += 1
-            selections, pos = _parse_selection_set(text, pos)
+            selections, pos = _parse_selection_set(text, pos, depth + 1)
             if pos < len(text) and text[pos] == "}":
                 pos += 1
 
@@ -137,7 +145,7 @@ def _parse_query(query: str) -> list[dict[str, Any]]:
         query = query[1:]
     if query.endswith("}"):
         query = query[:-1]
-    fields, _ = _parse_selection_set(query, 0)
+    fields, _ = _parse_selection_set(query, 0, depth=0)
     return fields
 
 
