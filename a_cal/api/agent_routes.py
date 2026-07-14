@@ -309,7 +309,7 @@ async def scan_emails_for_schedule():
     user_id = _current_user_id()
 
     # Get email providers
-    from a_cal.api.standalone_data import _store as data_store
+    from a_cal.api.store import _store as data_store
     all_providers = data_store.list_providers()
     email_types = {"imap_smtp", "gmail"}
     email_providers = [
