@@ -163,11 +163,17 @@ class PersistentStore:
     Data survives server restarts.
     """
 
-    def __init__(self, in_memory: bool = False) -> None:
+    def __init__(self, in_memory: bool = False, seed: bool = True) -> None:
         """Initialize the store.
 
         Args:
             in_memory: If True, use an in-memory SQLite database (for tests).
+            seed: If True (default), seed demo data when the database is empty.
+                Pass False for tests that need a clean, deterministic calendar:
+                the demo seed includes clock-relative events (e.g. a "Dentist
+                Appointment" at now+24h) that can otherwise intermittently
+                collide with test-created events and cause time-of-day-dependent
+                flakiness.
         """
         if in_memory:
             self._engine, self._SessionLocal = create_engine_and_session(":memory:")
@@ -175,7 +181,8 @@ class PersistentStore:
             from .models import _get_engine_and_session
             self._engine, self._SessionLocal = _get_engine_and_session()
 
-        self._seed_if_empty()
+        if seed:
+            self._seed_if_empty()
 
     def _seed_if_empty(self) -> None:
         """Seed demo data on first run when the database is empty."""

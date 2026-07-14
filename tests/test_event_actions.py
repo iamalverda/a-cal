@@ -43,8 +43,15 @@ def client(app):
 
 @pytest.fixture
 def fresh_store():
-    """A fresh PersistentStore for agentic event tests."""
-    return PersistentStore()
+    """A genuinely fresh, unseeded, in-memory store for agentic event tests.
+
+    Unseeded so these tests start from an empty calendar and create their own
+    fixtures. The demo seed includes a clock-relative "Dentist Appointment"
+    (now+24h) that otherwise collides with fixed test slots like "2pm tomorrow"
+    whenever the suite runs in a certain wall-clock window — a source of
+    time-of-day-dependent flakiness.
+    """
+    return PersistentStore(in_memory=True, seed=False)
 
 
 def _iso(dt: datetime) -> str:
