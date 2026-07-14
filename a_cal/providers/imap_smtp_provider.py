@@ -30,7 +30,7 @@ import smtplib
 from datetime import datetime, timezone, UTC
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from a_cal.providers.base import (
     AttachmentDTO,

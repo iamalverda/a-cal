@@ -1659,7 +1659,7 @@ class PersistentStore:
         with self._session() as db:
             members = db.query(TeamMember).filter(
                 TeamMember.team_id == team_id,
-                TeamMember.is_active == True,
+                TeamMember.is_active.is_(True),
             ).order_by(TeamMember.created_at).all()
             if not members:
                 return None
@@ -1817,7 +1817,7 @@ class PersistentStore:
         with self._session() as db:
             rows = db.query(WebhookConfig).filter(
                 WebhookConfig.user_id == user_id,
-                WebhookConfig.is_active == True,
+                WebhookConfig.is_active.is_(True),
             ).all()
             result = []
             for r in rows:

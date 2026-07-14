@@ -144,7 +144,7 @@ class GmailEmailProvider(EmailProvider):
         headers["Content-Type"] = "application/json"
 
         # Build RFC 2822 message.
-        from_line = f"From: me\r\n"
+        from_line = "From: me\r\n"
         to_line = f"To: {', '.join(to)}\r\n"
         subject_line = f"Subject: {subject}\r\n"
         if in_reply_to:

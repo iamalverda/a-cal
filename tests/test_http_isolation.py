@@ -223,7 +223,7 @@ class TestEventTypeHttpIsolation:
         now = datetime.datetime.now(UTC)
         tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
         # Public booking (no auth) — but we'll do it as Alice
-        ca.post(f"/api/a-cal/booking/alice-intro", json={
+        ca.post("/api/a-cal/booking/alice-intro", json={
             "attendee_name": "Attendee",
             "attendee_email": "att@example.com",
             "attendee_timezone": "UTC",
@@ -315,7 +315,7 @@ class TestEmailLabelHttpIsolation:
         ca.post("/api/a-cal/email/labels", json={"name": "Alice Label", "color": "#f00"})
 
         b_labels = cb.get("/api/a-cal/email/labels").json()
-        assert all(l.get("name") != "Alice Label" for l in b_labels)
+        assert all(lbl.get("name") != "Alice Label" for lbl in b_labels)
 
     def test_b_cannot_delete_a_label(self, two_clients):
         ca, cb = two_clients
@@ -324,7 +324,7 @@ class TestEmailLabelHttpIsolation:
 
         cb.delete(f"/api/a-cal/email/labels/{label_id}")
         a_labels = ca.get("/api/a-cal/email/labels").json()
-        assert any(l.get("name") == "Alice VIP" for l in a_labels)
+        assert any(lbl.get("name") == "Alice VIP" for lbl in a_labels)
 
 
 # --- Analytics ------------------------------------------------------------

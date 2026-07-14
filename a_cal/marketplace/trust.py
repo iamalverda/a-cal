@@ -27,7 +27,7 @@ class VerificationStatus(str, enum.Enum):
 @dataclass
 class FlagRecord:
     """A user report against a marketplace item.
-    
+
     Flags can be for spam, malicious content, broken configs,
     license violations, or other concerns.
     """
@@ -73,7 +73,7 @@ class FlagRecord:
 
 def compute_content_hash(config: dict[str, Any]) -> str:
     """Compute SHA-256 hash of a config dict for integrity verification.
-    
+
     The hash is deterministic (sorted keys) so users can verify that
     a downloaded config matches what was published.
     """
@@ -90,7 +90,7 @@ def compute_trust_score(
     author_item_count: int = 0,
 ) -> float:
     """Compute a trust score (0.0–100.0) for a marketplace item.
-    
+
     Factors:
     - Rating quality (weighted by count)
     - Install popularity
@@ -99,7 +99,7 @@ def compute_trust_score(
     - Author track record
     """
     score = 0.0
-    
+
     # Rating component (0-40 points)
     if rating_count > 0:
         # More ratings = more confidence in the score
@@ -107,12 +107,12 @@ def compute_trust_score(
         score += (rating / 5.0) * 40.0 * confidence
     else:
         score += 10.0  # neutral starting score for unrated items
-    
+
     # Install popularity (0-25 points)
     if install_count > 0:
         import math
         score += min(math.log10(install_count + 1) * 10, 25.0)
-    
+
     # Verification status (0-20 points)
     verification_scores = {
         VerificationStatus.UNVERIFIED.value: 5.0,
@@ -122,14 +122,14 @@ def compute_trust_score(
         VerificationStatus.REMOVED.value: 0.0,
     }
     score += verification_scores.get(verification_status, 5.0)
-    
+
     # Author track record (0-15 points)
     if author_item_count > 0:
         import math
         score += min(math.log10(author_item_count + 1) * 5, 15.0)
-    
+
     # Flag penalties
     if flag_count > 0:
         score -= min(flag_count * 10, 50.0)
-    
+
     return max(0.0, min(100.0, score))

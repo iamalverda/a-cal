@@ -189,7 +189,7 @@ class TestEmailLabels:
         assert resp.status_code == 200
         labels = resp.json()
         assert len(labels) >= 2
-        names = [l["name"] for l in labels]
+        names = [lbl["name"] for lbl in labels]
         assert "Work" in names
         assert "Personal" in names
 

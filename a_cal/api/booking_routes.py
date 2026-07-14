@@ -293,7 +293,6 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
         raise HTTPException(status_code=404, detail="Booking page not found")
 
     duration = et.get("duration_minutes", 30)
-    buffer_before = et.get("buffer_before_minutes", 0)
     end_time = body.start_time + timedelta(minutes=duration)
 
     # Re-check slot availability at booking time
