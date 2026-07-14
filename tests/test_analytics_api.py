@@ -26,8 +26,8 @@ from a_cal.api.analytics_routes import router as analytics_router
 def client():
     """Test client with only the analytics routes mounted."""
     # Clear event types from the DB between tests so each test starts clean
-    from a_cal.api.analytics_routes import _db
-    _db.clear_event_types()
+    from a_cal.api.analytics_routes import _store
+    _store.clear_event_types()
     app = FastAPI()
     app.include_router(analytics_router)
     return TestClient(app)

@@ -39,31 +39,37 @@ def _clean_db():
     """Patch all route modules to use a fresh in-memory store."""
     db = PersistentStore(in_memory=True)
     from a_cal.api import booking_routes, analytics_routes, team_routes, graphql_routes
-    from a_cal.api import standalone_data
+    from a_cal.api import sub_account_routes, calendar_routes, email_routes
     from a_cal.integrations import webhooks as webhook_mod
     from a_cal.integrations import payments as payments_mod
     originals = {
-        "booking": booking_routes._db,
-        "analytics": analytics_routes._db,
-        "team": team_routes._db,
-        "graphql": graphql_routes._db,
+        "booking": booking_routes._store,
+        "analytics": analytics_routes._store,
+        "team": team_routes._store,
+        "graphql": graphql_routes._store,
         "webhook_store": webhook_mod._store,
         "payments": team_routes._payments,
-        "standalone_data": standalone_data._store,
+        "sub_account": sub_account_routes._store,
+        "calendar": calendar_routes._store,
+        "email": email_routes._store,
     }
-    booking_routes._db = db
-    analytics_routes._db = db
-    team_routes._db = db
-    graphql_routes._db = db
+    booking_routes._store = db
+    analytics_routes._store = db
+    team_routes._store = db
+    graphql_routes._store = db
     webhook_mod._store = db
-    standalone_data._store = db
+    sub_account_routes._store = db
+    calendar_routes._store = db
+    email_routes._store = db
     yield db
-    booking_routes._db = originals["booking"]
-    analytics_routes._db = originals["analytics"]
-    team_routes._db = originals["team"]
-    graphql_routes._db = originals["graphql"]
+    booking_routes._store = originals["booking"]
+    analytics_routes._store = originals["analytics"]
+    team_routes._store = originals["team"]
+    graphql_routes._store = originals["graphql"]
     webhook_mod._store = originals["webhook_store"]
-    standalone_data._store = originals["standalone_data"]
+    sub_account_routes._store = originals["sub_account"]
+    calendar_routes._store = originals["calendar"]
+    email_routes._store = originals["email"]
     team_routes._payments = originals["payments"]
 
 

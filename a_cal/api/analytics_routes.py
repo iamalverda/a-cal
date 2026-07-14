@@ -27,19 +27,18 @@ from a_cal.integrations.calcom_bridge import (
     get_aggregated_availability,
 )
 from a_cal.integrations.zero_calendar_bridge import CALENDAR_TOOLS, get_enhanced_schedule_prompt
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-analytics"])
 
-_db = PersistentStore()
 
 
 def _fetch_events(days: int = 30) -> list[dict[str, Any]]:
     """Fetch unified calendar events from the store."""
     try:
-        events = _db.get_unified_calendar(days)
+        events = _store.get_unified_calendar(days)
         return events if isinstance(events, list) else []
     except Exception as exc:
         logger.debug("event fetch failed: %s", exc)
@@ -176,19 +175,19 @@ class EventTypeRequest(BaseModel):
 @router.get("/event-types")
 def list_event_types():
     """List all event types (cal.com-style booking pages)."""
-    return _db.list_event_types()
+    return _store.list_event_types()
 
 
 @router.post("/event-types")
 def create_event_type(body: EventTypeRequest):
     """Create a new event type and persist it to the database."""
-    return _db.create_event_type(body.model_dump())
+    return _store.create_event_type(body.model_dump())
 
 
 @router.delete("/event-types/{event_type_id}")
 def delete_event_type(event_type_id: str):
     """Delete an event type."""
-    _db.delete_event_type(event_type_id)
+    _store.delete_event_type(event_type_id)
     return {"deleted": event_type_id}
 
 
@@ -196,7 +195,7 @@ def delete_event_type(event_type_id: str):
 def get_event_type(event_type_id: str):
     """Get a single event type by ID."""
     from fastapi import HTTPException
-    et = _db.get_event_type(event_type_id)
+    et = _store.get_event_type(event_type_id)
     if et is None:
         raise HTTPException(status_code=404, detail="Event type not found")
     return et

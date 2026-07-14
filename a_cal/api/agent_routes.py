@@ -47,9 +47,18 @@ class _SettingsStore:
     """
 
     def __init__(self) -> None:
-        self._db = _DBStore()
         self._conductors: dict[str, ACalConductor] = {}
         self._registries: dict[str, AgentRegistry] = {}
+
+    @property
+    def _db(self) -> _DBStore:
+        """Return the shared PersistentStore via the store module.
+
+        Reading through this property means tests only need to patch
+        ``a_cal.api.store._store`` and the change propagates here automatically.
+        """
+        from a_cal.api import store as _store_mod
+        return _store_mod._store
 
     def get_mode(self, user_id: str) -> str:
         return self._db.get_setting("skill_mode", SkillMode.PRO.value)
@@ -300,7 +309,7 @@ async def scan_emails_for_schedule():
     user_id = _current_user_id()
 
     # Get email providers
-    from a_cal.api.standalone_data import _store as data_store
+    from a_cal.api.store import _store as data_store
     all_providers = data_store.list_providers()
     email_types = {"imap_smtp", "gmail"}
     email_providers = [
@@ -773,96 +782,6 @@ async def preload_model():
     return {"status": "warming_up"}
 
 
-# ---------------------------------------------------------------------------
-# Nervous System — CAS bio-mimetic agent architecture
-# ---------------------------------------------------------------------------
 
-from a_cal.agents.nervous_system import NervousSystemCoordinator, SystemState
-from a_cal.agents.cas_specs import CAS_AGENTS, CAS_AGENTS_BY_NAME
-
-# Singleton nervous system coordinator (per-server instance)
-_nervous_system: NervousSystemCoordinator | None = None
-
-
-def _get_nervous_system() -> NervousSystemCoordinator:
-    """Get or create the singleton nervous system coordinator."""
-    global _nervous_system
-    if _nervous_system is None:
-        _nervous_system = NervousSystemCoordinator()
-    return _nervous_system
-
-
-class NSRouteRequest(BaseModel):
-    """Request to route a signal through the nervous system."""
-    signal: str
-
-
-class NSUserStateRequest(BaseModel):
-    """Request to assess user state from events."""
-    events: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class NSBindingRequest(BaseModel):
-    """Request to verify calendar binding."""
-    events: list[dict[str, Any]] = Field(default_factory=list)
-    sub_accounts: list[dict[str, Any]] = Field(default_factory=list)
-
-
-@router.get("/nervous-system/overview")
-def ns_overview():
-    """Get a complete overview of the nervous system state and CAS agents."""
-    ns = _get_nervous_system()
-    return ns.get_system_overview()
-
-
-@router.get("/nervous-system/agents")
-def ns_agents():
-    """Get all agents — original 6 specialists + 10 CAS bio-mimetic modules."""
-    ns = _get_nervous_system()
-    return ns.get_all_agents_combined()
-
-
-@router.get("/nervous-system/state")
-def ns_state():
-    """Get the current nervous system state (activation, autonomic, spotlight)."""
-    ns = _get_nervous_system()
-    return ns.state.to_dict()
-
-
-@router.post("/nervous-system/route")
-def ns_route(body: NSRouteRequest):
-    """Route a signal through the complete nervous system and return a trace.
-
-    The trace shows how the signal flowed through:
-    thalamus gate → RAS → basal ganglia → conductor → CAS modules → hippocampus.
-    """
-    ns = _get_nervous_system()
-    trace = ns.route_through_nervous_system(body.signal)
-    return trace.to_dict()
-
-
-@router.get("/nervous-system/memories")
-def ns_memories(limit: int = 10):
-    """Get recent episodic memories from the hippocampus module."""
-    ns = _get_nervous_system()
-    return ns._memory_store[-limit:]
-
-
-@router.post("/nervous-system/assess-user-state")
-def ns_assess_user_state(body: NSUserStateRequest):
-    """Assess the user's state from calendar events (insula module)."""
-    ns = _get_nervous_system()
-    return ns.assess_user_state(body.events)
-
-
-@router.post("/nervous-system/verify-binding")
-def ns_verify_binding(body: NSBindingRequest):
-    """Verify the unified calendar view is coherent (claustrum module)."""
-    ns = _get_nervous_system()
-    return ns.verify_binding(body.events, body.sub_accounts)
-
-
-@router.get("/nervous-system/cas-agents")
-def ns_cas_agents():
-    """Get only the CAS bio-mimetic agents with their brain-module metadata."""
-    return [a.to_dict() for a in CAS_AGENTS]
+# Nervous system coordinator singleton — moved to nervous_system_routes.py
+from a_cal.api.nervous_system_routes import _get_nervous_system

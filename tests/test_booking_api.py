@@ -25,13 +25,13 @@ def _clean_event_types():
     db = PersistentStore(in_memory=True)
     # We need to use the same store the app uses — patch it.
     from a_cal.api import booking_routes, analytics_routes
-    original_db = booking_routes._db
-    original_analytics_db = analytics_routes._db
-    booking_routes._db = db
-    analytics_routes._db = db
+    original_db = booking_routes._store
+    original_analytics_db = analytics_routes._store
+    booking_routes._store = db
+    analytics_routes._store = db
     yield db
-    booking_routes._db = original_db
-    analytics_routes._db = original_analytics_db
+    booking_routes._store = original_db
+    analytics_routes._store = original_analytics_db
 
 
 @pytest.fixture(autouse=True)

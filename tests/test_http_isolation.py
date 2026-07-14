@@ -28,7 +28,6 @@ _USERS = [
 def _patch_stores(db: PersistentStore) -> dict:
     """Patch every route module's store to use ``db`` and return originals."""
     from a_cal.api import (
-        standalone_data,
         booking_routes,
         analytics_routes,
         team_routes,
@@ -36,29 +35,34 @@ def _patch_stores(db: PersistentStore) -> dict:
         oauth_routes,
         agent_routes,
     )
+    from a_cal.api import store as store_mod
+    from a_cal.api import sub_account_routes, calendar_routes, email_routes
     originals = {
-        "standalone_data": standalone_data._store,
-        "booking": booking_routes._db,
-        "analytics": analytics_routes._db,
-        "team": team_routes._db,
-        "graphql": graphql_routes._db,
+        "sub_account": sub_account_routes._store,
+        "calendar": calendar_routes._store,
+        "email": email_routes._store,
+        "booking": booking_routes._store,
+        "analytics": analytics_routes._store,
+        "team": team_routes._store,
+        "graphql": graphql_routes._store,
         "oauth": oauth_routes._store,
-        "agent_store_db": agent_routes._store._db,
+        "store_mod": store_mod._store,
     }
-    standalone_data._store = db
-    booking_routes._db = db
-    analytics_routes._db = db
-    team_routes._db = db
-    graphql_routes._db = db
+    sub_account_routes._store = db
+    calendar_routes._store = db
+    email_routes._store = db
+    booking_routes._store = db
+    analytics_routes._store = db
+    team_routes._store = db
+    graphql_routes._store = db
     oauth_routes._store = db
-    agent_routes._store._db = db
+    store_mod._store = db
     return originals
 
 
 def _restore_stores(originals: dict) -> None:
     """Restore original store references."""
     from a_cal.api import (
-        standalone_data,
         booking_routes,
         analytics_routes,
         team_routes,
@@ -66,13 +70,17 @@ def _restore_stores(originals: dict) -> None:
         oauth_routes,
         agent_routes,
     )
-    standalone_data._store = originals["standalone_data"]
-    booking_routes._db = originals["booking"]
-    analytics_routes._db = originals["analytics"]
-    team_routes._db = originals["team"]
-    graphql_routes._db = originals["graphql"]
+    from a_cal.api import store as store_mod
+    from a_cal.api import sub_account_routes, calendar_routes, email_routes
+    sub_account_routes._store = originals["sub_account"]
+    calendar_routes._store = originals["calendar"]
+    email_routes._store = originals["email"]
+    booking_routes._store = originals["booking"]
+    analytics_routes._store = originals["analytics"]
+    team_routes._store = originals["team"]
+    graphql_routes._store = originals["graphql"]
     oauth_routes._store = originals["oauth"]
-    agent_routes._store._db = originals["agent_store_db"]
+    store_mod._store = originals["store_mod"]
 
 
 @pytest.fixture
