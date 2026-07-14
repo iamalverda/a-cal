@@ -5,7 +5,6 @@ router, the marketplace router, and the developer router. All share the
 ``/api/a-cal`` prefix.
 """
 
-from a_cal.api.routes import router as data_router
 from a_cal.api.agent_routes import router as agent_router
 from a_cal.api.swarm_routes import router as swarm_router
 from a_cal.api.marketplace_routes import router as marketplace_router
@@ -17,7 +16,6 @@ from a_cal.api.booking_routes import router as booking_router
 from fastapi import APIRouter
 
 router = APIRouter()
-router.include_router(data_router)
 router.include_router(agent_router)
 router.include_router(swarm_router)
 router.include_router(marketplace_router)
@@ -28,7 +26,6 @@ router.include_router(booking_router)
 
 __all__ = [
     "router",
-    "data_router",
     "agent_router",
     "swarm_router",
     "marketplace_router",

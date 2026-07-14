@@ -39,6 +39,7 @@ def _clean_db():
     """Patch all route modules to use a fresh in-memory store."""
     db = PersistentStore(in_memory=True)
     from a_cal.api import booking_routes, analytics_routes, team_routes, graphql_routes
+    from a_cal.api import standalone_data
     from a_cal.integrations import webhooks as webhook_mod
     from a_cal.integrations import payments as payments_mod
     originals = {
@@ -48,18 +49,21 @@ def _clean_db():
         "graphql": graphql_routes._db,
         "webhook_store": webhook_mod._store,
         "payments": team_routes._payments,
+        "standalone_data": standalone_data._store,
     }
     booking_routes._db = db
     analytics_routes._db = db
     team_routes._db = db
     graphql_routes._db = db
     webhook_mod._store = db
+    standalone_data._store = db
     yield db
     booking_routes._db = originals["booking"]
     analytics_routes._db = originals["analytics"]
     team_routes._db = originals["team"]
     graphql_routes._db = originals["graphql"]
     webhook_mod._store = originals["webhook_store"]
+    standalone_data._store = originals["standalone_data"]
     team_routes._payments = originals["payments"]
 
 
@@ -615,8 +619,31 @@ class TestGraphQL:
         data = r.json()
         assert "events" in data["data"]
 
+
+    def test_query_events_returns_seeded_event(self):
+        """GraphQL `events` query returns a real seeded event (P0-1 regression).
+
+        Previously `_resolve_events` called a non-existent `list_events` method
+        guarded by `hasattr`, so it silently returned `[]`. This test seeds an
+        event and asserts it comes back over GraphQL.
+        """
+        now = datetime.datetime.now(UTC)
+        client.post("/api/a-cal/calendar/events", json={
+            "title": "GraphQL Event",
+            "start": (now + timedelta(days=1)).isoformat(),
+            "end": (now + timedelta(days=1, hours=1)).isoformat(),
+        })
+        r = client.post("/api/a-cal/graphql", json={
+            "query": "{ events(limit: 30) { id title } }",
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert "events" in data["data"]
+        titles = [e["title"] for e in data["data"]["events"]]
+        assert "GraphQL Event" in titles
+
     def test_query_single_event_type(self):
-        """GraphQL query for a single eventType by id."""
+
         et = client.post("/api/a-cal/event-types", json={"title": "Single", "slug": "single"})
         et_id = et.json()["id"]
         r = client.post("/api/a-cal/graphql", json={

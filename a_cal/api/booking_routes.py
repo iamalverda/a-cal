@@ -37,33 +37,53 @@ def _dispatch_webhook(event_type: str, payload: dict, owner_user_id: str) -> Non
     except Exception as exc:
         logger.warning("webhook dispatch for %s failed: %s", event_type, exc)
 
-def _trigger_workflows(trigger: str, context: dict) -> None:
-    """Run workflows matching the given trigger.
+def _trigger_workflows(
+    trigger: str, context: dict, owner_user_id: str | None = None,
+) -> None:
+    """Run workflows matching the given trigger for the event-type owner.
 
     Maps booking lifecycle triggers to workflow trigger types. Booking
     events map to ``schedule_change`` which is the closest workflow trigger.
+
+    Args:
+        trigger: The booking lifecycle trigger (e.g. ``booking_created``).
+        context: Context dict passed to the workflow as its initial message.
+        owner_user_id: The event-type owner's user ID. For public
+            (unauthenticated) bookings this must be threaded from the booking
+            so workflows run under the owner's context, not the anonymous
+            request user's. When None, the current session user is used.
     """
     try:
         from a_cal.workflows.store import WorkflowStore
         from a_cal.workflows.runner import WorkflowRunner
-        store = WorkflowStore(_db)
-        wfs = store.list_workflows()
-        # Map booking_created -> schedule_change workflow trigger
-        wf_trigger = "schedule_change" if trigger == "booking_created" else trigger
-        matching = [w for w in wfs if w.trigger == wf_trigger]
-        if not matching:
-            return
-        # Workflows require a conductor — skip if not available
-        from a_cal.api.agent_routes import _store as _agent_store
-        from a_cal.auth.session import get_current_user_id
-        conductor = _agent_store.get_conductor(get_current_user_id())
-        runner = WorkflowRunner(conductor)
-        import asyncio
-        loop = asyncio.get_event_loop()
-        for wf in matching:
-            loop.create_task(
-                runner.run(wf, initial_message=str(context))
-            )
+        from a_cal.auth.session import (
+            set_current_user_id, reset_current_user_id, get_current_user_id,
+        )
+        # Temporarily scope to the owner so WorkflowStore.list_workflows()
+        # (which reads the contextvar via _uid()) and get_conductor() both
+        # resolve the owner, not the public request user.
+        token = set_current_user_id(owner_user_id) if owner_user_id else None
+        try:
+            store = WorkflowStore(_db)
+            wfs = store.list_workflows()
+            # Map booking_created -> schedule_change workflow trigger
+            wf_trigger = "schedule_change" if trigger == "booking_created" else trigger
+            matching = [w for w in wfs if w.trigger == wf_trigger]
+            if not matching:
+                return
+            # Workflows require a conductor — skip if not available
+            from a_cal.api.agent_routes import _store as _agent_store
+            conductor = _agent_store.get_conductor(get_current_user_id())
+            runner = WorkflowRunner(conductor)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            for wf in matching:
+                loop.create_task(
+                    runner.run(wf, initial_message=str(context))
+                )
+        finally:
+            if token:
+                reset_current_user_id(token)
     except Exception as exc:
         logger.warning("workflow trigger %r failed: %s", trigger, exc)
 
@@ -335,7 +355,7 @@ def create_public_booking(slug: str, body: BookingCreateRequest) -> dict[str, An
     _trigger_workflows("booking_created", {
         "booking_id": booking["id"],
         "event_type": et.get("title", ""),
-    })
+    }, owner_user_id=booking["user_id"])
 
     return {
         "status": "confirmed" if payment_status == "paid" else "pending_payment",

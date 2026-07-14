@@ -146,7 +146,7 @@ def _parse_query(query: str) -> list[dict[str, Any]]:
 def _resolve_events(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Resolve the `events` field."""
     days = args.get("limit", 30)
-    return _db.list_events(days=days) if hasattr(_db, "list_events") else []
+    return _db.get_all_events(days=days)
 
 
 def _resolve_event_types(args: dict[str, Any]) -> list[dict[str, Any]]:

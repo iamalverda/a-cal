@@ -343,3 +343,70 @@ class TestVideoLinkGeneration:
         """Empty video provider returns None."""
         from a_cal.api.booking_routes import _generate_video_link
         assert _generate_video_link("") is None
+
+
+# --- P0-3: public-booking workflow runs under owner context ----------------
+
+class TestTriggerWorkflowsOwnerContext:
+    """Regression tests for P0-3 — _trigger_workflows must run under the
+    event-type owner's user context, not the public request user's."""
+
+    def test_trigger_workflows_scopes_to_owner(self):
+        """_trigger_workflows sets the contextvar to owner_user_id during lookup."""
+        from unittest.mock import patch, MagicMock
+        from a_cal.api import booking_routes
+        from a_cal.auth.session import set_current_user_id, reset_current_user_id, get_current_user_id
+
+        # Start from a known non-owner user (simulating a public request).
+        baseline_token = set_current_user_id("public-anon")
+        captured: dict[str, str] = {}
+        try:
+            # Patch WorkflowStore so we can capture the active user_id.
+            class _CapturingStore:
+                def __init__(self, db):
+                    pass
+
+                def list_workflows(self):
+                    captured["uid_during_lookup"] = get_current_user_id()
+                    return []  # no matching workflows → early return
+
+            with patch("a_cal.workflows.store.WorkflowStore", _CapturingStore):
+                booking_routes._trigger_workflows(
+                    "booking_created",
+                    {"booking_id": "bk-1"},
+                    owner_user_id="owner-xyz",
+                )
+
+            assert captured.get("uid_during_lookup") == "owner-xyz"
+            # Contextvar is restored after the call.
+            assert get_current_user_id() == "public-anon"
+        finally:
+            reset_current_user_id(baseline_token)
+
+    def test_trigger_workflows_without_owner_uses_session_user(self):
+        """When owner_user_id is None, the session user is preserved (no override)."""
+        from unittest.mock import patch
+        from a_cal.api import booking_routes
+        from a_cal.auth.session import set_current_user_id, reset_current_user_id, get_current_user_id
+
+        baseline_token = set_current_user_id("session-user")
+        captured: dict[str, str] = {}
+        try:
+            class _CapturingStore:
+                def __init__(self, db):
+                    pass
+
+                def list_workflows(self):
+                    captured["uid_during_lookup"] = get_current_user_id()
+                    return []
+
+            with patch("a_cal.workflows.store.WorkflowStore", _CapturingStore):
+                booking_routes._trigger_workflows(
+                    "booking_created",
+                    {"booking_id": "bk-2"},
+                    owner_user_id=None,
+                )
+
+            assert captured.get("uid_during_lookup") == "session-user"
+        finally:
+            reset_current_user_id(baseline_token)
