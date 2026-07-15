@@ -182,9 +182,9 @@ class TestAuthContextvar:
     """Test that the contextvar-based user ID propagates to existing routes."""
 
     def test_contextvar_defaults_to_local_dev_user(self):
-        """Without middleware, get_current_user_id returns the fallback."""
+        """Without middleware, get_current_user_id returns the dev fallback."""
         from a_cal.auth.session import get_current_user_id
-        # Reset to default (no active session in test context)
+        # No active session in a bare test context -> the dev fallback.
         assert get_current_user_id() == "local-dev-user"
 
     def test_contextvar_set_and_reset(self):

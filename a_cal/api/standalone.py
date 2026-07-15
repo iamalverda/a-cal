@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 try:
     from dotenv import load_dotenv
@@ -39,12 +40,30 @@ from a_cal.auth.session import (
     router as auth_router,
     AuthMiddleware,
     hash_password,
+    get_session_secret,
+    assert_secure_session_secret,
+    is_insecure_dev_secret,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="A-Cal Standalone", version="0.7.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Startup/shutdown lifespan.
+
+    Enforces a strong session secret at startup: the session cookie and
+    OAuth state tokens are signed with it, and the dev default is public
+    in the source tree, so booting with it would let anyone forge a cookie.
+    Operators must set A_CAL_SESSION_SECRET (or opt in for tests/local dev
+    with A_CAL_ALLOW_INSECURE_DEV_SECRET=1).
+    """
+    assert_secure_session_secret()
+    yield
+
+
+app = FastAPI(title="A-Cal Standalone", version="0.7.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
 # Demo user — auto-created in standalone mode so the app works without
@@ -97,9 +116,18 @@ _cors_origins = [
     if o.strip()
 ]
 
-_DEV_SESSION_SECRET = "a-cal-dev-secret-change-in-production-do-not-use-in-prod"
-_session_secret = os.environ.get("A_CAL_SESSION_SECRET", _DEV_SESSION_SECRET)
-if _session_secret == _DEV_SESSION_SECRET:
+# Session secret — resolved centrally so the same value signs session
+# cookies AND stateless OAuth state tokens. Startup enforcement refuses
+# to boot with the public dev default unless the operator opts in with
+# A_CAL_ALLOW_INSECURE_DEV_SECRET=1 (tests/local dev).
+_session_secret = get_session_secret()
+
+# Mark the session cookie Secure (https-only) when the backend is served
+# over https so cookies never travel over plain HTTP in production.
+_base_url = os.environ.get("A_CAL_BASE_URL", "http://localhost:8000")
+_cookie_secure = _base_url.startswith("https://")
+
+if is_insecure_dev_secret():
     logger.warning(
         "A_CAL_SESSION_SECRET is unset — using the built-in dev secret. Session "
         "cookies are forgeable; set A_CAL_SESSION_SECRET to a random value before "
@@ -113,7 +141,7 @@ if _session_secret == _DEV_SESSION_SECRET:
 # that scope["session"] is populated before AuthMiddleware reads it to set the
 # current-user contextvar.
 app.add_middleware(AuthMiddleware)
-app.add_middleware(SessionMiddleware, secret_key=_session_secret)
+app.add_middleware(SessionMiddleware, secret_key=_session_secret, https_only=_cookie_secure)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -136,30 +164,34 @@ app.include_router(graphql_router)
 app.include_router(auth_router)
 
 
-@app.post("/api/a-cal/auth/demo-login")
-def demo_login(request: Request):
-    """Log in as the demo user (standalone mode only)."""
-    demo_id = _ensure_demo_user()
-    request.session["user_id"] = demo_id
 
-    from sqlalchemy import select
-    from a_cal.db.models import User, get_session
+if os.environ.get("A_CAL_ENABLE_DEMO") == "1":
+    # Known demo credentials are a backdoor; only mount the route when the
+    # operator explicitly enables it (local dev/demo only).
+    @app.post("/api/a-cal/auth/demo-login")
+    def demo_login(request: Request):
+        """Log in as the demo user (demo mode only)."""
+        demo_id = _ensure_demo_user()
+        request.session["user_id"] = demo_id
 
-    db = get_session()
-    try:
-        user = db.execute(
-            select(User).where(User.id == demo_id)
-        ).scalar_one_or_none()
-        if not user:
-            raise HTTPException(status_code=500, detail="Demo user not found")
-        return {
-            "id": user.id,
-            "email": user.email,
-            "display_name": user.display_name,
-            "is_active": user.is_active,
-        }
-    finally:
-        db.close()
+        from sqlalchemy import select
+        from a_cal.db.models import User, get_session
+
+        db = get_session()
+        try:
+            user = db.execute(
+                select(User).where(User.id == demo_id)
+            ).scalar_one_or_none()
+            if not user:
+                raise HTTPException(status_code=500, detail="Demo user not found")
+            return {
+                "id": user.id,
+                "email": user.email,
+                "display_name": user.display_name,
+                "is_active": user.is_active,
+            }
+        finally:
+            db.close()
 
 
 @app.get("/health")
@@ -189,4 +221,9 @@ def health():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Honour the Dockerfile's A_CAL_PORT/A_CAL_HOST instead of hardcoding
+    # port 8000. For real traffic run behind gunicorn/uvicorn workers + a
+    # reverse proxy; this is the single-process dev entrypoint.
+    _host = os.environ.get("A_CAL_HOST", "0.0.0.0")
+    _port = int(os.environ.get("A_CAL_PORT", "8000"))
+    uvicorn.run(app, host=_host, port=_port)

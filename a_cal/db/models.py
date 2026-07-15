@@ -337,6 +337,25 @@ class BookingDB(Base):
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
+class AuthAttempt(Base):
+    """Failed-attempt counter for brute-force protection on login/register.
+
+    Keyed by a composite identifier (e.g. ``login:<email>`` or
+    ``register:<ip>``). Each row tracks consecutive failures and an
+    escalating lockout window. Cleared on success. DB-backed so it
+    survives restarts and is shared across workers (PostgreSQL) / the
+    single SQLite file.
+    """
+    __tablename__ = "a_cal_auth_attempts"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    key = Column(String(255), nullable=False, unique=True, index=True)
+    fail_count = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime, nullable=True)
+    last_attempt_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
 def get_database_url() -> str | None:
     """Get the database URL from the environment.
 
@@ -422,12 +441,16 @@ def create_engine_and_session(db_path: str | None = None):
         # PostgreSQL or other external database
         engine = create_engine(url, pool_pre_ping=True)
 
-    # SQLite-specific optimizations (WAL mode for concurrent reads)
+    # SQLite-specific optimizations (WAL mode for concurrent reads +
+    # busy_timeout so concurrent writers wait instead of erroring with
+    # "database is locked"). WAL alone only helps concurrent *reads*.
     if is_sqlite:
         @sa_event.listens_for(engine, "connect")
         def set_wal_mode(dbapi_conn, conn_record):
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
+            # Wait up to 5s for a write lock instead of failing immediately.
+            cursor.execute("PRAGMA busy_timeout=5000")
             cursor.close()
 
     Base.metadata.create_all(engine)

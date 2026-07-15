@@ -16,9 +16,17 @@ from a_cal.api.developer_routes import router as developer_router
 
 @pytest.fixture
 def client():
-    """Test client with developer routes mounted on a standalone app."""
+    """Authenticated test client (developer routes sit behind the auth wall)."""
+    import uuid
     from a_cal.api.standalone import app
-    return TestClient(app)
+    c = TestClient(app)
+    email = f"explorer-{uuid.uuid4().hex[:8]}@example.com"
+    resp = c.post(
+        "/api/a-cal/auth/register",
+        json={"email": email, "password": "securepass123"},
+    )
+    assert resp.status_code == 200, resp.text
+    return c
 
 
 class TestApiExplorer:

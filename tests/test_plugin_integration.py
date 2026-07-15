@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 from fastapi.testclient import TestClient
+from tests._authclient import make_authed_client
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +177,7 @@ class TestDataApiPluginIntegration:
         plugin_mod = sys.modules.get("a_cal_plugin_event_logger")
         assert plugin_mod is not None
 
-        client = TestClient(app)
+        client = make_authed_client()
 
         # Create an event
         now = datetime.now(UTC)
@@ -210,7 +211,7 @@ class TestDataApiPluginIntegration:
         runtime.scan_and_load()
         assert runtime.list_loaded() == []
 
-        client = TestClient(app)
+        client = make_authed_client()
         now = datetime.now(UTC)
         resp = client.post("/api/a-cal/calendar/events", json={
             "title": "No Plugin Event",

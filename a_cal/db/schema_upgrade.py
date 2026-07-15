@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 logger = logging.getLogger(__name__)
 
@@ -195,11 +195,21 @@ _COLUMN_ADDITIONS: list[tuple[str, str, str]] = [
 
 
 def _column_exists(conn: Any, table: str, column: str) -> bool:
-    """Check if a column exists in a table (SQLite/PostgreSQL compatible)."""
-    # PRAGMA doesn't support parameterized table names, but `table` is
-    # always a hardcoded internal constant (never user input).
-    result = conn.execute(text(f"PRAGMA table_info({table})"))
-    return any(row[1] == column for row in result)
+    """Check if a column exists in a table (SQLite/PostgreSQL compatible).
+
+    Uses SQLAlchemy's reflection inspector so it works on every dialect
+    instead of the SQLite-only ``PRAGMA table_info`` (which throws and is
+    caught upstream, making incremental migrations silently no-op on
+    PostgreSQL).
+    """
+    inspector = inspect(conn)
+    # has_column() is not available on older SQLAlchemy; reflect columns
+    # and check membership, which works on SQLite and PostgreSQL.
+    try:
+        return column in {c["name"] for c in inspector.get_columns(table)}
+    except Exception:
+        # Table doesn't exist (fresh DB before create_all) -> no column.
+        return False
 
 
 def upgrade_schema(engine: Any) -> None:

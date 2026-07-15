@@ -320,13 +320,12 @@ def test_oauth_callback_missing_code_or_state(client):
 def test_oauth_callback_provider_not_found(client):
     """OAuth callback for a missing provider redirects with error."""
     # Register a valid (non-expired) state but for a nonexistent provider
-    import time as _time
-    from a_cal.providers.oauth import _state_store
-    _state_store["valid-state-123"] = ("nonexistent-prov", _time.time())
+    from a_cal.providers.oauth import sign_state
+    state = sign_state("nonexistent-prov", None)
 
     resp = client.get(
         "/api/a-cal/providers/nonexistent-prov/oauth/callback",
-        params={"code": "x", "state": "valid-state-123"},
+        params={"code": "x", "state": state},
         follow_redirects=False,
     )
     assert resp.status_code == 302

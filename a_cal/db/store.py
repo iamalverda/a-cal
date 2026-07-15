@@ -45,8 +45,11 @@ USER_ID = "local-dev-user"  # Fallback for seeding; runtime uses _uid()
 def _uid() -> str:
     """Return the current user ID from auth context.
 
-    Falls back to USER_ID ("local-dev-user") when no session is active,
-    preserving backward compatibility with standalone/demo mode.
+    The auth wall (``AuthMiddleware``) blocks unauthenticated access to
+    protected routes before they reach a handler; ``get_current_user_id``
+    falls back to the dev user for public paths, bare test apps, and
+    internal/background callers. This wraps that lookup with a final
+    defensive fallback to the seeded dev user.
     """
     try:
         from a_cal.auth.session import get_current_user_id

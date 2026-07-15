@@ -279,9 +279,13 @@ plugins/
 |----------|---------|-------------|
 | `A_CAL_BASE_URL` | `http://localhost:8000` | Backend URL (for OAuth callbacks) |
 | `A_CAL_FRONTEND_URL` | `http://localhost:3456` | Frontend URL (for OAuth redirects) |
-| `A_CAL_CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
+| `A_CAL_CORS_ORIGINS` | localhost dev origins | Comma-separated allowed CORS origins (set to your real frontend origin for production) |
 | `A_CAL_PLUGIN_DIR` | `~/.a-cal/plugins` | Directory for plugin Python files |
-| `A_CAL_SESSION_SECRET` | dev secret (insecure) | **Required for production** — generate with `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
+| `A_CAL_SESSION_SECRET` | dev secret (insecure) | **Required for production** — the server refuses to boot with the public dev default. Generate with `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
+| `A_CAL_ALLOW_INSECURE_DEV_SECRET` | unset | Set to `1` to opt in to the dev secret (tests/local dev only; never in production) |
+| `A_CAL_ENABLE_DEMO` | unset (off) | Set to `1` to mount the demo-login route (known-credential backdoor; local dev only) |
+| `A_CAL_REGISTER_MAX_PER_IP` | `10` | Per-IP signup cap per `A_CAL_REGISTER_WINDOW_HOURS`; `0` or negative disables it |
+| `A_CAL_REGISTER_WINDOW_HOURS` | `1` | Rolling window for the per-IP registration cap |
 | `A_CAL_ENABLE_PLUGINS` | unset (off) | Set to `1` to enable the in-process plugin runtime (self-host, single-operator only) |
 | `A_CAL_GOOGLE_CLIENT_ID` | — | Google OAuth client ID |
 | `A_CAL_GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
