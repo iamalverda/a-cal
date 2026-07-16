@@ -101,7 +101,49 @@ def _ensure_demo_user() -> str:
             db.refresh(user)
             _DEMO_USER_ID = user.id
             logger.info("Created demo user: %s (id=%s)", _DEMO_EMAIL, _DEMO_USER_ID)
+            _seed_demo_sub_accounts(user.id)
         return _DEMO_USER_ID
+    finally:
+        db.close()
+
+
+def _seed_demo_sub_accounts(demo_id: str) -> None:
+    """Seed default sub-accounts for a fresh demo user.
+
+    The demo experience needs sub-accounts visible in the sidebar so
+    E2E tests and manual demo sessions have meaningful data to interact
+    with (Main Calendar, Work Google, Personal, Email Inbox).
+    """
+    from a_cal.db.models import SubAccount, get_session
+
+    import uuid as _uuid
+    _uid = _uuid.uuid4().hex[:8]
+    defaults = [
+        {"id": f"sa-demo-main-{_uid}", "name": "Main Calendar", "kind": "unified",
+         "is_main": True, "sync_mode": "mirror_filter", "agent_enabled": True,
+         "settings": {"color": "#6366f1", "visible": True}},
+        {"id": f"sa-demo-work-{_uid}", "name": "Work Google", "kind": "calendar",
+         "is_main": False, "sync_mode": "mirror_filter", "agent_enabled": False,
+         "settings": {"color": "#3b82f6", "visible": True}},
+        {"id": f"sa-demo-personal-{_uid}", "name": "Personal", "kind": "calendar",
+         "is_main": False, "sync_mode": "intelligent_merge", "agent_enabled": True,
+         "settings": {"color": "#10b981", "visible": True}},
+        {"id": f"sa-demo-email-{_uid}", "name": "Email Inbox", "kind": "email",
+         "is_main": False, "sync_mode": "mirror_filter", "agent_enabled": False,
+         "settings": {"color": "#f59e0b", "visible": True}},
+    ]
+
+    db = get_session()
+    try:
+        existing = db.query(SubAccount).filter(
+            SubAccount.user_id == demo_id
+        ).count()
+        if existing > 0:
+            return
+        for d in defaults:
+            db.add(SubAccount(user_id=demo_id, **d))
+        db.commit()
+        logger.info("Seeded %d demo sub-accounts for %s", len(defaults), demo_id)
     finally:
         db.close()
 
