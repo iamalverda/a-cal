@@ -1,306 +1,282 @@
-# Handoff for Claude Code — Remaining Oversized File Splits
+# Handoff for Claude Code — A-Cal Hardened Launch (Post-Merge)
 
-> Written by Codex on 2026-07-14. This handoff covers the two remaining
-> files that exceed the 800-line project rule. **Read
-> [CODEX-UNDERSTANDING.md](CODEX-UNDERSTANDING.md) first** — it explains the
-> API layer architecture, the store singleton pattern, FastAPI router
-> composition, and the Python import-binding semantics you need to
-> understand before touching these files.
->
-> **Branch:** `refactor/store-consolidation-and-file-split` (PR #4 against
-> `fix/cleanup-and-hardening`). Create a new branch from this one or from
-> `main` after PR #4 merges — your call, but keep it off `origin/main`.
+> Written by Codex on 2026-07-15, after merging PR #5 to `origin/main`.
+> The previous handoff (`HANDOFF-FOR-CODEX.md`) gave Codex a security/hardening
+> work list. This handoff reports what was done, asks you to verify it, and
+> identifies what remains to get the project fully operational.
 
 ---
 
-## What Codex Already Did (do NOT redo)
+## 0. Context
 
-Three commits on `refactor/store-consolidation-and-file-split`:
+A-Cal is an agentic, self-hostable calendar + email platform. Backend: Python
+3.11 / FastAPI / SQLAlchemy / SQLite|Postgres in `a_cal/`. Frontend: Next.js 15
+/ React 19 in `web/`. Repo root: `/Users/christophervaughn/Documents/A-Cal/a-cal`.
 
-1. **`fe74b11`** — P2-4/P3-2: consolidated 7 per-module `PersistentStore()`
-   instances into a single `a_cal/api/store.py` singleton; standardized all
-   naming to `_store` (was mixed `_db`/`_store`).
+All work from the prior handoff's Work Items (P0-1 through P3-2) was already
+completed in earlier commits. This handoff covers the **security hardening and
+E2E CI fix** that Codex did on top of that, merged via PR #5.
 
-2. **`731f24f`** — P2-3a: split `standalone_data.py` (1230 lines) into
-   `sub_account_routes.py`, `calendar_routes.py`, `email_routes.py`, and
-   `_helpers.py`, composed under a 30-line composition stub.
-
-3. **`0e9e266`** — P2-3b: extracted 8 nervous-system endpoints from
-   `agent_routes.py` (877 -> 787 lines) into `nervous_system_routes.py`.
-
-**Baseline:** 984 passed, 9 skipped, ruff clean, tsc clean. Preserve this.
-
----
-
-## What's Left: Two Oversized Files
-
-| File | Lines | Limit | Over by |
-|---|---|---|---|
-| `a_cal/db/store.py` | 1936 | 800 | 1136 |
-| `a_cal/agents/standalone_responses.py` | 1359 | 800 | 559 |
-
-**Do these one at a time.** Commit + verify (ruff + pytest + tsc) after each
-split before starting the next. If the first split breaks something, you
-don't want to also be debugging the second.
+**Current baseline (all on `origin/main`, commit `89827a4`):**
+- `python -m pytest tests/ -q` → **996 passed, 9 skipped, 0 failed**
+- `ruff check a_cal/ tests/` → **clean**
+- `cd web && pnpm typecheck && pnpm build` → **clean**
+- `cd web && pnpm test:e2e` (CI) → **82 passed, 0 failed**
+- GitHub Actions CI: **all 5 jobs green** (Python Tests, Python Lint, Frontend
+  Build + Typecheck, Frontend Typecheck, E2E Tests)
 
 ---
 
-## File 1: `a_cal/db/store.py` (1936 lines)
+## 1. What Codex Did (verify all of this)
 
-### What this file is
+### 1.1 Auth wall (`a_cal/auth/session.py`)
+- Added `AuthMiddleware` (pure-ASGI, ordered after `SessionMiddleware`) that
+  401s any path not in `_PUBLIC_PATHS` when there's no session cookie. Public
+  paths: `/health`, `/docs`, `/openapi.json`, `/redoc`, auth endpoints
+  (register/login/logout/me/demo-login), public booking, OAuth callbacks,
+  marketplace browse.
+- The contextvar default stays `"local-dev-user"` (reverting it to `None` broke
+  ~60 tests). The **wall** is the gate, not the contextvar.
+- `get_current_user_id()` raises `HTTPException(401)` when called as a
+  dependency and no user is resolved.
+- **Verify:** `tests/test_auth_wall.py` (12 tests) covers 401 without session,
+  public path access, post-login access, lockout escalation, register cap,
+  secret enforcement refusal.
 
-`PersistentStore` is the data access layer — a single class that wraps
-SQLAlchemy ORM models and exposes ~70 methods organized by domain. It's
-the backend for every route module and the workflow/self-model systems.
+### 1.2 Session secret enforcement (`a_cal/auth/session.py` + `a_cal/api/standalone.py`)
+- `assert_secure_session_secret()` runs in a FastAPI lifespan (`_lifespan`).
+  Refuses boot with the public dev default unless
+  `A_CAL_ALLOW_INSECURE_DEV_SECRET=1`.
+- Cookie `secure` flag derives from `A_CAL_BASE_URL` (HTTPS → secure cookie).
+- **Verify:** boot the app with the dev secret and no allow flag → RuntimeError.
+  With a real secret or the allow flag → boots fine.
 
-### The public interface contract
+### 1.3 Rate limiting — DB-backed, no new dependency (`a_cal/auth/session.py` + `a_cal/db/models.py`)
+- `AuthAttempt` model (`a_cal_auth_attempts` table) tracks failed logins and
+  registrations by key (email for login, IP for register).
+- Email-keyed escalating login lockout: no lockout until 5 failures, then
+  doubling lockout windows (60s, 120s, 240s, ...).
+- Per-IP register cap: configurable via `A_CAL_REGISTER_MAX_PER_IP` (default 5)
+  and `A_CAL_REGISTER_WINDOW` (default 24h).
+- **Verify:** `tests/test_auth_wall.py` tests lockout escalation, lock after
+  repeated failures, counter reset on success, register cap enforcement.
 
-Every caller does one of:
-```python
-from a_cal.db.store import PersistentStore          # instantiate directly
-from a_cal.api.store import _store                    # shared singleton (for routes)
-```
+### 1.4 OAuth state — stateless HMAC (`a_cal/providers/oauth.py`)
+- Replaced the in-memory `_state_store` dict with stateless HMAC tokens
+  (`sign_state` / `validate_state`). Format: `base64url(payload).base64url(hmac)`,
+  signed with the session secret, constant-time compare.
+- Survives restarts and works across multiple workers (the old in-memory store
+  broke both).
+- **Verify:** `tests/test_oauth.py` uses `sign_state` for state generation.
 
-The `PersistentStore` class is the interface. Callers call methods like
-`store.create_sub_account(...)`, `store.list_providers(...)`, etc. The
-split must preserve every public method name and signature on the
-`PersistentStore` class.
+### 1.5 Demo-login gating (`a_cal/api/standalone.py`)
+- The `/api/a-cal/auth/demo-login` endpoint is only mounted when
+  `A_CAL_ENABLE_DEMO=1`. Off by default.
 
-### Recommended approach: mixin classes
+### 1.6 Demo sub-account seeding (`a_cal/api/standalone.py`)
+- `_seed_demo_sub_accounts()` seeds four default sub-accounts (Main Calendar,
+  Work Google, Personal, Email Inbox) when a demo user is first created.
+  UUID-based IDs to avoid colliding with `local-dev-user`'s hardcoded IDs.
+- This was needed because the demo user gets a fresh empty account; E2E tests
+  expect the sidebar to show sub-accounts.
 
-Split domain methods into mixin classes, then compose them:
+### 1.7 SQLite busy_timeout (`a_cal/db/models.py`)
+- Added `PRAGMA busy_timeout=5000` alongside the existing `PRAGMA journal_mode=WAL`
+  in the event listener. Concurrent writers now wait up to 5s instead of
+  immediately throwing "database is locked".
 
-```python
-# a_cal/db/store_mixins/_sub_account.py
-class SubAccountMixin:
-    def list_sub_accounts(self) -> list[dict[str, Any]]: ...
-    def create_sub_account(self, data: dict[str, Any]) -> dict[str, Any]: ...
-    # ...
+### 1.8 Schema upgrade — dialect-aware (`a_cal/db/schema_upgrade.py`)
+- `_column_exists()` now uses `inspect(conn).get_columns()` instead of
+  `has_column()` (which doesn't exist in SQLAlchemy 2.0.51). Works on both
+  SQLite and Postgres.
 
-# a_cal/db/store.py (rewritten, ~200 lines)
-from a_cal.db.store_mixins._sub_account import SubAccountMixin
-from a_cal.db.store_mixins._provider import ProviderMixin
-# ...
+### 1.9 Postgres migration entrypoint (`scripts/migrate-and-start.sh` + `Dockerfile.backend`)
+- Container entrypoint runs `alembic upgrade head` when `DATABASE_URL` is set
+  (Postgres), then starts the app. SQLite dev mode skips Alembic and relies
+  on `create_all` + `upgrade_schema`.
+- Dockerfile.backend CMD now calls the script.
 
-class PersistentStore(SubAccountMixin, ProviderMixin, CalendarMixin, ...):
-    def __init__(self, in_memory=False): ...
-    def _seed_if_empty(self): ...
-    def _session(self): ...
-```
+### 1.10 Env var canonicalization (`docker-compose.yml`, `.env.example`, `README.md`)
+- All env vars canonicalized to `A_CAL_*` prefix:
+  `A_CAL_GOOGLE_CLIENT_ID`, `A_CAL_MS_CLIENT_ID` (was `GOOGLE_CLIENT_ID` /
+  `OUTLOOK_CLIENT_ID`), `A_CAL_BASE_URL`, `A_CAL_FRONTEND_URL`,
+  `A_CAL_SESSION_SECRET`, `A_CAL_ENABLE_DEMO`, `A_CAL_CORS_ORIGINS`,
+  `A_CAL_REGISTER_MAX_PER_IP`.
 
-**Why mixins and not composition?** Every call site does
-`store.list_sub_accounts()`. With composition you'd need
-`store.sub_accounts.list()` or a pass-through proxy layer. Mixins keep the
-flat method namespace, so zero callers change.
+### 1.11 Port/host (`a_cal/api/standalone.py`)
+- `__main__` uses `A_CAL_PORT` / `A_CAL_HOST` env vars instead of hardcoded 8000.
 
-### Domain section map (line numbers in the current file)
+### 1.12 E2E CI fix (`.github/workflows/ci.yml` + `web/playwright.config.ts`)
+- Playwright webServer command was hardcoded to `.venv/bin/python`, which
+  doesn't exist in CI. Changed to `python` when `CI` is set, `.venv/bin/python`
+  locally.
+- Added `A_CAL_ALLOW_INSECURE_DEV_SECRET=1`, `A_CAL_ENABLE_DEMO=1`,
+  `A_CAL_REGISTER_MAX_PER_IP=100000` to the E2E CI env.
 
-| Domain | Lines | Approx size | Suggested mixin file |
-|---|---|---|---|
-| Module imports + serialize helpers | 1-158 | 158 | stays in `store.py` |
-| `PersistentStore` class def + `__init__` + `_seed_if_empty` + `_session` | 159-383 | 224 | stays in `store.py` |
-| Sub-accounts | 384-446 | 62 | `_sub_account.py` |
-| Providers | 447-595 | 148 | `_provider.py` |
-| Calendar events | 596-748 | 152 | `_calendar.py` |
-| Sync rules | 749-790 | 41 | `_sync_rules.py` (or fold into `_sub_account.py`) |
-| Settings | 791-818 | 27 | `_settings.py` |
-| API keys | 819-839 | 20 | stays with `_settings.py` |
-| Self-model facts | 840-899 | 59 | `_self_model.py` |
-| Negotiations | 900-934 | 34 | `_negotiations.py` (or fold into `_self_model.py`) |
-| Event types | 935-1111 | 176 | `_event_types.py` |
-| Bookings | 1112-1234 | 122 | `_bookings.py` |
-| Email labels | 1235-1266 | 31 | `_email.py` |
-| Email filters | 1267-1314 | 47 | `_email.py` |
-| Email snooze | 1315-1362 | 47 | `_email.py` |
-| Scheduled emails | 1363-1427 | 64 | `_email.py` |
-| Email templates | 1428-1512 | 84 | `_email.py` |
-| Teams | 1513-1581 | 68 | `_teams.py` |
-| Team members | 1582-1690 | 108 | `_teams.py` |
-| Routing forms | 1691-1758 | 67 | `_routing.py` (or fold into `_teams.py`) |
-| Webhooks | 1759-1936 | 177 | `_webhooks.py` |
+### 1.13 Frontend auth gating (`web/app/page.tsx`)
+- `loadRealData()` effect was firing on mount before demo-login completed,
+  so protected API calls got 401 and the UI stayed empty. Gated the effect on
+  auth state (`user`, `authLoading`, `backendDown`).
 
-All email sections (lines 1235-1512) should go into one `_email.py` mixin
-(~273 lines) rather than being split further — they're tightly related and
-individually small.
-
-### Critical details
-
-1. **`_seed_if_empty` is large** (lines 180-379, ~200 lines). It seeds demo
-   data on first run. It belongs in `store.py` because it touches every
-   domain. If it makes `store.py` too big after the split, extract it into
-   `_seed.py` as a standalone function that takes a `PersistentStore`
-   instance.
-
-2. **Serialize helpers** (`_serialize_sub_account`, `_serialize_provider`,
-   `_serialize_sync_rule`, `_serialize_event`, `_serialize_event_type` at
-   lines 58-158) are module-level functions used by the mixin methods. Move
-   each helper into the mixin file that uses it. If a helper is shared across
-   mixins, put it in `store.py` or a `_serialize.py` module.
-
-3. **`_uid()` function** (line 45) is called by every method that does
-   user-scoping. Mixins need access to it. Either keep it in `store.py` and
-   have mixins import it, or move it to a small `_utils.py`:
-   ```python
-   from a_cal.db.store_utils import _uid
-   ```
-
-4. **`_session()` method** is called by every mixin method. It's an
-   instance method on `PersistentStore`, so mixins inherit it
-   automatically — no change needed.
-
-5. **Import of ORM models** (lines 14-37) is needed by every mixin. Each
-   mixin file should import what it uses from `a_cal.db.models`:
-   ```python
-   from a_cal.db.models import SubAccount, ProviderConnection, ...
-   ```
-
-6. **Test impact:** Tests instantiate `PersistentStore(in_memory=True)`
-   directly. They don't care about the internal structure — as long as the
-   class exposes the same methods, all 984 tests pass unchanged. This is the
-   beauty of the mixin approach.
-
-### Suggested file structure
-
-```
-a_cal/db/
-  store.py          (~250 lines: class def, __init__, _seed_if_empty, _session)
-  store_utils.py    (~20 lines: _uid, USER_ID)
-  store_mixins/
-    __init__.py
-    _sub_account.py  (~80 lines: SubAccountMixin + _serialize_sub_account)
-    _provider.py     (~160 lines: ProviderMixin + _serialize_provider)
-    _calendar.py     (~160 lines: CalendarMixin + _serialize_event)
-    _sync_rules.py   (~50 lines: SyncRuleMixin + _serialize_sync_rule)
-    _settings.py     (~55 lines: SettingsMixin + ApiKeyMixin)
-    _self_model.py   (~100 lines: SelfModelMixin + NegotiationMixin)
-    _event_types.py  (~190 lines: EventTypeMixin + _serialize_event_type)
-    _bookings.py     (~130 lines: BookingMixin)
-    _email.py        (~280 lines: EmailMixin)
-    _teams.py        (~180 lines: TeamMixin + TeamMemberMixin)
-    _webhooks.py      (~185 lines: WebhookMixin)
-```
-
-### Verification
-
-```bash
-.venv/bin/python -m pytest tests/ -q          # expect 984 passed, 9 skipped
-ruff check a_cal/ tests/                        # expect clean
-cd web && npx tsc --noEmit                      # expect clean
-```
+### 1.14 E2E test authentication (`web/tests/e2e/*.spec.ts`)
+- Tests that hit protected API endpoints directly (email-scan-depth,
+  proactive-suggestions) now authenticate via demo-login first.
+- UI tests that race with auth (sub-accounts, sync-rules, email-depth) now
+  wait for the Conductor text before proceeding.
 
 ---
 
-## File 2: `a_cal/agents/standalone_responses.py` (1359 lines)
+## 2. What Remains to Get Fully Operational
 
-### What this file is
+### 🔴 Items only the user (Chris) can do
 
-A collection of pure-Python response generators that produce useful,
-interactive responses when no LLM is available (standalone mode). The
-conductor calls `generate_standalone_response()` as its fallback.
+1. **Generate and set `A_CAL_SESSION_SECRET`** for production. The app refuses
+   to boot with the dev secret. Generate with:
+   `python -c "import secrets;print(secrets.token_urlsafe(48))"`
+   Put it in `.env` or your hosting platform's env vars. This is the single
+   most important production step.
 
-### The public interface contract
+2. **Set OAuth credentials** (`A_CAL_GOOGLE_CLIENT_ID`, `A_CAL_GOOGLE_CLIENT_SECRET`,
+   `A_CAL_MS_CLIENT_ID`, `A_CAL_MS_CLIENT_SECRET`) in `.env` if you want real
+   calendar/email sync. Without these, OAuth login buttons appear but silently
+   stay unconfigured.
 
-**Production code imports:**
-- `a_cal/agents/conductor.py:36` — `from a_cal.agents.standalone_responses import generate_standalone_response`
+3. **Set `A_CAL_CORS_ORIGINS`** to your real frontend domain(s) in production.
+   Default is localhost only.
 
-**Test code imports:**
-- `tests/test_event_actions.py:19` — `generate_standalone_response`, `_detect_event_action`
-- `tests/test_event_actions.py:311,331,353` — `_handle_list_events`
-- `tests/test_connect_and_self_model.py:17` — `_parse_connect_request`, `generate_sync_response`, `generate_standalone_response`
-- `tests/test_self_model_integration.py:18` — `_extract_self_model_prefs`, `_rank_slots_by_prefs`, `generate_schedule_response`, `_handle_create_event`
+4. **Set `A_CAL_BASE_URL` and `A_CAL_FRONTEND_URL`** to your real domains in
+   production. OAuth redirect URIs and the cookie `Secure` flag depend on these.
 
-The cleanest approach: extract sub-modules and have `standalone_responses.py`
-re-export everything so existing imports keep working. But it's even
-cleaner to update the test imports to point at the new sub-modules. Your
-choice — both work, but re-exporting is lower risk for the first pass.
+5. **Choose database backend.** SQLite is fine for single-user/low traffic.
+   For real multi-user concurrency, use Postgres:
+   `docker compose --profile postgres up --build` with `DATABASE_URL` set.
+   The migrate-and-start entrypoint handles alembic automatically.
 
-### Function map (line numbers in the current file)
+6. **Decide on `A_CAL_ENABLE_DEMO`.** Set to `1` only if you want the demo-login
+   backdoor. Off by default (correct for production).
 
-| Group | Lines | Functions | Suggested module |
-|---|---|---|---|
-| Parsing helpers | 28-233 | `_parse_datetime`, `_parse_duration`, `_parse_time_preference`, `_parse_specific_time`, `_parse_event_title`, `_detect_event_action` | `_parsing.py` (~205 lines) |
-| Self-model + slot helpers | 235-417 | `_extract_self_model_prefs`, `_rank_slots_by_prefs`, `_find_free_slots` | `_slots.py` (~182 lines) |
-| Event handlers | 418-800 | `_handle_create_event`, `_handle_reschedule_event`, `_handle_delete_event`, `_handle_list_events` | `_event_handlers.py` (~382 lines) |
-| Generate functions | 801-1359 | `generate_schedule_response`, `_parse_connect_request`, `generate_sync_response`, `generate_email_response`, `generate_negotiate_response`, `generate_self_model_response`, `generate_chat_response`, `generate_standalone_response` | stays in `standalone_responses.py` (~558 lines) |
+7. **Decide on `A_CAL_ENABLE_PLUGINS`.** Plugins run arbitrary Python in-process.
+   Only enable for trusted single-operator deployments. Off by default.
 
-Wait — that leaves `standalone_responses.py` at 558 lines, which is under
-800. But the event handlers at 382 are also fine. The parsing module at 205
-and slots at 182 are small. This split produces four files all well under
-the limit.
+### 🟠 Code/infra work Claude Code should evaluate
 
-### Suggested file structure
+1. **Single-worker uvicorn.** The app still runs `uvicorn.run(app, ...)` with
+   no `--workers` flag. For production, consider running behind gunicorn with
+   uvicorn workers, or a reverse proxy. The stateless OAuth state (fixed) and
+   DB-backed rate limiting (fixed) are now worker-safe, so this is purely an
+   ops/config change, not a code blocker.
 
-```
-a_cal/agents/
-  standalone_responses.py  (~560 lines: all generate_* functions + re-exports)
-  _parsing.py              (~205 lines: _parse_* and _detect_event_action)
-  _slots.py                (~182 lines: _extract_self_model_prefs, _rank_slots_by_prefs, _find_free_slots)
-  _event_handlers.py       (~382 lines: _handle_create_event, _handle_reschedule_event, _handle_delete_event, _handle_list_events)
-```
+2. **Oversized files still over the 800-line project rule:**
+   - `a_cal/db/store.py` — 1946 lines
+   - `a_cal/agents/standalone_responses.py` — 1359 lines
+   - `web/components/email-panel.tsx` — 1849 lines
+   - `web/components/settings-panel.tsx` — 1607 lines
+   - `web/lib/api.ts` — 1469 lines
+   - `web/components/calendar-view.tsx` — 1022 lines
+   The previous handoff's P2-3 (split oversized files) was partially done —
+   `standalone_data.py`, `agent_routes.py`, and routes were split, but the
+   above remain. Evaluate whether splitting these is worth the churn vs.
+   leaving them as stable working code.
 
-### Critical details
+3. **Alembic migration coverage.** There are only 3 migration files
+   (`alembic/versions/0001-0003`). Recent model additions (e.g. `AuthAttempt`
+   table, any new columns from the isolation/hardening work) rely on
+   `create_all` + `upgrade_schema` for SQLite and may not have corresponding
+   Alembic migrations. If deploying to Postgres, verify that `alembic upgrade
+   head` creates all tables. Consider generating a migration that captures the
+   current schema state: `alembic revision --autogenerate -m "sync schema"`.
 
-1. **Inter-module dependencies:** The `generate_*` functions in
-   `standalone_responses.py` call the parsing, slot, and event-handler
-   functions. After extraction, `standalone_responses.py` must import them:
-   ```python
-   from a_cal.agents._parsing import _detect_event_action, _parse_datetime, ...
-   from a_cal.agents._slots import _extract_self_model_prefs, _rank_slots_by_prefs, ...
-   from a_cal.agents._event_handlers import _handle_create_event, _handle_list_events, ...
-   ```
+4. **Frontend Dockerfile bakes `A_CAL_API_URL` at build time?** The
+   `next.config.mjs` rewrites read `process.env.A_CAL_API_URL` at runtime
+   (server-side), so the Docker frontend should work with
+   `A_CAL_API_URL=http://backend:8000`. But verify this actually resolves at
+   runtime in the container — Next.js `rewrites()` runs server-side, so it
+   should be fine. Flag if not.
 
-2. **`_event_handlers.py` depends on `_parsing.py` and `_slots.py`:**
-   `_handle_create_event` calls `_parse_datetime`, `_parse_event_title`,
-   `_parse_duration`, `_rank_slots_by_prefs`, `_find_free_slots`, etc. So
-   `_event_handlers.py` imports from both `_parsing.py` and `_slots.py`.
+5. **No HTTPS/TLS termination.** The app sets cookie `secure` based on
+   `A_CAL_BASE_URL`, but there's no TLS config in the Dockerfiles. Production
+   needs a reverse proxy (nginx, Caddy, Cloudflare) for HTTPS. This is an ops
+   concern, not a code fix.
 
-3. **`TYPE_CHECKING` import:** The module uses
-   `from typing import TYPE_CHECKING` with `if TYPE_CHECKING:` to import
-   `IntentType` and `RoutingDecision` from `conductor.py` (avoids circular
-   import). Keep this in `standalone_responses.py` since the `generate_*`
-   functions type-hint `RoutingDecision`. The sub-modules don't need it
-   (they work with plain dicts and strings).
+6. **E2E test for auth wall in CI.** The Python `test_auth_wall.py` covers the
+   auth wall at the unit level, but there's no E2E test that verifies a
+   browser-side user hitting a protected route without a session gets the
+   login panel (the `auth-flow.spec.ts` tests cover login/logout, but not the
+   "protected route 401 → login panel" flow specifically). Consider adding one.
 
-4. **Re-export strategy:** To avoid touching test imports, add re-exports at
-   the bottom of `standalone_responses.py`:
-   ```python
-   # Re-export for backward compatibility with test imports
-   from a_cal.agents._parsing import _detect_event_action, _parse_connect_request
-   from a_cal.agents._slots import _extract_self_model_prefs, _rank_slots_by_prefs
-   from a_cal.agents._event_handlers import _handle_create_event, _handle_list_events
-   from a_cal.agents._parsing import _parse_connect_request
-   ```
-   Or update the test imports directly — cleaner, but more files to touch.
+### 🟡 Nice-to-haves (low priority)
 
-5. **`generate_schedule_response` dispatches to event handlers:** It calls
-   `_detect_event_action`, `_extract_self_model_prefs`,
-   `_handle_list_events`, `_handle_create_event`, etc. After extraction,
-   these are imported at the top of `standalone_responses.py`.
+1. **Node.js version in CI.** GitHub Actions warns that Node 20 actions are
+   deprecated and forces Node 24. The CI workflows use `actions/checkout@v4`,
+   `actions/setup-node@v4`, etc. which target Node 20. Update to newer action
+   versions or accept the forced Node 24.
 
-### Verification
+2. **Frontend Dockerfile uses `node:20-slim`** while CI uses Node 22.
+   Align these for consistency.
 
-Same as File 1:
-```bash
-.venv/bin/python -m pytest tests/ -q
-ruff check a_cal/ tests/
-cd web && npx tsc --noEmit
-```
+3. **`web/Dockerfile` installs with `pnpm install --frozen-lockfile || pnpm
+   install`** — the fallback to non-frozen install hides lockfile drift.
+   Consider making the lockfile mandatory.
 
 ---
 
-## Execution Order
+## 3. Suggested Next Steps (in order)
 
-1. **Split `store.py` first** — it's the bigger file and the higher-risk
-   change (every route module depends on it). Do it, verify, commit.
-2. **Split `standalone_responses.py` second** — lower risk (only conductor
-   + tests depend on it), and you'll have confidence from the first split.
-3. **Push and update PR #4** (or open a new PR if #4 has merged).
+1. **Verify the hardening** — read `a_cal/auth/session.py` (auth wall,
+   lockout, secret enforcement), `a_cal/providers/oauth.py` (stateless state),
+   `a_cal/api/standalone.py` (lifespan, demo gating, seeding). Run the test
+   suite. Boot the app without the allow flag to confirm the secret refusal.
 
-## Conventions (unchanged)
+2. **Check Alembic migration coverage** — run `alembic revision --autogenerate`
+   against a fresh SQLite DB and see if it produces an empty migration (meaning
+   migrations are in sync) or a diff (meaning there are unmigrated tables/
+   columns). If there's a diff, create the migration.
 
-- Conventional Commits (`refactor:` prefix for these)
-- Never push to `origin/main` (protected)
-- `pnpm` for frontend, `pip`/`pyproject.toml` for backend
-- No `any` in TS; JSDoc/docstrings on new functions
-- Never `rm -rf`, never expose secrets
-- Run `ruff check a_cal/ tests/` and `pytest tests/ -q` after every change
+3. **Decide on oversized file splits** — the store.py (1946 lines) and
+   standalone_responses.py (1359 lines) are the biggest offenders. Evaluate
+   whether splitting them now is worth the risk vs. leaving them as stable
+   working code that's already tested.
+
+4. **Add a production-readiness checklist** to the README — the items in
+   section 2.1 (secret, OAuth, CORS, URLs, database, demo, plugins) as a
+   concrete pre-launch checklist.
+
+5. **Complete any of the 🟠 items** above that you judge worth doing.
+
+---
+
+## 4. Conventions (from `CLAUDE.md`, still in force)
+
+- `.venv/bin/python -m pytest tests/ -q` is the test command.
+- `cd web && pnpm typecheck && pnpm build` is the frontend check.
+- `ruff check a_cal/ tests/` for linting.
+- Conventional Commits for all git operations.
+- `origin/main` is protected — create a feature branch, push, open a PR.
+- The user (Chris/iamalverda) has write access and can approve PRs.
+- The venv is at `.venv/` (system `python` is not on PATH).
+- Tests share a single in-memory SQLite DB (module-level engine singleton), so
+  test ordering matters. The register cap must stay high in conftest
+  (`A_CAL_REGISTER_MAX_PER_IP=100000`) to avoid cross-test 429s.
+- `A_CAL_ALLOW_INSECURE_DEV_SECRET=1` and `A_CAL_ENABLE_DEMO=1` are set in
+  `tests/conftest.py` for the test suite.
+
+---
+
+## 5. Key Files to Read
+
+| File | What's there |
+|------|-------------|
+| `a_cal/auth/session.py` | AuthMiddleware, lockout, secret enforcement, register cap |
+| `a_cal/api/standalone.py` | Lifespan, demo gating, demo seeding, CORS, port/host |
+| `a_cal/providers/oauth.py` | Stateless HMAC OAuth state |
+| `a_cal/db/models.py` | AuthAttempt model, busy_timeout pragma |
+| `a_cal/db/schema_upgrade.py` | Dialect-aware column existence check |
+| `scripts/migrate-and-start.sh` | Postgres alembic entrypoint |
+| `.github/workflows/ci.yml` | CI with E2E env vars |
+| `web/playwright.config.ts` | Portable python command for webServer |
+| `web/app/page.tsx` | Auth-gated data loading |
+| `tests/test_auth_wall.py` | 12 tests covering the auth wall |
+| `tests/_authclient.py` | Shared authenticated TestClient helper |
+| `tests/conftest.py` | Test env vars, authed_client fixture |
+| `docker-compose.yml` | Canonical A_CAL_* env vars |
+| `.env.example` | Production config reference |
