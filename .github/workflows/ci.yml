@@ -92,4 +92,7 @@ jobs:
         working-directory: web
         env:
           A_CAL_DB_PATH: ":memory:"
+          A_CAL_ALLOW_INSECURE_DEV_SECRET: "1"
+          A_CAL_ENABLE_DEMO: "1"
+          A_CAL_REGISTER_MAX_PER_IP: "100000"
         run: pnpm test:e2e

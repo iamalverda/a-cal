@@ -36,7 +36,7 @@ export default defineConfig({
 
   webServer: [
     {
-      command: "cd .. && .venv/bin/python -m a_cal.api.standalone",
+      command: `cd .. && ${process.env.CI ? "python" : ".venv/bin/python"} -m a_cal.api.standalone`,
       url: "http://127.0.0.1:8000/health",
       reuseExistingServer: true,
       timeout: 30_000,
