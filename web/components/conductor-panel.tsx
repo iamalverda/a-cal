@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { mockConductorResponse } from "@/lib/mock-data";
+import { mockConductorResponse, shouldUseMocks } from "@/lib/mock-data";
 import { useVoiceInput } from "@/lib/use-voice-input";
 import type { ConductorResponse, RoutingTrace } from "@/types";
 
@@ -111,7 +111,15 @@ export function ConductorPanel() {
       if (!res.ok) throw new Error("API unavailable");
       response = await res.json();
     } catch {
-      response = mockConductorResponse(userMsg.content);
+      if (shouldUseMocks()) {
+        response = mockConductorResponse(userMsg.content);
+      } else {
+        response = {
+          user_id: "", message: "", timestamp: "", standalone: false,
+          response: "Unable to reach the backend. Please check your connection and try again.",
+          routing: { specialist: "error", intent: "error", tier: "error", force_local: false, self_model_context: "", reasoning: "backend unavailable" },
+        };
+      }
     }
 
     const conductorMsg: Message = {

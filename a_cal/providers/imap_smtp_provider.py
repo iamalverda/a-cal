@@ -30,9 +30,10 @@ import smtplib
 from datetime import datetime, timezone, UTC
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from a_cal.providers.base import (
+    AttachmentDTO,
     EmailMessageDTO,
     EmailProvider,
     ProviderCapability,
@@ -169,8 +170,9 @@ class ImapSmtpProvider(EmailProvider):
         body_text: str,
         in_reply_to: str | None = None,
         thread_id: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Send a plain-text email via SMTP.
+        """Send a plain-text email via SMTP, optionally with attachments.
 
         Args:
             to: List of recipient email addresses.
@@ -178,11 +180,21 @@ class ImapSmtpProvider(EmailProvider):
             body_text: Plain-text body content.
             in_reply_to: Message-ID to reply to (for threading).
             thread_id: Unused for IMAP/SMTP (kept for interface compat).
+            attachments: Optional list of dicts with ``filename``,
+                ``content_type``, and ``content`` (base64-encoded str).
 
         Returns:
             The generated Message-ID of the sent email.
         """
-        msg = MIMEMultipart("alternative")
+        from email.mime.base import MIMEBase
+        import base64 as _b64
+
+        if attachments:
+            msg = MIMEMultipart("mixed")
+            msg.attach(MIMEText(body_text, "plain", "utf-8"))
+        else:
+            msg = MIMEMultipart("alternative")
+
         msg["From"] = self._username
         msg["To"] = ", ".join(to)
         msg["Subject"] = subject
@@ -192,7 +204,30 @@ class ImapSmtpProvider(EmailProvider):
         if in_reply_to:
             msg["In-Reply-To"] = in_reply_to
 
-        msg.attach(MIMEText(body_text, "plain", "utf-8"))
+        if not attachments:
+            msg.attach(MIMEText(body_text, "plain", "utf-8"))
+        else:
+            for att in attachments:
+                filename = att.get("filename", "attachment")
+                content_type = att.get("content_type", "application/octet-stream")
+                raw_content = att.get("content", "")
+                # Decode base64 content if needed.
+                if isinstance(raw_content, str):
+                    raw_bytes = _b64.b64decode(raw_content)
+                elif isinstance(raw_content, (bytes, bytearray)):
+                    raw_bytes = bytes(raw_content)
+                else:
+                    continue
+
+                maintype, _, subtype = content_type.partition("/")
+                if not subtype:
+                    maintype, subtype = "application", "octet-stream"
+                part = MIMEBase(maintype, subtype)
+                part.set_payload(raw_bytes)
+                from email import encoders
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+                msg.attach(part)
 
         with smtplib.SMTP(self._smtp_host, self._smtp_port) as server:
             if self._use_starttls_smtp:
@@ -200,7 +235,7 @@ class ImapSmtpProvider(EmailProvider):
             server.login(self._username, self._password)
             server.sendmail(self._username, to, msg.as_string())
 
-        logger.info("Sent email to %s with subject '%s'", ", ".join(to), subject)
+        logger.info("Sent email to %s with subject '%s' (%d attachments)", ", ".join(to), subject, len(attachments or []))
         return message_id
 
     async def reply(
@@ -252,6 +287,163 @@ class ImapSmtpProvider(EmailProvider):
         finally:
             try:
                 conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def star_message(self, provider_message_id: str, starred: bool) -> bool:
+        """Star or unstar a message via IMAP \\Flagged flag.
+
+        Args:
+            provider_message_id: The IMAP UID of the message.
+            starred: True to set \\Flagged, False to remove it.
+
+        Returns:
+            True if the flag operation succeeded.
+        """
+        conn = self._connect_imap()
+        try:
+            conn.select("INBOX")
+            op = "+FLAGS" if starred else "-FLAGS"
+            typ, _ = conn.uid("STORE", provider_message_id, f"({op}\\Flagged)")
+            return typ == "OK"
+        except Exception as exc:
+            logger.warning("IMAP star failed for %s: %s", provider_message_id, exc)
+            return False
+        finally:
+            try:
+                conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def mark_read(self, provider_message_id: str, read: bool) -> bool:
+        """Mark a message as read or unread via IMAP \\Seen flag.
+
+        Args:
+            provider_message_id: The IMAP UID of the message.
+            read: True to add \\Seen (mark read), False to remove it.
+
+        Returns:
+            True if the flag operation succeeded.
+        """
+        conn = self._connect_imap()
+        try:
+            conn.select("INBOX")
+            op = "+FLAGS" if read else "-FLAGS"
+            typ, _ = conn.uid("STORE", provider_message_id, f"({op}\\Seen)")
+            return typ == "OK"
+        except Exception as exc:
+            logger.warning("IMAP mark_read failed for %s: %s", provider_message_id, exc)
+            return False
+        finally:
+            try:
+                conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def delete_message(self, provider_message_id: str) -> bool:
+        """Delete a message by marking it \\Deleted and expunging.
+
+        Args:
+            provider_message_id: The IMAP UID of the message to delete.
+
+        Returns:
+            True if the delete operation succeeded.
+        """
+        conn = self._connect_imap()
+        try:
+            conn.select("INBOX")
+            try:
+                conn.uid("COPY", provider_message_id, "Trash")
+            except Exception:
+                pass
+            typ, _ = conn.uid("STORE", provider_message_id, "(+FLAGS\\Deleted)")
+            if typ == "OK":
+                conn.expunge()
+                return True
+            return False
+        except Exception as exc:
+            logger.warning("IMAP delete failed for %s: %s", provider_message_id, exc)
+            return False
+        finally:
+            try:
+                conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def search_messages(
+        self, query: str, folder: str = "INBOX", limit: int = 50
+    ) -> list[EmailMessageDTO]:
+        """Search messages via IMAP SEARCH across FROM, SUBJECT, and BODY.
+
+        Args:
+            query: Search text.
+            folder: The IMAP folder to search in.
+            limit: Maximum number of results.
+
+        Returns:
+            List of matching EmailMessageDTOs.
+        """
+        conn = self._connect_imap()
+        try:
+            conn.select(folder, readonly=True)
+            criteria = f'OR OR FROM "{query}" SUBJECT "{query}" BODY "{query}"'
+            status, data = conn.uid("search", None, criteria)
+            if status != "OK" or not data or not data[0]:
+                return []
+            uid_list = data[0].split()[-limit:]
+            messages: list[EmailMessageDTO] = []
+            for uid in uid_list:
+                uid_s = uid.decode() if isinstance(uid, bytes) else str(uid)
+                status, fetch_data = conn.uid("fetch", uid_s, "(UID FLAGS BODY.PEEK[])")
+                if status != "OK" or not fetch_data:
+                    continue
+                for item in fetch_data:
+                    if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], bytes):
+                        msg = email.message_from_bytes(item[1])
+                        uid_val = self._extract_uid(item[0]) or uid_s
+                        messages.append(self._msg_to_dto(msg, uid_val))
+                        break
+            return messages
+        except Exception as exc:
+            logger.warning("IMAP search failed: %s", exc)
+            return []
+        finally:
+            try:
+                conn.close()
+                conn.logout()
+            except Exception:
+                pass
+
+    async def list_folders(self) -> list[str]:
+        """List available IMAP folders.
+
+        Returns:
+            List of folder names.
+        """
+        conn = self._connect_imap()
+        try:
+            typ, folders = conn.list()
+            if typ != "OK":
+                return ["INBOX"]
+            result: list[str] = []
+            for f in folders:
+                if isinstance(f, bytes):
+                    decoded = f.decode("utf-8", errors="replace")
+                    parts = decoded.split('"')
+                    if len(parts) >= 2:
+                        result.append(parts[-2])
+                    elif "INBOX" in decoded:
+                        result.append("INBOX")
+            return result or ["INBOX"]
+        except Exception as exc:
+            logger.warning("IMAP list_folders failed: %s", exc)
+            return ["INBOX"]
+        finally:
+            try:
                 conn.logout()
             except Exception:
                 pass
@@ -323,13 +515,35 @@ class ImapSmtpProvider(EmailProvider):
         elif subject:
             snippet = subject
 
-        # Check for calendar invite
+        # Check for calendar invite and extract attachment metadata
         labels: list[str] = []
+        attachments: list[AttachmentDTO] = []
         if msg.is_multipart():
             for part in msg.walk():
-                if part.get_content_type() == "text/calendar":
+                content_type = part.get_content_type()
+                content_disposition = str(part.get("Content-Disposition", ""))
+                content_id = part.get("Content-ID", None)
+
+                if content_type == "text/calendar":
                     labels.append("calendar_invite")
-                    break
+                    continue
+
+                # Detect attachments: parts with Content-Disposition: attachment
+                # or inline parts with a filename that aren't the text body.
+                is_attachment = "attachment" in content_disposition.lower()
+                filename = part.get_filename()
+                if not is_attachment and filename and content_type != "text/plain":
+                    is_attachment = True
+
+                if is_attachment and filename:
+                    payload = part.get_payload(decode=True)
+                    size = len(payload) if payload else 0
+                    attachments.append(AttachmentDTO(
+                        filename=filename,
+                        content_type=content_type,
+                        size=size,
+                        content_id=content_id,
+                    ))
 
         return EmailMessageDTO(
             provider_message_id=uid,
@@ -345,4 +559,5 @@ class ImapSmtpProvider(EmailProvider):
                 "Message-ID": msg.get("Message-ID", ""),
                 "In-Reply-To": msg.get("In-Reply-To", ""),
             },
+            attachments=attachments,
         )

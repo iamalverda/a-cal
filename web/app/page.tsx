@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
-import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, User, Menu, X, LogOut, Loader2 } from "lucide-react";
+import { Settings, Moon, Sun, Sparkles, Bot, Store, Code2, Workflow, Mail, BarChart3, CalendarClock, User, Menu, X, LogOut, Loader2, Users, Globe } from "lucide-react";
 import { Network, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,9 @@ import { WorkflowBuilder } from "@/components/workflow-builder";
 import { NervousSystemPanel } from "@/components/nervous-system-panel";
 import { EmailPanel } from "@/components/email-panel";
 import { AnalyticsPanel } from "@/components/analytics-panel";
+import { SchedulingPanel } from "@/components/scheduling-panel";
+import { TeamsPanel } from "@/components/teams-panel";
+import { PlatformPanel } from "@/components/platform-panel";
 import { AddAccountWizard } from "@/components/add-account-wizard";
 import { ProactiveSuggestions } from "@/components/proactive-suggestions";
 import { CommandBar } from "@/components/command-bar";
@@ -30,6 +33,7 @@ import {
   mockProviders,
   mockEvents,
   mockAgents,
+  shouldUseMocks,
 } from "@/lib/mock-data";
 import type { SkillMode, SubAccount, ProviderConnection, UnifiedEvent, AgentSpec } from "@/types";
 
@@ -45,12 +49,13 @@ export default function Page() {
     if (dark) root.classList.add("dark");
     else root.classList.remove("dark");
   }, [dark]);
-  const [subAccounts, setSubAccounts] = useState<SubAccount[]>(mockSubAccounts);
-  const [providers, setProviders] = useState<Record<string, ProviderConnection[]>>(mockProviders);
-  const [events, setEvents] = useState<UnifiedEvent[]>(mockEvents);
-  const [agents, setAgents] = useState<AgentSpec[]>(mockAgents);
+  const useMocks = shouldUseMocks();
+  const [subAccounts, setSubAccounts] = useState<SubAccount[]>(useMocks ? mockSubAccounts : []);
+  const [providers, setProviders] = useState<Record<string, ProviderConnection[]>>(useMocks ? mockProviders : {});
+  const [events, setEvents] = useState<UnifiedEvent[]>(useMocks ? mockEvents : []);
+  const [agents, setAgents] = useState<AgentSpec[]>(useMocks ? mockAgents : []);
   const [visibleSubAccounts, setVisibleSubAccounts] = useState<Set<string>>(
-    new Set(mockSubAccounts.filter((s) => !s.is_main).map((s) => s.id))
+    new Set(useMocks ? mockSubAccounts.filter((s) => !s.is_main).map((s) => s.id) : [])
   );
   const [selectedSubAccountId, setSelectedSubAccountId] = useState<string | null>(null);
   const [showConductor, setShowConductor] = useState(true);
@@ -63,14 +68,20 @@ export default function Page() {
   const [showNervousSystem, setShowNervousSystem] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showScheduling, setShowScheduling] = useState(false);
+  const [showTeams, setShowTeams] = useState(false);
+  const [showPlatform, setShowPlatform] = useState(false);
   const [oauthResult, setOauthResult] = useState<string | null>(null);
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [showCommandBar, setShowCommandBar] = useState(false);
   const [showAddWizard, setShowAddWizard] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  /** Load real data from the backend on mount, falling back to mock data. */
+  /** Load real data from the backend once the session is established. */
   useEffect(() => {
+    // Gate on auth: without a session cookie, protected API calls 401 and
+    // the UI stays empty. Wait until demo-login/real login completes.
+    if (authLoading || (!user && !backendDown)) return;
     async function loadRealData() {
       try {
         const [subsRes, eventsRes, agentsData] = await Promise.all([
@@ -109,11 +120,12 @@ export default function Page() {
           // keep default (false)
         }
       } catch {
-        // Backend not running — use mock data (already set)
+        // Backend not running — in production, state stays empty (no mock
+        // fallback). In development, mock data was already set as initial state.
       }
     }
     loadRealData();
-  }, []);
+  }, [user, authLoading, backendDown]);
 
   /** Handle OAuth callback redirect (?oauth_result=success|error|denied). */
   useEffect(() => {
@@ -300,6 +312,15 @@ export default function Page() {
             <BarChart3 size={15} className="text-[var(--muted-foreground)]" />
             <span>Analytics</span>
           </button>
+          {mode !== "simple" && (
+            <button
+              onClick={() => setShowScheduling(true)}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+            >
+              <CalendarClock size={15} className="text-[var(--muted-foreground)]" />
+              <span>Scheduling</span>
+            </button>
+          )}
           <button
             onClick={() => setShowMarketplace(true)}
             className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
@@ -352,6 +373,20 @@ export default function Page() {
               <span>Developer Studio</span>
             </button>
           )}
+          <button
+            onClick={() => setShowTeams(true)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <Users size={15} className="text-[var(--muted-foreground)]" />
+            <span>Teams & Payments</span>
+          </button>
+          <button
+            onClick={() => setShowPlatform(true)}
+            className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
+          >
+            <Globe size={15} className="text-[var(--muted-foreground)]" />
+            <span>Platform & API</span>
+          </button>
           <button
             onClick={() => setDark(!dark)}
             className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-[var(--accent)] transition-colors"
@@ -525,6 +560,13 @@ export default function Page() {
         </SlideInOverlay>
       )}
 
+      {/* Scheduling overlay */}
+      {showScheduling && (
+        <SlideInOverlay title="Scheduling" icon={<CalendarClock size={18} className="text-[var(--primary)]" />} onClose={() => setShowScheduling(false)}>
+          <SchedulingPanel />
+        </SlideInOverlay>
+      )}
+
       {/* Marketplace overlay */}
       {showMarketplace && (
         <SlideInOverlay title="Marketplace" icon={<Store size={18} className="text-[var(--primary)]" />} onClose={() => setShowMarketplace(false)}>
@@ -567,6 +609,20 @@ export default function Page() {
         </SlideInOverlay>
       )}
 
+      {/* Teams & Payments overlay */}
+      {showTeams && (
+        <SlideInOverlay title="Teams & Payments" icon={<Users size={18} className="text-[var(--primary)]" />} onClose={() => setShowTeams(false)}>
+          <TeamsPanel />
+        </SlideInOverlay>
+      )}
+
+      {/* Platform & API overlay */}
+      {showPlatform && (
+        <SlideInOverlay title="Platform & API" icon={<Globe size={18} className="text-[var(--primary)]" />} onClose={() => setShowPlatform(false)}>
+          <PlatformPanel />
+        </SlideInOverlay>
+      )}
+
       {/* Contextual command bar — cmd+k palette */}
       <CommandBar
         open={showCommandBar}
@@ -575,6 +631,7 @@ export default function Page() {
         onOpenMarketplace={() => setShowMarketplace(true)}
         onOpenEmail={() => setShowEmail(true)}
         onOpenAnalytics={() => setShowAnalytics(true)}
+        onOpenScheduling={() => setShowScheduling(true)}
         onOpenConductor={() => setShowConductor(true)}
         onSyncCalendars={handleSyncAll}
         mode={mode}

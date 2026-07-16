@@ -279,8 +279,14 @@ plugins/
 |----------|---------|-------------|
 | `A_CAL_BASE_URL` | `http://localhost:8000` | Backend URL (for OAuth callbacks) |
 | `A_CAL_FRONTEND_URL` | `http://localhost:3456` | Frontend URL (for OAuth redirects) |
-| `A_CAL_CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
+| `A_CAL_CORS_ORIGINS` | localhost dev origins | Comma-separated allowed CORS origins (set to your real frontend origin for production) |
 | `A_CAL_PLUGIN_DIR` | `~/.a-cal/plugins` | Directory for plugin Python files |
+| `A_CAL_SESSION_SECRET` | dev secret (insecure) | **Required for production** — the server refuses to boot with the public dev default. Generate with `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
+| `A_CAL_ALLOW_INSECURE_DEV_SECRET` | unset | Set to `1` to opt in to the dev secret (tests/local dev only; never in production) |
+| `A_CAL_ENABLE_DEMO` | unset (off) | Set to `1` to mount the demo-login route (known-credential backdoor; local dev only) |
+| `A_CAL_REGISTER_MAX_PER_IP` | `10` | Per-IP signup cap per `A_CAL_REGISTER_WINDOW_HOURS`; `0` or negative disables it |
+| `A_CAL_REGISTER_WINDOW_HOURS` | `1` | Rolling window for the per-IP registration cap |
+| `A_CAL_ENABLE_PLUGINS` | unset (off) | Set to `1` to enable the in-process plugin runtime (self-host, single-operator only) |
 | `A_CAL_GOOGLE_CLIENT_ID` | — | Google OAuth client ID |
 | `A_CAL_GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
 | `A_CAL_MS_CLIENT_ID` | — | Microsoft OAuth client ID |
@@ -301,6 +307,10 @@ plugins/
 4. Toggle "Enable AI responses" to activate real LLM-powered agent responses
 
 ### Plugin Development
+> Plugins run arbitrary Python code in-process. The runtime is gated behind
+> `A_CAL_ENABLE_PLUGINS=1` (default off) for multi-tenant safety. Set this
+> flag only in self-hosted, single-operator deployments.
+
 1. Create a `.py` file in `~/.a-cal/plugins/` (or your `A_CAL_PLUGIN_DIR`)
 2. Define a `Plugin` class with at least one supported hook:
    - `on_event_created`, `on_event_updated`, `on_event_deleted`
@@ -332,6 +342,19 @@ extractor learns from synced events. Federated swarm negotiation resolves
 sub-account conflicts with full audit trails. IMAP/SMTP email provider for any
 email server. Docker self-hosting via `docker compose up`. 5 example plugins
 with full hook coverage. SDK covers all 127 REST endpoints.
+
+### Security
+
+Before exposing A-Cal to real users:
+
+1. **Set `A_CAL_SESSION_SECRET`** — the built-in dev secret allows session
+   cookie forgery. Generate one with
+   `python -c "import secrets;print(secrets.token_urlsafe(48))"` and set it
+   in your `.env` or environment.
+2. **Leave `A_CAL_ENABLE_PLUGINS` unset** unless you are the sole operator.
+   Plugins run arbitrary Python in the server process — never enable them on
+   a shared multi-tenant deployment.
+3. **Use HTTPS** behind a reverse proxy in production.
 
 ### Remaining for production
 - Real OAuth credentials (Google/Outlook client ID + secret)

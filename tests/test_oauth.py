@@ -213,8 +213,12 @@ def test_oauth_start_missing_provider(client):
     assert resp.status_code == 404
 
 
-def test_oauth_start_no_client_id(client):
+def test_oauth_start_no_client_id(client, monkeypatch):
     """OAuth start with no client_id configured returns 400."""
+    monkeypatch.delenv("A_CAL_GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("A_CAL_GOOGLE_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
     sub_id = _create_sub(client)
     prov_id = _create_google_provider(client, sub_id, config={})
 
@@ -315,13 +319,13 @@ def test_oauth_callback_missing_code_or_state(client):
 
 def test_oauth_callback_provider_not_found(client):
     """OAuth callback for a missing provider redirects with error."""
-    # Register a valid state but for a nonexistent provider
-    from a_cal.providers.oauth import _state_store
-    _state_store["valid-state-123"] = "nonexistent-prov"
+    # Register a valid (non-expired) state but for a nonexistent provider
+    from a_cal.providers.oauth import sign_state
+    state = sign_state("nonexistent-prov", None)
 
     resp = client.get(
         "/api/a-cal/providers/nonexistent-prov/oauth/callback",
-        params={"code": "x", "state": "valid-state-123"},
+        params={"code": "x", "state": state},
         follow_redirects=False,
     )
     assert resp.status_code == 302

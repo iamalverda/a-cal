@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Sync rules editor", () => {
   test("sub-account shows sync rules section when selected", async ({ page }) => {
     await page.goto("http://localhost:3456");
-    await page.waitForTimeout(2000);
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
 
     // Click on a sub-account to select it
     await page.locator("text=Work Google").first().click();
@@ -16,7 +16,7 @@ test.describe("Sync rules editor", () => {
 
   test("expanding sync rules shows add rule button", async ({ page }) => {
     await page.goto("http://localhost:3456");
-    await page.waitForTimeout(2000);
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
 
     // Select sub-account
     await page.locator("text=Work Google").first().click();
@@ -32,7 +32,7 @@ test.describe("Sync rules editor", () => {
 
   test("add rule form shows rule type options", async ({ page }) => {
     await page.goto("http://localhost:3456");
-    await page.waitForTimeout(2000);
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
 
     // Select sub-account and expand sync rules
     await page.locator("text=Work Google").first().click();
@@ -53,7 +53,7 @@ test.describe("Sync rules editor", () => {
 
   test("selecting exclude shows description and pattern input", async ({ page }) => {
     await page.goto("http://localhost:3456");
-    await page.waitForTimeout(2000);
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
 
     // Select sub-account, expand sync rules, click add
     await page.locator("text=Work Google").first().click();
@@ -81,7 +81,7 @@ test.describe("Sync rules editor", () => {
 
   test("cancel button closes the add rule form", async ({ page }) => {
     await page.goto("http://localhost:3456");
-    await page.waitForTimeout(2000);
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
 
     // Select sub-account, expand sync rules, click add
     await page.locator("text=Work Google").first().click();

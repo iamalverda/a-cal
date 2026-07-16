@@ -155,6 +155,10 @@ class CalendarEvent(Base):
     location = Column(String(500), nullable=True)
     source_sub_account_id = Column(String(36), ForeignKey("a_cal_sub_accounts.id"), nullable=True)
     event_metadata = Column(JSONType, nullable=False, default=dict)
+    is_all_day = Column(Boolean, nullable=False, default=False)
+    recurrence_rule = Column(Text, nullable=True)
+    attendees = Column(JSONType, nullable=True)
+    color = Column(String(20), nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
 
 
@@ -257,7 +261,9 @@ class EventTypeDB(Base):
 
     Persisted version of the EventType dataclass from calcom_bridge.
     Survives server restarts so users don't lose their event type
-    configurations.
+    configurations. Extended with scheduling constraints (buffer time,
+    min notice, max booking window), recurring patterns, custom questions,
+    video provider, and reminder configuration.
     """
     __tablename__ = "a_cal_event_types"
 
@@ -272,7 +278,81 @@ class EventTypeDB(Base):
     status = Column(String(50), nullable=False, default="active")
     color = Column(String(20), nullable=False, default="#3B82F6")
     event_metadata = Column(JSONType, nullable=False, default=dict)
+    # Scheduling constraints
+    buffer_before_minutes = Column(Integer, nullable=False, default=0)
+    buffer_after_minutes = Column(Integer, nullable=False, default=0)
+    min_notice_hours = Column(Integer, nullable=False, default=24)
+    max_booking_days = Column(Integer, nullable=False, default=60)
+    # Recurring event type support
+    recurring_pattern = Column(String(50), nullable=False, default="none")
+    recurring_interval = Column(Integer, nullable=False, default=1)
+    # Custom questions for booking form
+    custom_questions = Column(JSONType, nullable=False, default=list)
+    # Video conferencing auto-link
+    video_provider = Column(String(50), nullable=False, default="")
+    # Reminders
+    reminder_enabled = Column(Boolean, nullable=False, default=True)
+    reminder_minutes_before = Column(Integer, nullable=False, default=60)
+    # Booking confirmation email
+    confirmation_email_enabled = Column(Boolean, nullable=False, default=True)
+    confirmation_template = Column(Text, nullable=True)
+    # Phase 5: Team scheduling and payments
+    team_id = Column(String(36), ForeignKey("a_cal_teams.id"), nullable=True)
+    assignment_strategy = Column(String(50), nullable=False, default="collective")
+    routing_form_id = Column(String(36), ForeignKey("a_cal_routing_forms.id"), nullable=True)
+    is_paid = Column(Boolean, nullable=False, default=False)
+    price_cents = Column(Integer, nullable=False, default=0)
+    currency = Column(String(3), nullable=False, default="USD")
+    stripe_product_id = Column(String(255), nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class BookingDB(Base):
+    """A booking made through a public booking page.
+
+    Stores attendee info, selected time slot, answers to custom questions,
+    and the generated video link. Owned by the event type's user.
+    """
+    __tablename__ = "a_cal_bookings"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    event_type_id = Column(String(36), ForeignKey("a_cal_event_types.id"), nullable=False, index=True)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    attendee_name = Column(String(255), nullable=False)
+    attendee_email = Column(String(255), nullable=False)
+    attendee_timezone = Column(String(100), nullable=False, default="UTC")
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    status = Column(String(50), nullable=False, default="confirmed")
+    answers = Column(JSONType, nullable=False, default=dict)
+    video_link = Column(String(500), nullable=True)
+    notes = Column(Text, nullable=True)
+    booking_metadata = Column(JSONType, nullable=False, default=dict)
+    # Phase 5: Payment and team assignment
+    payment_status = Column(String(50), nullable=False, default="free")
+    payment_intent_id = Column(String(255), nullable=True)
+    assigned_member_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class AuthAttempt(Base):
+    """Failed-attempt counter for brute-force protection on login/register.
+
+    Keyed by a composite identifier (e.g. ``login:<email>`` or
+    ``register:<ip>``). Each row tracks consecutive failures and an
+    escalating lockout window. Cleared on success. DB-backed so it
+    survives restarts and is shared across workers (PostgreSQL) / the
+    single SQLite file.
+    """
+    __tablename__ = "a_cal_auth_attempts"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    key = Column(String(255), nullable=False, unique=True, index=True)
+    fail_count = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime, nullable=True)
+    last_attempt_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
@@ -361,12 +441,16 @@ def create_engine_and_session(db_path: str | None = None):
         # PostgreSQL or other external database
         engine = create_engine(url, pool_pre_ping=True)
 
-    # SQLite-specific optimizations (WAL mode for concurrent reads)
+    # SQLite-specific optimizations (WAL mode for concurrent reads +
+    # busy_timeout so concurrent writers wait instead of erroring with
+    # "database is locked"). WAL alone only helps concurrent *reads*.
     if is_sqlite:
         @sa_event.listens_for(engine, "connect")
         def set_wal_mode(dbapi_conn, conn_record):
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
+            # Wait up to 5s for a write lock instead of failing immediately.
+            cursor.execute("PRAGMA busy_timeout=5000")
             cursor.close()
 
     Base.metadata.create_all(engine)
@@ -397,3 +481,164 @@ def get_session() -> Session:
     """Get a new database session."""
     _, session_local = _get_engine_and_session()
     return session_local()
+
+
+class EmailLabel(Base):
+    """A custom, color-coded label for organizing email messages."""
+    __tablename__ = "a_cal_email_labels"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(100), nullable=False)
+    color = Column(String(20), nullable=False, default="#6366f1")
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class EmailFilter(Base):
+    """An auto-apply filter rule for incoming email."""
+    __tablename__ = "a_cal_email_filters"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(100), nullable=False)
+    field = Column(String(50), nullable=False)
+    pattern = Column(String(500), nullable=False)
+    action = Column(String(50), nullable=False, default="label")
+    action_value = Column(String(200), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class EmailSnooze(Base):
+    """A snoozed email — hidden from inbox until the snooze_until time."""
+    __tablename__ = "a_cal_email_snoozes"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    provider_connection_id = Column(String(36), nullable=False)
+    provider_message_id = Column(String(255), nullable=False)
+    snooze_until = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ScheduledEmail(Base):
+    """An email scheduled to be sent at a future time."""
+    __tablename__ = "a_cal_scheduled_emails"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    provider_connection_id = Column(String(36), nullable=False)
+    to_addresses = Column(JSONType, nullable=False)
+    subject = Column(String(500), nullable=False)
+    body_text = Column(Text, nullable=False)
+    attachments = Column(JSONType, nullable=True)
+    scheduled_for = Column(DateTime, nullable=False)
+    status = Column(String(50), nullable=False, default="pending")
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class EmailTemplate(Base):
+    """A reusable email template (canned response)."""
+    __tablename__ = "a_cal_email_templates"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(100), nullable=False)
+    subject = Column(String(500), nullable=True)
+    body_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Team & Payments models
+# ---------------------------------------------------------------------------
+
+
+class Team(Base):
+    """A team for collaborative scheduling (round-robin, collective).
+
+    A team groups multiple users/members who can share event types and
+    distribute bookings among themselves.
+    """
+    __tablename__ = "a_cal_teams"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), nullable=False, default="")
+    description = Column(Text, nullable=False, default="")
+    logo_url = Column(String(500), nullable=True)
+    branding = Column(JSONType, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class TeamMember(Base):
+    """A member of a scheduling team.
+
+    Each member has an email, display name, role (admin/member), and
+    an optional provider connection for calendar availability checking.
+    """
+    __tablename__ = "a_cal_team_members"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    team_id = Column(String(36), ForeignKey("a_cal_teams.id"), nullable=False, index=True)
+    email = Column(String(255), nullable=False)
+    display_name = Column(String(255), nullable=False, default="")
+    role = Column(String(50), nullable=False, default="member")
+    provider_connection_id = Column(String(36), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class RoutingForm(Base):
+    """A routing form that asks questions before booking.
+
+    Based on answers, the form routes the attendee to the most appropriate
+    event type or team member (cal.com-style routing forms).
+    """
+    __tablename__ = "a_cal_routing_forms"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    questions = Column(JSONType, nullable=False, default=list)
+    routing_rules = Column(JSONType, nullable=False, default=list)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class WebhookConfig(Base):
+    """A webhook endpoint that receives event notifications.
+
+    When events like booking.created or booking.cancelled fire, the
+    webhook delivery service POSTs a JSON payload to the configured URL.
+    """
+    __tablename__ = "a_cal_webhooks"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), nullable=False, index=True, default="local-dev-user")
+    url = Column(String(1000), nullable=False)
+    events = Column(JSONType, nullable=False, default=list)
+    secret = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    last_delivery_at = Column(DateTime, nullable=True)
+    last_status = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class WebhookDelivery(Base):
+    """A record of a single webhook delivery attempt."""
+    __tablename__ = "a_cal_webhook_deliveries"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    webhook_id = Column(String(36), ForeignKey("a_cal_webhooks.id"), nullable=False, index=True)
+    event_type = Column(String(100), nullable=False)
+    payload = Column(JSONType, nullable=False, default=dict)
+    status_code = Column(Integer, nullable=True)
+    response_body = Column(Text, nullable=True)
+    delivered_at = Column(DateTime, nullable=False, default=_utcnow)

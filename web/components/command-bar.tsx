@@ -13,6 +13,7 @@ import {
   Search,
   CalendarSync,
   Clock,
+  CalendarClock,
   Mail,
   Brain,
   Plus,
@@ -44,6 +45,7 @@ interface CommandBarProps {
   onOpenMarketplace: () => void;
   onOpenEmail: () => void;
   onOpenAnalytics: () => void;
+  onOpenScheduling: () => void;
   onOpenConductor: () => void;
   onSyncCalendars: () => void;
   mode: string;
@@ -56,6 +58,7 @@ export function CommandBar({
   onOpenMarketplace,
   onOpenEmail,
   onOpenAnalytics,
+  onOpenScheduling,
   onOpenConductor,
   onSyncCalendars,
   mode,
@@ -128,6 +131,17 @@ export function CommandBar({
       keywords: ["analytics", "stats", "patterns", "busy", "meetings", "insights"],
       action: () => {
         onOpenAnalytics();
+        onClose();
+      },
+    },
+    {
+      id: "scheduling",
+      label: "Manage scheduling",
+      description: "Create booking pages, configure event types, view bookings",
+      icon: CalendarClock,
+      keywords: ["scheduling", "booking", "event", "type", "schedule", "calendly", "appointment", "slots"],
+      action: () => {
+        onOpenScheduling();
         onClose();
       },
     },

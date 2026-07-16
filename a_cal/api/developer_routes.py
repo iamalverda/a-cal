@@ -26,6 +26,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/a-cal/developer", tags=["a-cal-developer"])
 
 
+def _plugins_enabled() -> bool:
+    """Check if the plugin runtime is enabled via A_CAL_ENABLE_PLUGINS.
+
+    Plugins run arbitrary Python code in-process. For self-hosted
+    single-operator deployments, the operator can opt in by setting
+    ``A_CAL_ENABLE_PLUGINS=1``. For multi-tenant hosted deployments,
+    this defaults to **off** to prevent untrusted code execution.
+    """
+    import os
+    return os.environ.get("A_CAL_ENABLE_PLUGINS", "").lower() in ("1", "true", "yes")
+
+
+
 # --- per-user stores (standalone mode) --------------------------------------
 
 _plugin_registries: dict[str, PluginRegistry] = {}
@@ -304,6 +317,11 @@ def list_runtime_plugins():
     Scans ~/.a-cal/plugins/ for .py files, loads each one, and reports
     which hooks are implemented. Failed loads are included with error messages.
     """
+    if not _plugins_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="Plugin runtime is disabled. Set A_CAL_ENABLE_PLUGINS=1 to enable.",
+        )
     from a_cal.developer.plugin_runtime import get_runtime
     runtime = get_runtime()
     loaded = runtime.scan_and_load()
@@ -313,6 +331,11 @@ def list_runtime_plugins():
 @router.post("/plugins/runtime/scan")
 def scan_plugins():
     """Trigger a fresh scan of the plugin directory and load all plugins."""
+    if not _plugins_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="Plugin runtime is disabled. Set A_CAL_ENABLE_PLUGINS=1 to enable.",
+        )
     from a_cal.developer.plugin_runtime import get_runtime
     runtime = get_runtime()
     loaded = runtime.scan_and_load()
@@ -327,6 +350,11 @@ def scan_plugins():
 @router.post("/plugins/runtime/{plugin_id}/reload")
 def reload_plugin(plugin_id: str):
     """Reload a single plugin from disk (useful during development)."""
+    if not _plugins_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="Plugin runtime is disabled. Set A_CAL_ENABLE_PLUGINS=1 to enable.",
+        )
     from a_cal.developer.plugin_runtime import get_runtime
     runtime = get_runtime()
     result = runtime.reload(plugin_id)
@@ -338,6 +366,11 @@ def reload_plugin(plugin_id: str):
 @router.post("/plugins/runtime/{plugin_id}/enable")
 def enable_runtime_plugin(plugin_id: str):
     """Enable a loaded runtime plugin."""
+    if not _plugins_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="Plugin runtime is disabled. Set A_CAL_ENABLE_PLUGINS=1 to enable.",
+        )
     from a_cal.developer.plugin_runtime import get_runtime
     runtime = get_runtime()
     if not runtime.enable(plugin_id):
@@ -348,6 +381,11 @@ def enable_runtime_plugin(plugin_id: str):
 @router.post("/plugins/runtime/{plugin_id}/disable")
 def disable_runtime_plugin(plugin_id: str):
     """Disable a loaded runtime plugin."""
+    if not _plugins_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="Plugin runtime is disabled. Set A_CAL_ENABLE_PLUGINS=1 to enable.",
+        )
     from a_cal.developer.plugin_runtime import get_runtime
     runtime = get_runtime()
     if not runtime.disable(plugin_id):
@@ -358,6 +396,11 @@ def disable_runtime_plugin(plugin_id: str):
 @router.get("/plugins/runtime/hooks")
 def list_supported_hooks():
     """List all supported plugin hooks that the runtime can call."""
+    if not _plugins_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="Plugin runtime is disabled. Set A_CAL_ENABLE_PLUGINS=1 to enable.",
+        )
     from a_cal.developer.plugin_runtime import SUPPORTED_HOOKS
     return {"hooks": SUPPORTED_HOOKS}
 

@@ -10,6 +10,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Email integration depth settings", () => {
   test("settings panel has an Email Depth section with three levels", async ({ page }) => {
     await page.goto("/");
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     // Open settings via the command bar (cmd+k)
     await page.keyboard.press("Meta+k");
     await expect(page.getByText("Open settings")).toBeVisible({ timeout: 5_000 });

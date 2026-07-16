@@ -54,17 +54,23 @@ class ModelRoutingConfig:
     per_task_overrides: dict[str, str] = field(default_factory=dict)
     # API keys are stored as refs into atom's encrypted token storage.
     api_key_refs: dict[str, str] = field(default_factory=dict)
-    # Whether to force local for privacy-sensitive tasks (always True; exposed
-    # in settings as an informational toggle so users understand the constraint).
+    # Informational only: surfaced in settings so users can SEE that privacy-
+    # sensitive tasks run locally. It does NOT gate the enforcement — the force
+    # in resolve_model is unconditional (charter: "privacy is structural, not a
+    # setting … cannot accidentally disable it"). Kept for backward-compatible
+    # serialization; setting it False has no effect on routing.
     privacy_force_local: bool = True
 
     def resolve_model(self, task: str) -> dict[str, str]:
         """Resolve which provider + model to use for a given task.
 
-        Privacy-sensitive tasks (email, self_model, negotiate) are always
-        forced to local regardless of the global setting or per-task overrides.
+        Privacy-sensitive tasks (email, self_model, negotiate) are ALWAYS
+        forced to local — unconditionally, regardless of the global setting,
+        per-task overrides, or the ``privacy_force_local`` flag. This makes the
+        privacy guarantee structural rather than a toggle the user (or an API
+        caller) could flip off.
         """
-        if self.privacy_force_local and task in FORCE_LOCAL_TASKS:
+        if task in FORCE_LOCAL_TASKS:
             return {"provider": ModelProvider.OLLAMA.value, "model": "local-private", "forced_local": "true"}
 
         override = self.per_task_overrides.get(task)

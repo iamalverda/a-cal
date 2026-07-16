@@ -27,19 +27,18 @@ from a_cal.integrations.calcom_bridge import (
     get_aggregated_availability,
 )
 from a_cal.integrations.zero_calendar_bridge import CALENDAR_TOOLS, get_enhanced_schedule_prompt
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-analytics"])
 
-_db = PersistentStore()
 
 
 def _fetch_events(days: int = 30) -> list[dict[str, Any]]:
     """Fetch unified calendar events from the store."""
     try:
-        events = _db.get_unified_calendar(days)
+        events = _store.get_unified_calendar(days)
         return events if isinstance(events, list) else []
     except Exception as exc:
         logger.debug("event fetch failed: %s", exc)
@@ -142,7 +141,7 @@ class SuggestRescheduleRequest(BaseModel):
 # --- event type endpoints (cal.com integration) ---------------------------
 
 class EventTypeRequest(BaseModel):
-    """Payload for creating/updating an event type."""
+    """Payload for creating/updating an event type with scheduling fields."""
     title: str = "30 Minute Meeting"
     slug: str = "30-min"
     duration_minutes: int = 30
@@ -151,24 +150,44 @@ class EventTypeRequest(BaseModel):
     availability: dict[str, Any] = Field(default_factory=dict)
     color: str = "#3B82F6"
     metadata: dict[str, Any] = Field(default_factory=dict)
+    buffer_before_minutes: int = 0
+    buffer_after_minutes: int = 0
+    min_notice_hours: int = 24
+    max_booking_days: int = 60
+    recurring_pattern: str = "none"
+    recurring_interval: int = 1
+    custom_questions: list[dict[str, Any]] = Field(default_factory=list)
+    video_provider: str = ""
+    reminder_enabled: bool = True
+    reminder_minutes_before: int = 60
+    confirmation_email_enabled: bool = True
+    confirmation_template: str | None = None
+    # Phase 5: Team & Payments
+    team_id: str | None = None
+    assignment_strategy: str = "collective"
+    routing_form_id: str | None = None
+    is_paid: bool = False
+    price_cents: int = 0
+    currency: str = "USD"
+    stripe_product_id: str | None = None
 
 
 @router.get("/event-types")
 def list_event_types():
     """List all event types (cal.com-style booking pages)."""
-    return _db.list_event_types()
+    return _store.list_event_types()
 
 
 @router.post("/event-types")
 def create_event_type(body: EventTypeRequest):
     """Create a new event type and persist it to the database."""
-    return _db.create_event_type(body.model_dump())
+    return _store.create_event_type(body.model_dump())
 
 
 @router.delete("/event-types/{event_type_id}")
 def delete_event_type(event_type_id: str):
     """Delete an event type."""
-    _db.delete_event_type(event_type_id)
+    _store.delete_event_type(event_type_id)
     return {"deleted": event_type_id}
 
 
@@ -176,7 +195,7 @@ def delete_event_type(event_type_id: str):
 def get_event_type(event_type_id: str):
     """Get a single event type by ID."""
     from fastapi import HTTPException
-    et = _db.get_event_type(event_type_id)
+    et = _store.get_event_type(event_type_id)
     if et is None:
         raise HTTPException(status_code=404, detail="Event type not found")
     return et

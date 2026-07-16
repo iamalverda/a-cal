@@ -27,7 +27,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from a_cal.db.store import PersistentStore
+from a_cal.api.store import _store
 from a_cal.integrations.atom_bridge import get_atom_token_storage
 from a_cal.providers.oauth import (
     build_auth_url,
@@ -40,7 +40,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/a-cal", tags=["a-cal-oauth"])
 
-_store = PersistentStore()
 
 # When atom is available, OAuth tokens are encrypted via atom's
 # ConnectionService (Fernet at rest). Otherwise, stored in SQLite config.
@@ -198,20 +197,14 @@ async def oauth_callback(
         "refresh_token": tokens.get("refresh_token", ""),
         "oauth_connected": True,
     }
-    token_storage = _get_token_storage()
-    if token_storage:
-        token_storage.save_oauth_tokens(
-            user_id=get_current_user_id(),
-            provider_type=provider_type,
-            tokens=token_data,
-        )
-        # Store a reference (not the tokens themselves) in the provider config
-        _store.update_provider_config(provider_id, {
-            "token_storage": "atom",
-            "oauth_connected": True,
-        })
-    else:
-        _store.update_provider_config(provider_id, {"oauth_tokens": token_data})
+    # Always store OAuth tokens in the provider config (SQLite).
+    # Atom's encrypted ConnectionService uses a per-process SECRET_KEY that
+    # changes on restart, making encrypted tokens unrecoverable in dev.
+    # Storing in provider config is simpler and works in standalone mode.
+    # Tokens are stripped from API responses by _serialize_provider.
+    import time as _time
+    token_data["expires_at"] = _time.time() + (token_data.get("expires_in") or 3600)
+    _store.update_provider_config(provider_id, {"oauth_tokens": token_data})
     _store.update_provider_status(provider_id, "connected")
 
     logger.info("OAuth success for provider %s (%s)", provider_id, provider_type)

@@ -9,6 +9,7 @@ from a_cal.workflows.models import WorkflowDef, WorkflowNode, WorkflowRunResult
 from a_cal.workflows.store import WorkflowStore
 from a_cal.workflows.runner import WorkflowRunner
 from a_cal.db.store import PersistentStore
+from tests._authclient import make_authed_client
 
 
 # --- Model tests -------------------------------------------------------------
@@ -306,7 +307,7 @@ class TestWorkflowAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         # Save a workflow
         resp = client.post("/api/a-cal/developer/workflows", json={
             "name": "API Test Workflow",
@@ -333,7 +334,7 @@ class TestWorkflowAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         # Save
         resp = client.post("/api/a-cal/developer/workflows", json={
             "name": "To Delete",
@@ -359,6 +360,6 @@ class TestWorkflowAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         resp = client.get("/api/a-cal/developer/workflows/nonexistent-id")
         assert resp.status_code == 404

@@ -20,14 +20,24 @@ services:
       - a-cal-data:/root/.a-cal
     environment:
       - A_CAL_PLUGIN_DIR=/root/.a-cal/plugins
-      - A_CAL_CORS_ORIGINS=http://localhost:3456,http://localhost:3000
+      # CORS — set to your real frontend origin(s) for production.
+      - A_CAL_CORS_ORIGINS=${A_CAL_CORS_ORIGINS:-http://localhost:3456,http://localhost:3000}
+      # Session security (REQUIRED for production). Generate with:
+      #   python -c "import secrets;print(secrets.token_urlsafe(48))"
+      - A_CAL_SESSION_SECRET=${A_CAL_SESSION_SECRET:-}
+      # Backend + frontend URLs (OAuth redirect URIs + cookie Secure flag).
+      - A_CAL_BASE_URL=${A_CAL_BASE_URL:-http://localhost:8000}
+      - A_CAL_FRONTEND_URL=${A_CAL_FRONTEND_URL:-http://localhost:3456}
       # PostgreSQL connection (when using --profile postgres)
       - DATABASE_URL=${DATABASE_URL:-}
-      # OAuth credentials (optional — needed for real Google/Outlook sync)
-      # - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
-      # - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
-      # - OUTLOOK_CLIENT_ID=${OUTLOOK_CLIENT_ID:-}
-      # - OUTLOOK_CLIENT_SECRET=${OUTLOOK_CLIENT_SECRET:-}
+      # OAuth credentials (optional — needed for real Google/Outlook sync).
+      # Code reads the A_CAL_* names; the GOOGLE_/OUTLOOK_ aliases do NOT work.
+      - A_CAL_GOOGLE_CLIENT_ID=${A_CAL_GOOGLE_CLIENT_ID:-}
+      - A_CAL_GOOGLE_CLIENT_SECRET=${A_CAL_GOOGLE_CLIENT_SECRET:-}
+      - A_CAL_MS_CLIENT_ID=${A_CAL_MS_CLIENT_ID:-}
+      - A_CAL_MS_CLIENT_SECRET=${A_CAL_MS_CLIENT_SECRET:-}
+      # Demo login is a backdoor; off by default. Set to 1 only for local dev.
+      - A_CAL_ENABLE_DEMO=${A_CAL_ENABLE_DEMO:-}
       # LLM provider keys (optional — needed for cloud model routing)
       # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

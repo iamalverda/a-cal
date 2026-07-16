@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from a_cal.api.standalone import app
 from a_cal.marketplace.store import MarketplaceStore
+from tests._authclient import make_authed_client
 from a_cal.marketplace.trust import (
     FlagRecord,
     VerificationStatus,
@@ -20,7 +21,7 @@ from a_cal.marketplace.trust import (
 from a_cal.marketplace.types import MarketplaceItem, MarketplaceItemType, Provenance
 
 
-client = TestClient(app)
+client = make_authed_client()
 
 
 class TestContentHash:

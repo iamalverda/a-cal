@@ -31,6 +31,9 @@ from a_cal.marketplace.registry import (
 )
 
 
+from tests._authclient import make_authed_client
+
+
 # --- helpers ----------------------------------------------------------------
 
 def _make_item(name: str = "Test Agent", item_id: str = None) -> MarketplaceItem:
@@ -347,7 +350,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         response = client.post(
             "/api/a-cal/marketplace/export",
             json={"item_ids": []},
@@ -363,7 +366,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         # First, list items to get an ID
         items_response = client.get("/api/a-cal/marketplace/items")
         items = items_response.json()
@@ -384,7 +387,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         response = client.post(
             "/api/a-cal/marketplace/export",
             json={"item_ids": ["nonexistent-id"]},
@@ -396,7 +399,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         # Create a bundle with a new item
         item = _make_item("Imported Agent", "import-test-1")
         bundle = RegistryBundle(items=[item])
@@ -416,7 +419,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         # Get an existing item
         items_response = client.get("/api/a-cal/marketplace/items")
         items = items_response.json()
@@ -439,7 +442,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         response = client.post(
             "/api/a-cal/marketplace/import",
             json={"bundle_json": "not valid json"},
@@ -451,7 +454,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         response = client.post(
             "/api/a-cal/marketplace/import",
             json={"bundle_json": json.dumps({"format": "wrong"})},
@@ -463,7 +466,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         response = client.get("/api/a-cal/marketplace/registry/manifest")
         assert response.status_code == 200
         data = response.json()
@@ -476,7 +479,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         response = client.post(
             "/api/a-cal/marketplace/registry/browse",
             json={"registry_url": "http://localhost:1/nonexistent"},
@@ -488,7 +491,7 @@ class TestRegistryAPI:
         from fastapi.testclient import TestClient
         from a_cal.api.standalone import app
 
-        client = TestClient(app)
+        client = make_authed_client()
         response = client.post(
             "/api/a-cal/marketplace/registry/pull",
             json={

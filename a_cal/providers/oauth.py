@@ -19,14 +19,59 @@ exposed in API responses.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
+import os
 import secrets
+import time
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlencode
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# OAuth state is stateless and HMAC-signed (no in-memory store): the
+# token binds connection_id + user_id + expiry and is signed with the
+# session secret, so it survives restarts and works across workers. It
+# is NOT single-use, but it is short-lived and bound to the user who
+# started the flow, so a leaked token can't be replayed by another user.
+_STATE_TTL_SECONDS = 600
+
+
+def _state_secret() -> bytes:
+    """Return the secret used to sign OAuth state tokens (the session secret)."""
+    # Reuse the session secret so one value guards cookies + OAuth state.
+    # Local import avoids a circular dependency at module import time.
+    from a_cal.auth.session import get_session_secret
+    return get_session_secret().encode("utf-8")
+
+
+def _b64url(data: bytes) -> str:
+    """Base64url-encode bytes without padding (URL-safe)."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(s: str) -> bytes:
+    """Base64url-decode a string, restoring elided padding."""
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
+def sign_state(connection_id: str, user_id: str | None, secret: bytes | None = None) -> str:
+    """Build a signed, stateless OAuth state token.
+
+    The payload is ``connection_id|user_id|exp_ts`` and the token is
+    ``base64url(payload).base64url(hmac_sha256(secret, payload))``. The
+    expiry is ``_STATE_TTL_SECONDS`` from now.
+    """
+    exp = int(time.time()) + _STATE_TTL_SECONDS
+    payload = f"{connection_id}|{user_id or ''}|{exp}".encode("utf-8")
+    key = secret if secret is not None else _state_secret()
+    sig = hmac.new(key, payload, hashlib.sha256).digest()
+    return f"{_b64url(payload)}.{_b64url(sig)}"
 
 # OAuth endpoint URLs (publicly documented, not secrets).
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -56,10 +101,6 @@ OAUTH_SCOPES: dict[str, list[str]] = {
     ],
 }
 
-# In-memory state store for OAuth flows (state token → provider connection ID).
-# In production with atom, this uses atom's session store.
-_state_store: dict[str, str] = {}
-
 
 def get_oauth_config(provider_type: str, connection_config: dict[str, Any]) -> dict[str, str]:
     """Resolve OAuth client_id and client_secret for a provider.
@@ -69,7 +110,6 @@ def get_oauth_config(provider_type: str, connection_config: dict[str, Any]) -> d
 
     Returns a dict with 'client_id' and 'client_secret' (may be empty).
     """
-    import os
 
     client_id = connection_config.get("client_id", "")
     client_secret = connection_config.get("client_secret", "")
@@ -106,8 +146,10 @@ def build_auth_url(
             f"Set it in Developer Studio or via the {provider_type.upper().replace('_', '_')}_CLIENT_ID env var."
         )
 
-    state = secrets.token_urlsafe(32)
-    _state_store[state] = connection_id
+    # Stateless, HMAC-signed state binds the connection to the user who
+    # started the flow (the start endpoint is behind the auth wall).
+    from a_cal.auth.session import get_current_user_id
+    state = sign_state(connection_id, get_current_user_id())
 
     scopes = OAUTH_SCOPES.get(provider_type, [])
     scope_str = " ".join(scopes)
@@ -189,12 +231,38 @@ async def exchange_code_for_tokens(
         return tokens
 
 
-def validate_state(state: str) -> str | None:
-    """Validate an OAuth state token and return the associated connection ID.
+def validate_state(state: str, user_id: str | None = None) -> str | None:
+    """Validate a signed OAuth state token; return its connection ID.
 
-    Returns None if the state is invalid or expired.
+    Recomputes the HMAC (constant-time compare) and checks the embedded
+    expiry. When ``user_id`` is given, the token must be bound to that
+    user; otherwise only the signature + expiry are checked (the callback
+    is a public redirect target and may not carry a session).
+
+    Returns None on any malformed, tampered, or expired token.
     """
-    return _state_store.pop(state, None)
+    try:
+        payload_b64, sig_b64 = state.split(".", 1)
+        payload = _b64url_decode(payload_b64)
+        provided_sig = _b64url_decode(sig_b64)
+    except (ValueError, Exception):
+        return None
+    key = _state_secret()
+    expected_sig = hmac.new(key, payload, hashlib.sha256).digest()
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        logger.info("OAuth state signature mismatch")
+        return None
+    try:
+        connection_id, bound_user, exp_str = payload.decode("utf-8").split("|", 2)
+    except ValueError:
+        return None
+    if int(exp_str) < int(time.time()):
+        logger.info("OAuth state expired for connection %s", connection_id)
+        return None
+    if user_id is not None and bound_user != str(user_id):
+        logger.info("OAuth state user mismatch for connection %s", connection_id)
+        return None
+    return connection_id
 
 
 def build_redirect_uri(provider_id: str, base_url: str = "http://localhost:8000") -> str:

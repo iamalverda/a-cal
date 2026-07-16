@@ -8,6 +8,7 @@ import { test, expect } from "@playwright/test";
  */
 test.describe("Proactive Suggestions", () => {
   test("suggestions API returns 200 and an array", async ({ page }) => {
+    await page.request.post("/api/a-cal/auth/demo-login");
     const resp = await page.request.get("/api/a-cal/self-model/suggestions");
     expect(resp.ok()).toBeTruthy();
     const body = await resp.json();
@@ -15,6 +16,7 @@ test.describe("Proactive Suggestions", () => {
   });
 
   test("suggestions API respects limit parameter", async ({ page }) => {
+    await page.request.post("/api/a-cal/auth/demo-login");
     const resp = await page.request.get("/api/a-cal/self-model/suggestions?limit=2");
     expect(resp.ok()).toBeTruthy();
     const body = await resp.json();
@@ -24,6 +26,7 @@ test.describe("Proactive Suggestions", () => {
 
   test("proactive toggle is visible in self-model settings", async ({ page }) => {
     await page.goto("/");
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     await page.locator("button:has(.lucide-settings)").click();
     await expect(page.getByText("Settings").first()).toBeVisible({ timeout: 5_000 });
 
@@ -33,6 +36,8 @@ test.describe("Proactive Suggestions", () => {
   });
 
   test("enabling proactive suggestions persists the setting", async ({ page }) => {
+    // Authenticate first — page.request shares cookies with the browser context
+    await page.request.post("/api/a-cal/auth/demo-login");
     // Enable via API
     await page.request.post("/api/a-cal/settings/self-model", {
       data: {

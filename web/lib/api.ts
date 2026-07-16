@@ -10,6 +10,7 @@ import type {
   ProviderConnection,
   UnifiedEvent,
   EmailMessage,
+  EmailAccount,
   ModeConfig,
   ModelRoutingConfig,
   AgentSpec,
@@ -45,11 +46,35 @@ import type {
   MeetingStats,
   FreeSlot,
   EventType,
+  Booking,
+  BookingResult,
+  BookingSlot,
+  CustomQuestion,
   CalendarTool,
   ApiRouteInfo,
   AuthUser,
   FlagRecord,
   VerificationStatus,
+  EmailLabel,
+  EmailFilter,
+  EmailSnooze,
+  ScheduledEmail,
+  EmailTemplate,
+  VacationConfig,
+  EmailSummary,
+  EventAttendee,
+  Team,
+  TeamMember,
+  RoutingForm,
+  WebhookConfig,
+  WebhookDelivery,
+  PaymentConfig,
+  PaymentIntent,
+  CustomDomainConfig,
+  WorkflowTriggerConfig,
+  GraphQLResponse,
+  GraphQLSchema,
+  RoutingQuestion,
 } from "@/types";
 
 const API_BASE = "/api/a-cal";
@@ -177,6 +202,10 @@ export const api = {
     description?: string;
     location?: string;
     source_sub_account_id?: string;
+    is_all_day?: boolean;
+    recurrence_rule?: string;
+    attendees?: Array<{ email: string; name?: string; status?: string }>;
+    color?: string;
   }): Promise<UnifiedEvent> {
     return fetchJson(`${API_BASE}/calendar/events`, {
       method: "POST",
@@ -197,6 +226,164 @@ export const api = {
     });
   },
 
+  // --- Phase 4: Advanced Email — Labels, Filters, Snooze, Scheduled,
+  //     Vacation, Templates, AI Summarization ---------------------------
+
+  /** List all custom email labels. */
+  async listEmailLabels(): Promise<EmailLabel[]> {
+    return fetchJson(`${API_BASE}/email/labels`);
+  },
+
+  /** Create a custom email label. */
+  async createEmailLabel(name: string, color: string): Promise<EmailLabel> {
+    return fetchJson(`${API_BASE}/email/labels`, {
+      method: "POST",
+      body: JSON.stringify({ name, color }),
+    });
+  },
+
+  /** Delete a custom email label. */
+  async deleteEmailLabel(labelId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/labels/${labelId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** List all email filter rules. */
+  async listEmailFilters(): Promise<EmailFilter[]> {
+    return fetchJson(`${API_BASE}/email/filters`);
+  },
+
+  /** Create an email filter rule. */
+  async createEmailFilter(data: {
+    name: string;
+    field: string;
+    pattern: string;
+    action: string;
+    action_value?: string;
+    is_active?: boolean;
+  }): Promise<EmailFilter> {
+    return fetchJson(`${API_BASE}/email/filters`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Delete an email filter rule. */
+  async deleteEmailFilter(filterId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/filters/${filterId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** Snooze an email until a future time. */
+  async snoozeEmail(providerConnectionId: string, providerMessageId: string, snoozeUntil: string): Promise<EmailSnooze> {
+    return fetchJson(`${API_BASE}/email/snooze`, {
+      method: "POST",
+      body: JSON.stringify({
+        provider_connection_id: providerConnectionId,
+        provider_message_id: providerMessageId,
+        snooze_until: snoozeUntil,
+      }),
+    });
+  },
+
+  /** List all snoozed emails. */
+  async listSnoozedEmails(): Promise<EmailSnooze[]> {
+    return fetchJson(`${API_BASE}/email/snoozed`);
+  },
+
+  /** Remove a snooze (return email to inbox). */
+  async unsnoozeEmail(snoozeId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/snoozed/${snoozeId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** Schedule an email to be sent at a future time. */
+  async scheduleEmail(data: {
+    provider_connection_id: string;
+    to_addresses: string[];
+    subject: string;
+    body_text: string;
+    attachments?: Array<{ filename: string; content_type: string; content: string }>;
+    scheduled_for: string;
+  }): Promise<ScheduledEmail> {
+    return fetchJson(`${API_BASE}/email/schedule`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** List all pending scheduled emails. */
+  async listScheduledEmails(): Promise<ScheduledEmail[]> {
+    return fetchJson(`${API_BASE}/email/scheduled`);
+  },
+
+  /** Cancel a scheduled email. */
+  async cancelScheduledEmail(schedId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/scheduled/${schedId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** Get vacation auto-responder config. */
+  async getVacationConfig(): Promise<VacationConfig> {
+    return fetchJson(`${API_BASE}/email/vacation`);
+  },
+
+  /** Update vacation auto-responder config. */
+  async updateVacationConfig(data: VacationConfig): Promise<VacationConfig> {
+    return fetchJson(`${API_BASE}/email/vacation`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** List all email templates. */
+  async listEmailTemplates(): Promise<EmailTemplate[]> {
+    return fetchJson(`${API_BASE}/email/templates`);
+  },
+
+  /** Create an email template. */
+  async createEmailTemplate(data: {
+    name: string;
+    subject?: string;
+    body_text: string;
+  }): Promise<EmailTemplate> {
+    return fetchJson(`${API_BASE}/email/templates`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Update an email template. */
+  async updateEmailTemplate(tplId: string, data: {
+    name?: string;
+    subject?: string;
+    body_text?: string;
+  }): Promise<EmailTemplate> {
+    return fetchJson(`${API_BASE}/email/templates/${tplId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Delete an email template. */
+  async deleteEmailTemplate(tplId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/email/templates/${tplId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** Generate an AI summary of an email. */
+  async summarizeEmail(bodyText: string, subject: string): Promise<EmailSummary> {
+    return fetchJson(`${API_BASE}/email/summarize`, {
+      method: "POST",
+      body: JSON.stringify({ body_text: bodyText, subject }),
+    });
+  },
+
   async listEvents(days = 30): Promise<UnifiedEvent[]> {
     return fetchJson(`${API_BASE}/calendar/events?days=${days}`);
   },
@@ -205,13 +392,77 @@ export const api = {
 
   async listEmailMessages(opts?: {
     subAccountId?: string;
+    providerConnectionId?: string;
+    folder?: string;
     limit?: number;
   }): Promise<EmailMessage[]> {
     const params = new URLSearchParams();
     if (opts?.subAccountId) params.set("sub_account_id", opts.subAccountId);
+    if (opts?.providerConnectionId) params.set("provider_connection_id", opts.providerConnectionId);
+    if (opts?.folder) params.set("folder", opts.folder);
     if (opts?.limit) params.set("limit", String(opts.limit));
     const qs = params.toString();
     return fetchJson(`${API_BASE}/email/messages${qs ? `?${qs}` : ""}`);
+  },
+
+  /** List all connected email accounts for the unified inbox sidebar. */
+  async listEmailAccounts(): Promise<EmailAccount[]> {
+    return fetchJson(`${API_BASE}/email/accounts`);
+  },
+
+  /** Star or unstar an email message. */
+  async starEmail(data: {
+    provider_connection_id: string;
+    provider_message_id: string;
+    starred: boolean;
+  }): Promise<{ status: string; starred: boolean }> {
+    return fetchJson(`${API_BASE}/email/star`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Mark an email message as read or unread. */
+  async markEmailRead(data: {
+    provider_connection_id: string;
+    provider_message_id: string;
+    read: boolean;
+  }): Promise<{ status: string; read: boolean }> {
+    return fetchJson(`${API_BASE}/email/mark-read`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Delete or trash an email message. */
+  async deleteEmail(data: {
+    provider_connection_id: string;
+    provider_message_id: string;
+  }): Promise<{ status: string; deleted: boolean }> {
+    return fetchJson(`${API_BASE}/email/delete`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Search email messages across all connected accounts. */
+  async searchEmail(opts: {
+    q: string;
+    subAccountId?: string;
+    providerConnectionId?: string;
+    limit?: number;
+  }): Promise<EmailMessage[]> {
+    const params = new URLSearchParams({ q: opts.q });
+    if (opts.subAccountId) params.set("sub_account_id", opts.subAccountId);
+    if (opts.providerConnectionId) params.set("provider_connection_id", opts.providerConnectionId);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    return fetchJson(`${API_BASE}/email/search?${params.toString()}`);
+  },
+
+  /** List available email folders/labels per connected account. */
+  async listEmailFolders(providerConnectionId?: string): Promise<Record<string, string[]>> {
+    const qs = providerConnectionId ? `?provider_connection_id=${providerConnectionId}` : "";
+    return fetchJson(`${API_BASE}/email/folders${qs}`);
   },
 
   async sendEmail(data: {
@@ -219,6 +470,7 @@ export const api = {
     to: string[];
     subject: string;
     body_text: string;
+    attachments?: { filename: string; content_type: string; content: string }[];
   }): Promise<{ status: string; provider_message_id: string }> {
     return fetchJson(`${API_BASE}/email/send`, {
       method: "POST",
@@ -518,6 +770,285 @@ export const api = {
     return fetchJson(`${API_BASE}/nervous-system/cas-agents`);
   },
 
+  // --- Scheduling / Booking (Phase 2) -------------------------------------
+
+  /** Get event type info for a public booking page (no auth required). */
+  async getPublicEventType(slug: string): Promise<EventType> {
+    return fetchJson(`${API_BASE}/booking/${slug}`);
+  },
+
+  /** Get available time slots for a date on a public booking page. */
+  async getBookingSlots(slug: string, date: string, tz?: string): Promise<{
+    event_type_id: string;
+    date: string;
+    duration_minutes: number;
+    slots: BookingSlot[];
+    timezone: string;
+    reason?: string;
+  }> {
+    const params = new URLSearchParams({ date });
+    if (tz) params.set("tz", tz);
+    return fetchJson(`${API_BASE}/booking/${slug}/slots?${params}`);
+  },
+
+  /** Create a booking from the public booking page. */
+  async createPublicBooking(slug: string, data: {
+    attendee_name: string;
+    attendee_email: string;
+    attendee_timezone?: string;
+    start_time: string;
+    answers?: Record<string, unknown>;
+    notes?: string;
+  }): Promise<BookingResult> {
+    return fetchJson(`${API_BASE}/booking/${slug}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** List bookings for the current user (optionally filtered by event type). */
+  async listBookings(eventTypeId?: string): Promise<Booking[]> {
+    const params = eventTypeId ? `?event_type_id=${eventTypeId}` : "";
+    return fetchJson(`${API_BASE}/bookings${params}`);
+  },
+
+  /** Get a single booking by ID. */
+  async getBooking(bookingId: string): Promise<Booking> {
+    return fetchJson(`${API_BASE}/bookings/${bookingId}`);
+  },
+
+  /** Update a booking (cancel, add notes, update video link). */
+  async updateBooking(bookingId: string, patch: {
+    status?: string;
+    notes?: string;
+    video_link?: string;
+  }): Promise<Booking> {
+    return fetchJson(`${API_BASE}/bookings/${bookingId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  /** Delete a booking. */
+  async deleteBooking(bookingId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/bookings/${bookingId}`, { method: "DELETE" });
+  },
+
+  /** Update an event type with full scheduling configuration. */
+  async updateEventType(eventTypeId: string, data: {
+    title?: string;
+    slug?: string;
+    duration_minutes?: number;
+    description?: string;
+    buffer_before_minutes?: number;
+    buffer_after_minutes?: number;
+    min_notice_hours?: number;
+    max_booking_days?: number;
+    recurring_pattern?: string;
+    recurring_interval?: number;
+    custom_questions?: CustomQuestion[];
+    video_provider?: string;
+    reminder_enabled?: boolean;
+    reminder_minutes_before?: number;
+    confirmation_email_enabled?: boolean;
+    confirmation_template?: string;
+  }): Promise<EventType> {
+    return fetchJson(`${API_BASE}/event-types/${eventTypeId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+    // --- Phase 5: Teams -----------------------------------------------------
+
+  async listTeams(): Promise<Team[]> {
+    return fetchJson(`${API_BASE}/teams`);
+  },
+
+  async createTeam(data: {
+    name: string;
+    slug?: string;
+    description?: string;
+    logo_url?: string;
+    branding?: Record<string, unknown>;
+  }): Promise<Team> {
+    return fetchJson(`${API_BASE}/teams`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getTeam(teamId: string): Promise<Team> {
+    return fetchJson(`${API_BASE}/teams/${teamId}`);
+  },
+
+  async updateTeam(teamId: string, patch: Partial<Team>): Promise<Team> {
+    return fetchJson(`${API_BASE}/teams/${teamId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async deleteTeam(teamId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/teams/${teamId}`, { method: "DELETE" });
+  },
+
+  async addTeamMember(teamId: string, data: {
+    email: string;
+    display_name?: string;
+    role?: string;
+    provider_connection_id?: string;
+    is_active?: boolean;
+  }): Promise<TeamMember> {
+    return fetchJson(`${API_BASE}/teams/${teamId}/members`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTeamMember(teamId: string, memberId: string, patch: Partial<TeamMember>): Promise<TeamMember> {
+    return fetchJson(`${API_BASE}/teams/${teamId}/members/${memberId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async removeTeamMember(teamId: string, memberId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/teams/${teamId}/members/${memberId}`, { method: "DELETE" });
+  },
+
+  // --- Phase 5: Routing Forms ---------------------------------------------
+
+  async listRoutingForms(): Promise<RoutingForm[]> {
+    return fetchJson(`${API_BASE}/routing-forms`);
+  },
+
+  async createRoutingForm(data: {
+    name: string;
+    description?: string;
+    questions?: RoutingQuestion[];
+    routing_rules?: Array<{ condition: string; event_type_id: string | null; member_id: string | null }>;
+    is_active?: boolean;
+  }): Promise<RoutingForm> {
+    return fetchJson(`${API_BASE}/routing-forms`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateRoutingForm(formId: string, patch: Partial<RoutingForm>): Promise<RoutingForm> {
+    return fetchJson(`${API_BASE}/routing-forms/${formId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async deleteRoutingForm(formId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/routing-forms/${formId}`, { method: "DELETE" });
+  },
+
+  // --- Phase 5: Webhooks --------------------------------------------------
+
+  async listWebhooks(): Promise<WebhookConfig[]> {
+    return fetchJson(`${API_BASE}/webhooks`);
+  },
+
+  async createWebhook(data: {
+    url: string;
+    events?: string[];
+    secret?: string;
+    is_active?: boolean;
+  }): Promise<WebhookConfig> {
+    return fetchJson(`${API_BASE}/webhooks`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateWebhook(webhookId: string, patch: Partial<WebhookConfig>): Promise<WebhookConfig> {
+    return fetchJson(`${API_BASE}/webhooks/${webhookId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async deleteWebhook(webhookId: string): Promise<{ status: string }> {
+    return fetchJson(`${API_BASE}/webhooks/${webhookId}`, { method: "DELETE" });
+  },
+
+  async testWebhook(event: string, payload?: Record<string, unknown>): Promise<{
+    dispatched: number;
+    deliveries: WebhookDelivery[];
+  }> {
+    return fetchJson(`${API_BASE}/webhooks/test`, {
+      method: "POST",
+      body: JSON.stringify({ event, payload: payload ?? { test: true } }),
+    });
+  },
+
+  async listWebhookDeliveries(webhookId: string): Promise<WebhookDelivery[]> {
+    return fetchJson(`${API_BASE}/webhooks/${webhookId}/deliveries`);
+  },
+
+  // --- Phase 5: Payments --------------------------------------------------
+
+  async getPaymentConfig(): Promise<PaymentConfig> {
+    return fetchJson(`${API_BASE}/payments/config`);
+  },
+
+  async createPaymentIntent(data: {
+    event_type_id: string;
+    booking_id?: string;
+    metadata?: Record<string, string>;
+  }): Promise<PaymentIntent> {
+    return fetchJson(`${API_BASE}/payments/intent`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async confirmPayment(paymentIntentId: string): Promise<{ id: string; status: string }> {
+    return fetchJson(`${API_BASE}/payments/confirm/${paymentIntentId}`, { method: "POST" });
+  },
+
+  // --- Phase 5: Workflow Triggers -----------------------------------------
+
+  async getWorkflowTriggers(): Promise<WorkflowTriggerConfig> {
+    return fetchJson(`${API_BASE}/workflow-triggers`);
+  },
+
+  async setWorkflowTriggers(config: WorkflowTriggerConfig): Promise<WorkflowTriggerConfig> {
+    return fetchJson(`${API_BASE}/workflow-triggers`, {
+      method: "PUT",
+      body: JSON.stringify(config),
+    });
+  },
+
+  // --- Phase 6: Custom Domain ---------------------------------------------
+
+  async getCustomDomain(): Promise<CustomDomainConfig> {
+    return fetchJson(`${API_BASE}/platform/domain`);
+  },
+
+  async setCustomDomain(config: CustomDomainConfig): Promise<CustomDomainConfig> {
+    return fetchJson(`${API_BASE}/platform/domain`, {
+      method: "PUT",
+      body: JSON.stringify(config),
+    });
+  },
+
+  // --- Phase 6: GraphQL ---------------------------------------------------
+
+  async graphqlQuery(query: string, variables?: Record<string, unknown>): Promise<GraphQLResponse> {
+    return fetchJson(`${API_BASE}/graphql`, {
+      method: "POST",
+      body: JSON.stringify({ query, variables }),
+    });
+  },
+
+  async getGraphQLSchema(): Promise<GraphQLSchema> {
+    return fetchJson(`${API_BASE}/graphql/schema`);
+  },
 };
 
 // --- Swarm negotiation -----------------------------------------------------

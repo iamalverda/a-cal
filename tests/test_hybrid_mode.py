@@ -23,8 +23,14 @@ from a_cal.db.store import PersistentStore
 
 @pytest.fixture
 def event_store():
-    """Fresh in-memory store for each test."""
-    return PersistentStore(in_memory=True)
+    """Fresh, unseeded in-memory store for each test.
+
+    Unseeded so hybrid tests start from an empty calendar; the demo seed's
+    clock-relative "Dentist Appointment" (now+24h) otherwise collides with the
+    fixed "2pm tomorrow" slot these tests create, causing time-of-day-dependent
+    flakiness.
+    """
+    return PersistentStore(in_memory=True, seed=False)
 
 
 @pytest.fixture
