@@ -1,7 +1,7 @@
 """Add user_id column to a_cal_events.
 
-Revision ID: 0003
-Revises: 0002
+Revision ID: acal0003
+Revises: acal0002
 Create Date: 2026-07-12
 
 The user_id column was added to the CalendarEvent model for multi-user
@@ -12,8 +12,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = "0003"
-down_revision = "0002"
+revision = "acal0003"
+down_revision = "acal0002"
 branch_labels = None
 depends_on = None
 
