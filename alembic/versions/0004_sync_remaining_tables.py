@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(255), nullable=False),
         sa.Column("password_hash", sa.String(255), nullable=False),
         sa.Column("display_name", sa.String(100), nullable=True),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime, nullable=False),
         sa.Column("updated_at", sa.DateTime, nullable=False),
     )
@@ -44,7 +44,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text, nullable=True),
         sa.Column("created_at", sa.DateTime, nullable=False),
         sa.Column("updated_at", sa.DateTime, nullable=False),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("true")),
         sa.Column("settings", sa.Text, nullable=True),
     )
     op.create_index("ix_a_cal_teams_user_id", "a_cal_teams", ["user_id"], unique=False)
@@ -71,7 +71,7 @@ def upgrade() -> None:
         sa.Column("url", sa.String(500), nullable=False),
         sa.Column("events", sa.Text, nullable=False),
         sa.Column("secret", sa.String(255), nullable=True),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime, nullable=False),
         sa.Column("updated_at", sa.DateTime, nullable=False),
         sa.Column("description", sa.String(255), nullable=True),
@@ -143,7 +143,7 @@ def upgrade() -> None:
         sa.Column("pattern", sa.String(500), nullable=False),
         sa.Column("action", sa.String(50), nullable=False),
         sa.Column("action_value", sa.String(200), nullable=True),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime, nullable=False),
     )
     op.create_index("ix_a_cal_email_filters_user_id", "a_cal_email_filters", ["user_id"], unique=False)
@@ -193,7 +193,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text, nullable=False),
         sa.Column("questions", sa.Text, nullable=False),
         sa.Column("routing_rules", sa.Text, nullable=False),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime, nullable=False),
         sa.Column("updated_at", sa.DateTime, nullable=False),
     )

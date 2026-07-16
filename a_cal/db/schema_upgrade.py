@@ -39,6 +39,15 @@ _COLUMN_ADDITIONS: list[tuple[str, str, str]] = [
         "ALTER TABLE a_cal_marketplace_items ADD COLUMN flag_count INTEGER "
         "NOT NULL DEFAULT 0",
     ),
+    # EventTypeDB multi-user ownership (isolation work; alembic adds it in
+    # 0005 — this covers pre-multi-user SQLite databases that never run
+    # alembic and whose a_cal_event_types predates the user_id column).
+    (
+        "a_cal_event_types",
+        "user_id",
+        "ALTER TABLE a_cal_event_types ADD COLUMN user_id VARCHAR(36) "
+        "NOT NULL DEFAULT 'local-dev-user'",
+    ),
     # EventTypeDB scheduling extensions (Phase 2)
     (
         "a_cal_event_types",

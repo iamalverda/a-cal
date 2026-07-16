@@ -13,6 +13,16 @@ To deploy with atom's alembic, add to ``alembic.ini``::
     version_locations = %(here)s/versions /path/to/a-cal/alembic/versions
 
 then ``alembic upgrade acal0001`` (or merge heads).
+
+Edited 2026-07-15 (standalone hardening): removed the foreign keys to
+atom's ``users``/``tenants`` tables — they do not exist in a standalone
+A-Cal database, and PostgreSQL refuses to create a table whose FK target
+is missing (SQLite silently accepts it, which hid the problem). Also
+removed the ``(user_id, is_main)`` unique constraint: it was intended as
+a partial index ("one main per user") but as a plain constraint it
+rejects a user's *second non-main* sub-account. No deployed database ran
+the original version on PostgreSQL (it could not apply), so editing in
+place is safe.
 """
 from alembic import op
 import sqlalchemy as sa
@@ -27,8 +37,8 @@ def upgrade() -> None:
     op.create_table(
         "a_cal_sub_accounts",
         sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("tenant_id", sa.String(), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True),
+        sa.Column("user_id", sa.String(), nullable=False, index=True),
+        sa.Column("tenant_id", sa.String(), nullable=True, index=True),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("kind", sa.String(), nullable=False, server_default="unified"),
         sa.Column("is_main", sa.Boolean(), nullable=False, server_default=sa.text("false"), index=True),
@@ -38,13 +48,12 @@ def upgrade() -> None:
         sa.Column("settings", sa.JSON(), server_default=sa.text("'{}'")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
-        sa.UniqueConstraint("user_id", "is_main", name="uq_a_cal_one_main_per_user_partial"),
     )
     op.create_table(
         "a_cal_provider_connections",
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("sub_account_id", sa.String(length=36), sa.ForeignKey("a_cal_sub_accounts.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("user_id", sa.String(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column("user_id", sa.String(), nullable=False, index=True),
         sa.Column("provider_type", sa.String(), nullable=False),
         sa.Column("provider_account_id", sa.String(), nullable=False),
         sa.Column("display_name", sa.String(), nullable=True),
