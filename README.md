@@ -377,3 +377,50 @@ AGPL-3.0-or-later. See [LICENSE](LICENSE).
 - [SDK README](sdk/README.md) — TypeScript SDK usage and API surface
 - [Plugin Examples](plugins/README.md) — hook reference and working plugin examples
 - [Product Charter](outputs/A-Cal_end_goal.md) — full design vision and architectural decisions
+
+## Production Launch Checklist
+
+Before exposing the server to real users, complete every item:
+
+1. **Generate a session secret** (REQUIRED — the app refuses to boot without it):
+   ```
+   python -c "import secrets;print(secrets.token_urlsafe(48))"
+   ```
+   Set `A_CAL_SESSION_SECRET` in `.env` or your hosting platform's env vars.
+
+2. **Set CORS origins** to your real frontend domain(s):
+   ```
+   A_CAL_CORS_ORIGINS=https://your-frontend.example.com
+   ```
+
+3. **Set backend and frontend URLs** (OAuth redirects + cookie Secure flag):
+   ```
+   A_CAL_BASE_URL=https://your-backend.example.com
+   A_CAL_FRONTEND_URL=https://your-frontend.example.com
+   ```
+
+4. **Choose a database backend.** SQLite is fine for single-user / low traffic.
+   For real multi-user concurrency, use PostgreSQL:
+   ```
+   DATABASE_URL=postgresql://acal:password@localhost:5432/acal
+   docker compose --profile postgres up --build
+   ```
+   The container entrypoint runs `alembic upgrade head` automatically.
+
+5. **Set OAuth credentials** (optional — needed for real Google/Outlook sync):
+   ```
+   A_CAL_GOOGLE_CLIENT_ID=...
+   A_CAL_GOOGLE_CLIENT_SECRET=...
+   A_CAL_MS_CLIENT_ID=...
+   A_CAL_MS_CLIENT_SECRET=...
+   ```
+
+6. **Decide on demo login.** Set `A_CAL_ENABLE_DEMO=1` only if you want the
+   demo-login backdoor. Off by default (correct for production).
+
+7. **Decide on plugins.** Set `A_CAL_ENABLE_PLUGINS=1` only for trusted,
+   single-operator deployments. Plugins run arbitrary Python in-process.
+
+8. **Run behind a reverse proxy** (nginx, Caddy, Cloudflare) for HTTPS/TLS.
+   The app sets the cookie `Secure` flag based on `A_CAL_BASE_URL`, but does
+   not terminate TLS itself.
