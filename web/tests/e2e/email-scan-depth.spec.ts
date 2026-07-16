@@ -13,6 +13,11 @@ import { test, expect } from "@playwright/test";
  * the depth fields are present even with an empty inbox).
  */
 test.describe("Email scan depth gating", () => {
+  // Authenticate via demo-login so the standalone request context carries a
+  // session cookie — the auth wall 401s protected endpoints without one.
+  test.beforeEach(async ({ request }) => {
+    await request.post("http://localhost:8000/api/a-cal/auth/demo-login");
+  });
   test("scan at sync_notify has no agent actions", async ({ request }) => {
     // Ensure depth is sync_notify
     await request.post("http://localhost:8000/api/a-cal/settings/email", {

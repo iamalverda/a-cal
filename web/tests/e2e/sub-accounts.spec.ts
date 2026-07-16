@@ -10,6 +10,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Sub-accounts", () => {
   test("sub-account sidebar renders with main account", async ({ page }) => {
     await page.goto("/");
+    await expect(page.getByText("Conductor").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("Main Calendar")).toBeVisible();
   });
 

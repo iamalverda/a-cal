@@ -77,8 +77,11 @@ export default function Page() {
   const [showAddWizard, setShowAddWizard] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  /** Load real data from the backend on mount. */
+  /** Load real data from the backend once the session is established. */
   useEffect(() => {
+    // Gate on auth: without a session cookie, protected API calls 401 and
+    // the UI stays empty. Wait until demo-login/real login completes.
+    if (authLoading || (!user && !backendDown)) return;
     async function loadRealData() {
       try {
         const [subsRes, eventsRes, agentsData] = await Promise.all([
@@ -122,7 +125,7 @@ export default function Page() {
       }
     }
     loadRealData();
-  }, []);
+  }, [user, authLoading, backendDown]);
 
   /** Handle OAuth callback redirect (?oauth_result=success|error|denied). */
   useEffect(() => {
